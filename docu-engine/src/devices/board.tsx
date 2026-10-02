@@ -5,6 +5,7 @@ import { seededRng } from '../paper';
 import type { BoardScene, Genre } from '../types';
 import { DevProps, GenreBg, H, SurfaceKind, TitleTag, W, clamp, drawn, ease, handLoop, resolveRef, safeBand, surfaceTexture } from './common';
 import { DFONT, fitWrap } from './type';
+import { spokenCues } from '../topic/context';
 
 /*
  * EVIDENCE BOARD — prints pinned one by one on a board, red string drawn from
@@ -179,7 +180,10 @@ const BoardInner: React.FC<DevProps & { scene: BoardScene }> = ({ scene, genre, 
   const lay = useMemo(() => boardLayout(scene), [scene]);
   const uid = `bd${index ?? 0}`;
   const tex = useMemo(() => surfaceTexture(`board${genre.id}`, L.surface, L.tone), [genre.id, L.surface, L.tone]);
-  const clock = boardClock(lay.items.length, durFrames, fps);
+  const clock0 = boardClock(lay.items.length, durFrames, fps);
+  // A print the narration names is pinned on its word (its label is never read before it is said).
+  const said = useMemo(() => spokenCues((scene.items ?? []).map((it) => ({ label: it.label })), scene.wordTimes, fps), [scene.items, scene.wordTimes, fps]);
+  const clock = { ...clock0, pinAt: (i: number) => (said[i] != null ? Math.max(clock0.pinAt(i), said[i] as number) : clock0.pinAt(i)) };
   const blotches = useMemo(() => {
     const r = seededRng(`blot${genre.id}${index ?? 0}`);
     return Array.from({ length: 9 }, () => {

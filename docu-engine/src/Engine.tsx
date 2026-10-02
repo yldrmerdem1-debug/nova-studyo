@@ -32,6 +32,7 @@ import {
   openingBody,
   openingCountAt,
   openingDelayed,
+  spokenDelayed,
   openingFilter,
   openingHits,
   openingImpacts,
@@ -282,7 +283,7 @@ const SceneFrameBody: React.FC<{ p: Placed; genre: Genre; locale: string; off: S
   if (opBody) body = opBody;
   else if (s.type === 'title') body = <Title {...common} scene={s} />;
   else if (s.type === 'slam') body = <Slam {...common} scene={s} />;
-  else if (s.type === 'counter') body = openingDelayed(opening, p.index, p.frames, (d) => <Counter {...common} durFrames={d} scene={s} />) ?? <Counter {...common} scene={s} />;
+  else if (s.type === 'counter') body = openingDelayed(opening, p.index, p.frames, (d) => <Counter {...common} durFrames={d} scene={s} />) ?? spokenDelayed(scenes, p.index, p.frames, fps, (d) => <Counter {...common} durFrames={d} scene={s} />) ?? <Counter {...common} scene={s} />;
   else if (s.type === 'photo') body = <PhotoScn {...common} scene={s} />;
   else if (s.type === 'words') body = <Words {...common} scene={s} />;
   else if (s.type === 'chart') body = <Chart {...common} scene={s} />;

@@ -42,6 +42,25 @@ export function motifColors(t: TopicCtx | null, g: Genre): { accent: string; acc
   return { accent: hex(t?.topic.accent) ?? g.accent, accent2: hex(t?.topic.accent2) ?? g.accent2 };
 }
 
+/** Each cue's spoken frame (its `at` word, else its label), in order through the narration; null when never said. */
+export function spokenCues(cues: { label?: string; at?: string }[], wordTimes: { word: string; t: number }[] | undefined, fps: number): (number | null)[] {
+  const sp = spokenOf(wordTimes ?? []) as { t: number }[];
+  const found: (number | null)[] = [];
+  let from = 0;
+  for (const c of cues) {
+    let hit = -1;
+    for (const key of [c.at, c.label].filter(Boolean) as string[]) {
+      hit = labelIndex(key, sp as never, from);
+      if (hit >= 0) break;
+    }
+    if (hit >= 0) {
+      found.push(Math.round(sp[hit].t * fps));
+      from = hit + 1;
+    } else found.push(null);
+  }
+  return found;
+}
+
 /**
  * Frames (scene-local) on which a list of cues is spoken: each cue's `at` word,
  * else its label's words, searched in order through the narration. Cues not
@@ -57,20 +76,7 @@ export function cueFrames(
 ): number[] {
   const n = cues.length;
   if (!n) return [];
-  const sp = spokenOf(wordTimes ?? []) as { t: number }[];
-  const found: (number | null)[] = [];
-  let from = 0;
-  for (const c of cues) {
-    let hit = -1;
-    for (const key of [c.at, c.label].filter(Boolean) as string[]) {
-      hit = labelIndex(key, sp as never, from);
-      if (hit >= 0) break;
-    }
-    if (hit >= 0) {
-      found.push(Math.round(sp[hit].t * fps));
-      from = hit + 1;
-    } else found.push(null);
-  }
+  const found = spokenCues(cues, wordTimes, fps);
   const a = Math.round(lead * fps);
   const b = Math.max(a + n, Math.round(durFrames * (1 - tail)));
   const out: number[] = [];
@@ -90,11 +96,12 @@ export function cueFrames(
     const min = i ? out[i - 1] + gap : Math.round(0.25 * fps);
     out[i] = Math.max(min, out[i]);
   }
-  // Squeeze back inside the scene if the gaps pushed past it.
+  // Squeeze back inside the scene if the gaps pushed past it — but a cue that is said never lands
+  // before its word (the squeeze only moves the unsaid ones).
   const last = durFrames - Math.round(0.6 * fps);
   if (out[n - 1] > last) {
     const k = last / out[n - 1];
-    for (let i = 0; i < n; i++) out[i] = Math.round(out[i] * k);
+    for (let i = 0; i < n; i++) out[i] = found[i] !== null ? Math.max(Math.round(out[i] * k), found[i] as number) : Math.round(out[i] * k);
   }
   return out;
 }

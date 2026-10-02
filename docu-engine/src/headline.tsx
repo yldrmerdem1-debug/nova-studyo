@@ -3,6 +3,7 @@ import { AbsoluteFill, Easing, Img, interpolate, useCurrentFrame, useVideoConfig
 import { FONT, fitFont, textWidth } from './fonts';
 import { LETTERBOX, Media, clipOf } from './fx';
 import { paperTexture, seededRng } from './paper';
+import { labelIndex, spokenOf } from './infographics/timing.js';
 import type { FontKey, Genre, HeadlineScene } from './types';
 
 /*
@@ -246,9 +247,17 @@ export function headlineLayout(scene: HeadlineScene, genre: Genre): HeadlineLayo
   return { lang, style, lines, hedSize, hedW, deck, deckSize, mastText, mastSize, yMast, yFolio, yHed, hedH, yDeck, deckH, yBody, photo, chars: lines.join('').replace(/\s/g, '').length };
 }
 
+/** The frame the narration first says the headline's words (it is typeset as it is read, never before); null if never. */
+function headlineSpoken(scene: HeadlineScene, fps: number): number | null {
+  const sp = spokenOf(scene.wordTimes ?? []) as { t: number }[];
+  if (!sp.length) return null;
+  const k = labelIndex(String(scene.headline ?? ''), sp as never);
+  return k >= 0 ? Math.round(sp[k].t * fps) : null;
+}
+
 /** Typesetting clock: when the first letter hits and how many frames between letters. */
-function typeClock(chars: number, fps: number) {
-  const start = Math.round(0.45 * fps);
+function typeClock(chars: number, fps: number, at: number | null = null) {
+  const start = Math.max(Math.round(0.45 * fps), at ?? 0);
   const step = Math.max(0.55, Math.min(2.2, (1.05 * fps) / Math.max(1, chars)));
   return { start, step, land: Math.round(start + chars * step + 2) };
 }
@@ -256,7 +265,7 @@ function typeClock(chars: number, fps: number) {
 /** Frame the headline's last letter lands on (the engine punches here). Independent of the line breaks: letters are counted, not lines. */
 export function headlineLand(scene: HeadlineScene, fps: number): number {
   const chars = up(String(scene.headline ?? '').trim() || '—', paperLang(scene)).replace(/\s/g, '').length;
-  return typeClock(chars, fps).land;
+  return typeClock(chars, fps, headlineSpoken(scene, fps)).land;
 }
 
 /* ------------------------------------------------------------- pieces */
@@ -531,7 +540,7 @@ export const Headline: React.FC<{ scene: HeadlineScene; genre: Genre; durFrames:
   }, [L, S, lang, seed, scene.caption, scene.date]);
 
   /* ---- typesetting ---- */
-  const clock = typeClock(L.chars, fps);
+  const clock = typeClock(L.chars, fps, headlineSpoken(scene, fps));
   let ci = 0;
   const hedLines = L.lines.map((line, li) => (
     <div key={li} style={{ whiteSpace: 'nowrap', height: Math.round(L.hedSize * (S.hedFont === 'oswald' ? 1.0 : 1.06)) }}>

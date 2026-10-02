@@ -303,6 +303,27 @@ export function openingDelayed(m: OpeningModel | null, index: number, durFrames:
   return <DelayedBody wait={w.delay} held={w.held} durFrames={durFrames} body={body(durFrames - w.delay)} />;
 }
 
+/**
+ * Any counter in the film whose number is said late gets the same treatment: the previous picture
+ * holds under the narration and the count starts on the number's first spoken word — never shown
+ * before it is said (user: "önce söylesin, sonra ekranda gözüksün"). 0 / null when the number is
+ * said at once, never, or too late to count.
+ */
+export function counterSpokenDelay(scene: Scene, durFrames: number, fps: number): number {
+  if (scene.type !== 'counter') return 0;
+  const at = counterSpokenAt(scene, fps);
+  return at !== null && at > 6 && at < durFrames - fps ? at - 3 : 0;
+}
+export function spokenDelayed(scenes: Scene[], index: number, durFrames: number, fps: number, body: (durFrames: number) => React.ReactNode): React.ReactNode | null {
+  const s = scenes[index];
+  if (!s) return null;
+  const wait = counterSpokenDelay(s, durFrames, fps);
+  if (!wait) return null;
+  const held = heldPicture(scenes, index);
+  if (!held) return null;
+  return <DelayedBody wait={wait} held={held} durFrames={durFrames} body={body(durFrames - wait)} />;
+}
+
 /** The related picture moves under the whole beat; the counter lands on it (its own ground is the picture, darkened). */
 const DelayedBody: React.FC<{ wait: number; held: Held; durFrames: number; body: React.ReactNode }> = ({ wait, held, durFrames, body }) => {
   const { fps } = useVideoConfig();

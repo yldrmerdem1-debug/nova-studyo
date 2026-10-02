@@ -187,8 +187,14 @@ export function spokenNumbers(sp) {
   const out = [];
   // Turkish number words only in Turkish narration (letters only Turkish has, or its common words).
   const tr = sp.some((x) => /[çğışöüÇĞİŞÖÜ]/.test(x.raw) || /^(ve|bir|bu|ile|icin|kisi|yil)$/.test(x.n));
-  const stops = (k) => /[.,;:!?…)"”]$/.test(String(sp[k]?.raw ?? ''));
   const numWord_ = (n) => numWord(n, tr);
+  // A comma after a multiplier is the narrator's breath, not the end of the number:
+  // "four thousand, seven hundred and seventy-three" is ONE number (4773, not 4000 and 773).
+  const stops = (k) => {
+    const raw = String(sp[k]?.raw ?? '');
+    if (/,$/.test(raw) && (numWord_(sp[k]?.n)?.v ?? 0) >= 1000 && sp[k + 1] && numWord_(sp[k + 1].n)) return false;
+    return /[.,;:!?…)"”]$/.test(raw);
+  };
   for (let i = 0; i < sp.length; i++) {
     const tok = sp[i];
     if (/\d/.test(tok.raw)) {
@@ -200,7 +206,7 @@ export function spokenNumbers(sp) {
       else if (sp[i + 1] && MULT_WORD[sp[i + 1].n]) mult = MULT_WORD[sp[i + 1].n];
       const values = new Set(base);
       if (mult > 1) for (const b of base) values.add(b * mult);
-      out.push({ i, t: tok.t, values: [...values] });
+      out.push({ i, t: tok.t, tEnd: (sp[i + 1] && mult > 1 && !MULT_SUFFIX[suf] ? sp[i + 1].t : tok.t), values: [...values] });
       continue;
     }
     const w = numWord_(tok.n);
@@ -224,7 +230,7 @@ export function spokenNumbers(sp) {
     if (i > 0 && (sp[i - 1].n === 'a' || sp[i - 1].n === 'bir') && run[0] >= 100) values.add(combine([1, ...run]));
     // A digit before a multiplier word ("2.4 million") was handled above; a lone multiplier is not a value.
     if (run.length === 1 && run[0] >= 1000) continue;
-    out.push({ i, t: tok.t, values: [...values] });
+    out.push({ i, t: tok.t, tEnd: sp[j - 1].t, values: [...values] });
     i = j - 1;
   }
   return out;
@@ -277,14 +283,14 @@ function window_(durFrames, fps) {
   return { lead, last, clampF: (f) => Math.max(lead, Math.min(last, Math.round(f))) };
 }
 
-/** Frame (a few frames early, so the motion lands on the word) of the first cue that is said; null if none. */
+/** Frame of the first cue that is said (on the word, never before it: the narrator says it, then it shows); null if none. */
 function cueFrame(sp, nums, fps, { label, value } = {}) {
   let k = -1;
   if (value != null && Number.isFinite(Number(value))) k = valueIndex(Number(value), sp, nums);
   const kl = label ? labelIndex(label, sp) : -1;
   if (kl >= 0 && (k < 0 || kl < k)) k = kl;
   if (k < 0) return null;
-  return Math.round(sp[k].t * fps) - 3;
+  return Math.round(sp[k].t * fps);
 }
 
 /**
@@ -407,11 +413,13 @@ export function infoPlan(scene, durFrames, fps) {
     case 'stat': {
       const p = parseStat(scene.value);
       const h = cue({ value: Number.isFinite(p.num) ? p.num : undefined, label: Number.isFinite(p.num) ? undefined : scene.label });
+      // Said: the figure starts counting on its word and lands 0.85 s later (it never runs ahead of the
+      // narrator). Never said: the old reading-pace clock.
       const hitF = h ?? lead + sec(0.9, fps);
-      const start = Math.max(lead, Math.min(last, hitF - sec(0.85, fps)));
-      const land = Math.max(start + sec(0.55, fps), Math.min(durFrames - sec(0.6, fps), hitF + 3));
+      const start = h != null ? Math.max(lead, Math.min(last, h)) : Math.max(lead, Math.min(last, hitF - sec(0.85, fps)));
+      const land = h != null ? Math.min(durFrames - sec(0.4, fps), start + sec(0.85, fps)) : Math.max(start + sec(0.55, fps), Math.min(durFrames - sec(0.6, fps), hitF + 3));
       const lab = cue({ label: scene.label });
-      const labelAt = Math.min(land + 4, Math.max(start + 6, lab ?? land - 4));
+      const labelAt = lab != null ? Math.max(start + 6, lab) : Math.max(start + 6, land - 4);
       return { kind: 'stat', lead, start, land, labelAt, subAt: Math.max(labelAt + 8, land + 6) };
     }
     default:

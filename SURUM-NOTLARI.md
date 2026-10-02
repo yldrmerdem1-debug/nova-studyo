@@ -2,6 +2,13 @@
 
 ## 1.15.2 (2 Ekim 2026)
 
+### Önce söyle, sonra göster
+Ekrandaki hiçbir bilgi anlatıcı söylemeden görünmez (1453'te "21" ve "4,773" sayaçları sayıdan 1,4-3 sn önce ekrandaydı):
+- **Sayaçlar**: sayı söylenene kadar önceki sahnenin resmi kalır; sayaç sayının ilk kelimesinde patlar ve sayının son kelimesinde yerine oturur ("four thousand, seven hundred and seventy-three" → son hane "seventy-three" ile). Virgüllü sayılar artık tek sayı.
+- **Büyük rakam (stat)** kendi kelimesinde saymaya başlar; **çubuk grafik** her çubuk kendi adı söylenince büyür; **grafik ekseni** yalnızca çizginin ulaştığı değerleri yazar.
+- **İsim etiketi ve fotoğraf altyazısı** isim/söz söylendiğinde gelir; **konu altyazıları** ve **lower-third** yazı stili kelime kelime, söylendiği anda (önceden sıkıştırılmış, erken bitiyordu).
+- **Alıntı, UI kartı, delil panosu** henüz söylenmemiş metni okunur hayalet olarak göstermez (noktalar); **açıklama şemasının** ilk adımı söyleniyorsa sözünü bekler; **manşet** okunurken dizilir; **harita** yer adı ve **pano** fotoğrafı söylendiğinde gelir.
+
 ### Müzikte ciddiyet
 - Kütüphanedeki her parça yeniden dinlendi ve **tonu** etiketlendi: ağır / dramatik / kahramanca / hafif, ciddiyet puanı ve "oyun müziği gibi" işareti (`audio-library.mjs tone`).
 - Nova hikâyenin **ciddiyetini** ölçer (savaş, ölüm, çöküş, suç, borsa krizi): ciddi bir hikâyede yalnızca ağır ve dramatik parçalar çalar; coşkulu macera, boss-savaşı, umutlu fragman müziği hiç gelmez (1453'te 3:30'daki "Taking Flight" gibi). Hüzün ve sakin anlara yaslı, sade parçalar; ana tema yas tutabilen bir melodi.

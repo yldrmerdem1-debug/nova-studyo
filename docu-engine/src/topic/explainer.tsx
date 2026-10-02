@@ -2,7 +2,7 @@ import React from 'react';
 import { AbsoluteFill, Easing, interpolate, useCurrentFrame, useVideoConfig } from 'remotion';
 import { fitFont } from '../fonts';
 import type { ExplainerScene, ExplainerStep, Genre, GenreId, MotifId } from '../types';
-import { cueFrames, h01, morse, roman, useTopic, type TopicCtx } from './context';
+import { cueFrames, h01, spokenCues, morse, roman, useTopic, type TopicCtx } from './context';
 import { MorseRow, MotifTexture, contour, morseWidth, motifPalette, type MotifPalette } from './motifs';
 import { Diagram } from './diagram';
 
@@ -271,10 +271,11 @@ export const ExplainerScn: React.FC<{ scene: ExplainerScene; genre: Genre; durFr
   const cues = cueFrames(local, scene.wordTimes, durFrames, fps, { lead: 0.4, tail: 0.3, gap: 10 });
   /*
    * CONTENT WITHIN 0.3 s: when nothing is lit yet (the first scene of an
-   * explainer), its first step lands by ~0.27 s — the title never sits alone
-   * on an empty ground while the narration gets to the first item.
+   * explainer) and the narration never names its first step, that step lands by
+   * ~0.27 s — the title never sits alone on an empty ground. A step that IS said
+   * waits for its word (never shown before the narrator says it).
    */
-  if (r0 === 0 && cues.length && cues[0] > Math.round(0.27 * fps)) cues[0] = Math.round(0.27 * fps);
+  if (r0 === 0 && cues.length && cues[0] > Math.round(0.27 * fps) && spokenCues(local.slice(0, 1), scene.wordTimes, fps)[0] === null) cues[0] = Math.round(0.27 * fps);
   /** Frame a step lights (-999: already lit before this scene; 1e9: a later scene reveals it). */
   const startOf = (i: number) => (i < r0 ? -999 : i >= r1 ? 1e9 : cues[i - r0]);
   // The newest lit step.
@@ -361,6 +362,6 @@ export function explainerImpacts(scene: ExplainerScene, durFrames: number, fps: 
   const local = (scene.steps ?? []).slice(r0, r1);
   const cues = cueFrames(local, scene.wordTimes, durFrames, fps, { lead: 0.4, tail: 0.3, gap: 10 });
   // Same first-step guard as ExplainerScn (content within 0.3 s).
-  if (!r0 && cues.length && cues[0] > Math.round(0.27 * fps)) cues[0] = Math.round(0.27 * fps);
+  if (!r0 && cues.length && cues[0] > Math.round(0.27 * fps) && spokenCues(local.slice(0, 1), scene.wordTimes, fps)[0] === null) cues[0] = Math.round(0.27 * fps);
   return cues.map((f) => ({ f, strength: 0.12 }));
 }

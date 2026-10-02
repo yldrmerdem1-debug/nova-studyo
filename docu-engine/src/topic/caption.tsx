@@ -77,25 +77,14 @@ interface CapProps {
 }
 
 /**
- * WHEN each word lands on the strip. Word-synced to the narration, but the
- * line is COMPLETE by the end of its spoken phrase — a short line (<= 6 words
- * or <= 1.6 s of speech) within ~0.6 s of its first word, a long one by ~45%
- * of its speech — so the strip is never read half-written. Whole words only:
- * a word is never shown cut ("LAST R", "SEA"), and nothing is ever truncated.
+ * WHEN each word lands on the strip: on its spoken frame, never before (user: "önce söylesin, sonra
+ * ekranda gözüksün" — a strip that finished early showed the narrator's next words, numbers and names
+ * before they were said). Whole words only, at least one frame apart so each strike is seen.
  */
-export function captionSchedule(frames: number[], fps: number): number[] {
-  const n = frames.length;
-  if (!n) return [];
-  const f0 = frames[0];
-  const span = Math.max(0, frames[n - 1] - f0);
-  const quick = Math.round(0.6 * fps);
-  const short = n <= 6 || span <= 1.6 * fps;
-  const target = Math.min(span, short ? quick : Math.max(quick, Math.round(span * 0.45)));
-  const k = span > 0 ? target / span : 0;
+export function captionSchedule(frames: number[], _fps: number): number[] {
   let prev = -Infinity;
   return frames.map((fr) => {
-    // At least one frame apart so each word's strike is still seen.
-    const at = Math.max(prev + 1, Math.round(f0 + (fr - f0) * k));
+    const at = Math.max(prev + 1, Math.round(fr));
     prev = at;
     return at;
   });

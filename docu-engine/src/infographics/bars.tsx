@@ -131,7 +131,9 @@ export const Bars: React.FC<DevProps & { scene: BarsScene }> = ({ scene, genre, 
   const els: React.ReactNode[] = [];
   L.rows.forEach((r, k) => {
     const isHi = r.i === hiIdx;
-    const g = prog(f, plan.grow + k * 2, plan.growDur, EXPO);
+    // Each bar grows (and its value counts) on its own spoken cue; a bar never named grows with the first one.
+    const said = plan.hits[r.i];
+    const g = prog(f, said != null ? Math.max(plan.grow, said) : plan.grow + k * 2, plan.growDur, EXPO);
     const frac = r.value / L.max;
     const dim = anyHi && !isHi ? 1 - 0.4 * hiP : 1;
     const lp = prog(f, plan.lead + k * 3, 12, SOFT);

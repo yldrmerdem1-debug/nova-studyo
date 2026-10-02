@@ -16,7 +16,7 @@ export declare function stemMatch(a: string, b: string): boolean;
 export declare function contentWords(text: string): string[];
 export declare function labelIndex(label: string, sp: Spoken[], from?: number): number;
 export declare function digitValues(raw: string): number[];
-export declare function spokenNumbers(sp: Spoken[]): { i: number; t: number; values: number[] }[];
+export declare function spokenNumbers(sp: Spoken[]): { i: number; t: number; tEnd: number; values: number[] }[];
 export declare function sameNumber(v: number, values: number[]): boolean;
 export declare function valueIndex(v: number, sp: Spoken[], nums?: { i: number; t: number; values: number[] }[]): number;
 

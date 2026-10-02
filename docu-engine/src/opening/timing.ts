@@ -1,4 +1,4 @@
-import { spokenOf, valueIndex, type Spoken } from '../infographics/timing.js';
+import { spokenNumbers, spokenOf, valueIndex, type Spoken } from '../infographics/timing.js';
 import type { Scene } from '../types';
 import type { Stamp } from './plan.js';
 
@@ -65,6 +65,23 @@ export function counterSpokenAt(scene: Scene, fps: number): number | null {
     if (y >= 0) return fr(sp[y].t, fps);
   }
   return null;
+}
+
+/**
+ * The frame (counted from the count's own start) the count lands on: as long as the narrator takes to
+ * say the number — "four thousand, seven hundred and seventy-three" lands on "seventy-three", not
+ * 0.9 s into it — never shorter than the classic 0.9 s, never longer than 3.5 s.
+ */
+export function counterCountEnd(scene: Scene, fps: number): number {
+  const base = Math.round(0.9 * fps);
+  if (scene.type !== 'counter') return base;
+  const sp = tokens(scene);
+  if (!sp.length) return base;
+  const nums = spokenNumbers(sp);
+  const k = valueIndex(scene.to, sp, nums);
+  const n = k >= 0 ? nums.find((x) => x.i === k) : undefined;
+  if (!n) return base;
+  return Math.max(base, Math.min(Math.round(3.5 * fps), 3 + Math.round((n.tEnd - n.t + 0.3) * fps)));
 }
 
 /** The frame a rewind is said: its date or number, else the word "rewind" / "earlier"; null without narration. */

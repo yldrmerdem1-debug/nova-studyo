@@ -845,8 +845,9 @@ export const StyledCaption: React.FC<CaptionProps> = ({ ctx, words, frames, k0, 
    * Only for a name, a place, a date or a figure: a small-caps kicker with wide
    * tracking over the line in a refined serif (no hairline rule: thin lines read as a template)
    * at the lower left — no plate, no coloured bar, a scrim you barely see. The
-   * whole super fades and slides in together just before the first word and
-   * fades out before the cut; the keyword warms to the accent on its spoken frame.
+   * super slides in on the first spoken word and each word appears as it is said
+   * (a name or figure is never on screen before the narrator says it); it fades out
+   * before the cut; the keyword warms to the accent on its spoken frame.
    */
   if (style === 'lower-third') {
     const SK = editorialKey(g);
@@ -858,9 +859,9 @@ export const StyledCaption: React.FC<CaptionProps> = ({ ctx, words, frames, k0, 
     const cap = onGround ? 68 : 54;
     const oneLine = textWidth(text, SK, 100) / 100;
     const size = Math.max(34, Math.min(cap, Math.floor((maxW * 1.85) / Math.max(1, oneLine * 1.04))));
-    const t0 = first - 7;
+    const t0 = first;
     const inP = interpolate(f, [t0, t0 + 14], [0, 1], { ...clamp, easing: outCubic });
-    const lineP = interpolate(f, [t0 + 4, t0 + 18], [0, 1], { ...clamp, easing: outCubic });
+    const lineP = interpolate(f, [t0, t0 + 8], [0, 1], { ...clamp, easing: outCubic });
     const rule = interpolate(f, [t0 + 3, t0 + 24], [0, 1], { ...clamp, easing: inOut });
     const out = durFrames > 30 ? interpolate(f, [durFrames - 10, durFrames - 1], [1, 0], clamp) : 1;
     const right = side === 'right';
@@ -890,8 +891,9 @@ export const StyledCaption: React.FC<CaptionProps> = ({ ctx, words, frames, k0, 
             {words.map((w, i) => {
               const isKey = i >= k0 && i < k1;
               const lit = isKey ? interpolate(sinceOf(i), [0, 6], [0, 1], clamp) : 0;
+              const shown = interpolate(sinceOf(i), [0, 5], [0, 1], clamp);
               return (
-                <span key={i} style={{ fontStyle: isKey ? 'italic' : 'normal', color: isKey ? mix(P.ink, P.accent, 0.25 + 0.6 * lit) : P.ink }}>
+                <span key={i} style={{ opacity: shown, fontStyle: isKey ? 'italic' : 'normal', color: isKey ? mix(P.ink, P.accent, 0.25 + 0.6 * lit) : P.ink }}>
                   {w}
                   {i < words.length - 1 ? ' ' : ''}
                 </span>

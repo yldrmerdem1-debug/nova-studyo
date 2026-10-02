@@ -107,8 +107,9 @@ export const Quote: React.FC<DevProps & { scene: QuoteScene }> = ({ scene, genre
   const attrP = interpolate(f, [attrAt, attrAt + 12], [0, 1], { ...clamp, easing: Easing.out(Easing.cubic) });
 
   /*
-   * The whole quote is on the card, ghosted, within ~0.3 s of it landing; each
-   * word lights up as it is spoken. When the narration reaches the quote late
+   * The quote's shape is on the card within ~0.3 s of it landing — each unsaid
+   * word a row of faint dots (never the readable word: the narrator says it first),
+   * and each word appears as it is spoken. When the narration reaches the quote late
    * (a lead-in sentence first), the card used to hold nothing but its opening
    * mark for seconds — an empty, broken-looking frame.
    */
@@ -118,11 +119,14 @@ export const Quote: React.FC<DevProps & { scene: QuoteScene }> = ({ scene, genre
     <div key={li} style={{ whiteSpace: 'nowrap', height: fit.size * Fc.lineH }}>
       {line.split(/\s+/).map((w, k) => {
         const at = frames[wi++] ?? 0;
-        const p = interpolate(f, [at - 2, at + 6], [0, 1], { ...clamp, easing: Easing.out(Easing.cubic) });
-        const op = Math.max(QUOTE_GHOST * ghostIn, p);
+        const p = interpolate(f, [at, at + 6], [0, 1], { ...clamp, easing: Easing.out(Easing.cubic) });
+        const dots = QUOTE_GHOST * ghostIn * (1 - p);
         return (
           <React.Fragment key={k}>
-            <span style={{ display: 'inline-block', opacity: op, transform: `translateY(${(1 - p) * 0.06 * fit.size}px)`, filter: p > 0.05 && p < 0.99 ? `blur(${(1 - p) * 4}px)` : undefined }}>{w}</span>
+            <span style={{ position: 'relative', display: 'inline-block' }}>
+              <span style={{ display: 'inline-block', opacity: p, transform: `translateY(${(1 - p) * 0.06 * fit.size}px)`, filter: p > 0.05 && p < 0.99 ? `blur(${(1 - p) * 4}px)` : undefined }}>{w}</span>
+              {dots > 0.01 ? <span style={{ position: 'absolute', left: 0, top: 0, opacity: dots, whiteSpace: 'nowrap' }}>{w.replace(/\S/g, '·')}</span> : null}
+            </span>
             {k < line.split(/\s+/).length - 1 ? ' ' : ''}
           </React.Fragment>
         );

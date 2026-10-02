@@ -372,7 +372,7 @@ const CaseFile: React.FC<DiagramProps> = ({ P, steps, starts, t }) => {
       </svg>
       {steps.map((st, i) => {
         const p = arrive(f, starts[i], 10);
-        // Evidence still to come waits as a GHOST print (its outline and label faint), so the board is never empty.
+        // Evidence still to come waits as a GHOST print (its outline faint, its label only dots: never read before it is said).
         const ghost = p <= 0;
         const tilt = (h01(`${t.seed}ev${i}`) - 0.5) * 8;
         const drop = ghost ? 0 : (1 - p) * -60;
@@ -384,7 +384,7 @@ const CaseFile: React.FC<DiagramProps> = ({ P, steps, starts, t }) => {
                 <LineIcon id={stepIcon(st, t.motif)} size={w * 0.48} color="#e9e2d0" stroke={1.3} draw={ghost ? 1 : p} style={{ filter: 'drop-shadow(0 4px 6px rgba(0,0,0,0.6))' }} />
               </div>
               <div style={{ position: 'relative', height: 76 }}>
-                <Note text={st.label} x={(w - 28) / 2} y={8} w={w - 28} font={P.typed} fontKey="courier" color="#22201b" cap={30} weight={400} />
+                <Note text={ghost ? String(st.label ?? '').replace(/[^ ]/g, '·') : st.label} x={(w - 28) / 2} y={8} w={w - 28} font={P.typed} fontKey="courier" color="#22201b" cap={30} weight={400} />
               </div>
             </div>
             <div style={{ position: 'absolute', left: w / 2 - 9, top: -9, width: 18, height: 18, borderRadius: '50%', background: '#b3121f', boxShadow: '0 3px 4px rgba(0,0,0,0.6)' }} />

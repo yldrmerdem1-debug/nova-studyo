@@ -6,6 +6,7 @@ import { alpha, contrast, isLight, mix, readable } from './looks/color';
 import { useLook } from './looks/context';
 import { paperTexture } from './paper';
 import { UNIT, UNIT_GAP, UNIT_TRACK, counterFit, counterFrom, formatCount, isUnitWord } from './scenes';
+import { counterCountEnd } from './opening/timing';
 import type { CounterScene, CounterStyle, FontKey, Genre } from './types';
 
 /*
@@ -36,7 +37,8 @@ interface Props {
 function useCount(scene: CounterScene, locale: string) {
   const f = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const end = Math.round(0.9 * fps);
+  // The count lasts as long as the narrator takes to say the number (it lands on its last word).
+  const end = counterCountEnd(scene, fps);
   const from = counterFrom(scene);
   const t = interpolate(f, [3, end], [0, 1], { ...clamp, easing: outCubic });
   const value = t >= 1 ? scene.to : from + (scene.to - from) * t;

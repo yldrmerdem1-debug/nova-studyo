@@ -16,6 +16,7 @@ import { MotifChapterCard } from './topic/cards';
 import { PresentedPhoto } from './topic/presentation';
 import { MotifCaption } from './topic/caption';
 import { useOpening } from './opening/context';
+import { counterCountEnd, counterSpokenAt } from './opening/timing';
 import type {
   ChartScene,
   CounterScene,
@@ -189,6 +190,14 @@ function findSpoken(target: string, spoken: Spoken[]): { i: number; how: MatchHo
   return null;
 }
 
+/** The frame a name, caption or label is first said in the scene, or null when it is never said (then the old fixed clock applies). */
+export function spokenFrameOf(target: string | undefined, wordTimes: { word: string; t: number }[] | undefined, fps: number): number | null {
+  if (!target) return null;
+  const sp = spokenTokens(wordTimes);
+  const m = findSpoken(target, sp);
+  return m ? Math.round(sp[m.i].t * fps) : null;
+}
+
 /**
  * Script words -> spoken times, in order. An exact match may reach far ahead
  * (a skipped filler word must not derail the rest); a fuzzy one only a few
@@ -349,7 +358,12 @@ export interface Impact {
 function coreImpacts(scene: Scene, durFrames: number, fps: number, genre?: Genre): Impact[] {
   const out: Impact[] = [];
   if (scene.type === 'slam') out.push({ f: slamFrame(scene, fps), strength: 1 });
-  if (scene.type === 'counter') out.push({ f: Math.round(0.9 * fps), strength: 0.45 });
+  if (scene.type === 'counter') {
+    // The count lands 0.9 s after it starts — on the number's first spoken word when it is said late (Engine spokenDelayed).
+    const at = counterSpokenAt(scene, fps);
+    const wait = at !== null && at > 6 && at < durFrames - fps ? at - 3 : 0;
+    out.push({ f: wait + counterCountEnd(scene, fps), strength: 0.45 });
+  }
   if (scene.type === 'words' && scene.keyword) {
     const [k] = keyRange(textWords(scene.text), scene.keyword);
     if (k >= 0) out.push({ f: wordFrames(scene, durFrames, fps)[k], strength: 0.5 });
@@ -1555,7 +1569,8 @@ const BoxCounter: React.FC<Common & { scene: CounterScene }> = ({ scene, genre, 
   const reframes = tightK >= 1.08 ? plan.frames : [];
   const tight = reframes.filter((r) => f >= r).length % 2 === 1;
   const cam = interpolate(f, [0, durFrames], [1, 1 + 0.07 * speed], clamp) * (tight ? tightK : 1);
-  const end = Math.round(0.9 * fps);
+  // The count lasts as long as the narrator takes to say the number (it lands on its last word).
+  const end = counterCountEnd(scene, fps);
   const from = counterFrom(scene);
   const t = interpolate(f, [3, end], [0, 1], { ...clamp, easing: Easing.out(Easing.cubic) });
   const value = from + (scene.to - from) * t;
@@ -1667,16 +1682,18 @@ const BoxCounter: React.FC<Common & { scene: CounterScene }> = ({ scene, genre, 
  * instead of sitting on the picture for the whole scene. Which scene carries
  * it (first appearance only, the right person) is the pipeline's call.
  */
-const LowerThird: React.FC<{ genre: Genre; name: string; role?: string; durFrames: number; lift?: number }> = ({
+const LowerThird: React.FC<{ genre: Genre; name: string; role?: string; durFrames: number; lift?: number; at?: number | null }> = ({
   genre,
   name,
   role,
   durFrames,
   lift = 0,
+  at = null,
 }) => {
   const f = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const start = Math.round(0.45 * fps);
+  // On the name's spoken word (who is this? is answered by the narrator first); unnamed: the broadcast 0.45 s.
+  const start = at != null ? Math.max(3, Math.min(at, durFrames - Math.round(1.2 * fps))) : Math.round(0.45 * fps);
   const out = start + Math.round(5 * fps);
   const leaves = durFrames - out > Math.round(0.8 * fps);
   const gone = leaves ? interpolate(f, [out, out + 8], [0, 1], { ...clamp, easing: Easing.in(Easing.cubic) }) : 0;
@@ -1898,7 +1915,9 @@ export const PhotoScn: React.FC<Common & { scene: PhotoScene }> = (props) => {
 const PhotoBody: React.FC<Common & { scene: PhotoScene }> = ({ scene, genre, durFrames, speed, index }) => {
   const f = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const cap = spring({ frame: f - Math.round(0.6 * fps), fps, config: { damping: 15 } });
+  // The caption waits for its words when the narration says them (never captions what is still to be said).
+  const capAt = spokenFrameOf(scene.caption, scene.wordTimes, fps);
+  const cap = spring({ frame: f - (capAt != null ? Math.max(Math.round(0.6 * fps), Math.min(capAt, durFrames - Math.round(1.2 * fps))) : Math.round(0.6 * fps)), fps, config: { damping: 15 } });
   const collage = collageOn(genre, scene);
   const plan = planFor(scene, durFrames, fps, genre);
   const reframes = plan.frames;
@@ -2049,7 +2068,7 @@ const PhotoBody: React.FC<Common & { scene: PhotoScene }> = ({ scene, genre, dur
         </>
       )}
 
-      {scene.name ? <LowerThird genre={genre} name={scene.name} role={scene.role} durFrames={durFrames} lift={scene.caption ? 110 : 0} /> : null}
+      {scene.name ? <LowerThird genre={genre} name={scene.name} role={scene.role} durFrames={durFrames} lift={scene.caption ? 110 : 0} at={spokenFrameOf(scene.name, scene.wordTimes, fps)} /> : null}
 
       {scene.caption ? (
         <AbsoluteFill style={{ ...BOX, justifyContent: 'flex-end', alignItems: 'center', paddingBottom: genre.letterbox ? 170 : 100 }}>
@@ -2512,6 +2531,10 @@ export const Chart: React.FC<Common & { scene: ChartScene }> = ({ scene, genre, 
   const hy = xy[i0][1] + (xy[i1][1] - xy[i0][1]) * t;
   const hv = pts[i0] + (pts[i1] - pts[i0]) * t;
   const shown = [...xy.slice(0, i0 + 1), [hx, hy]];
+  // The scale only prints the levels the line has already reached: the peak or the low is never read off the axis before the line (and the narrator) gets there.
+  const seen = [...pts.slice(0, i0 + 1), hv];
+  const seenHi = Math.max(...seen);
+  const seenLo = Math.min(...seen);
   const line = shown.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');
   const area = `${line} L${hx.toFixed(1)} ${H} L0 ${H} Z`;
   const up = hv >= pts[0];
@@ -2612,7 +2635,7 @@ export const Chart: React.FC<Common & { scene: ChartScene }> = ({ scene, genre, 
         {[0, 0.25, 0.5, 0.75, 1].map((g) => (
           <g key={g}>
             <line x1={0} x2={W} y1={H * g} y2={H * g} stroke={`${genre.ink}22`} strokeDasharray="6 10" />
-            <text x={W + 16} y={H * g + 8} fill={`${genre.ink}88`} fontFamily={FONT.plexMono} fontSize={22}>
+            <text x={W + 16} y={H * g + 8} fill={`${genre.ink}88`} fontFamily={FONT.plexMono} fontSize={22} opacity={(() => { const v = max - (max - min) * g; const eps = (max - min) * 0.04; return v <= seenHi + eps && v >= seenLo - eps ? 1 : 0; })()}>
               {(fine ? +(max - (max - min) * g).toFixed(1) : Math.round(max - (max - min) * g)).toLocaleString(locale)}
             </text>
           </g>

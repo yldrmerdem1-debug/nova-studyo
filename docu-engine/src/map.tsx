@@ -7,6 +7,7 @@ import type { Pt, RegionDef } from './geo';
 import { paperTexture, seededRng } from './paper';
 import { GENRES } from './genres';
 import { contrast, isLight, mix, readable } from './looks/color';
+import { labelIndex, spokenOf } from './infographics/timing.js';
 import type { FontKey, Genre, MapScene } from './types';
 
 /*
@@ -459,6 +460,7 @@ export function mapPlan(scene: MapScene, durFrames: number, fps: number, edgeY =
   }
   const cam0 = clampCam(W / 2 + (cam1.cx - W / 2) * 0.15, H / 2 + (cam1.cy - H / 2) * 0.15, 1.02);
 
+  const sp = spokenOf(scene.wordTimes ?? []) as { t: number }[];
   const appear = pts.map((_, i) => {
     const k = route.indexOf(i);
     if (k >= 0 && curve.length) {
@@ -477,7 +479,11 @@ export function mapPlan(scene: MapScene, durFrames: number, fps: number, edgeY =
       const frac = acc[best] / (acc[acc.length - 1] || 1);
       return Math.round(r0 + (r1 - r0) * easeRoute(frac, true));
     }
-    return Math.round(0.3 * fps) + i * Math.round(0.22 * fps);
+    // A place the narration names lands on its word (never labelled before it is said).
+    const base = Math.round(0.3 * fps) + i * Math.round(0.22 * fps);
+    const label = scene.points?.[i]?.label;
+    const said = label ? labelIndex(String(label), sp as never) : -1;
+    return said >= 0 ? Math.max(base, Math.round(sp[said].t * fps)) : base;
   });
   return { region, pts, route, curve, acc, r0, r1, appear, cam0, cam1, move0, move1, focus };
 }

@@ -53,6 +53,8 @@ export const UiCardScn: React.FC<{ scene: UiCardScene; genre: Genre; durFrames: 
    */
   const ghostIn = interpolate(f, [2, 8], [0, 1], clamp);
   const GHOST = 0.32;
+  // A row not yet said shows its shape only: dots, never the readable label or value (the narrator says it first).
+  const mask = (t: string) => t.replace(/[^ ]/g, '·');
   const rowKey = terminal ? 'plexMono' : paperish ? P.monoKey : 'inter';
   const tilt = interpolate(f, [0, durFrames], [-16, -9], clamp);
   const tiltX = interpolate(f, [0, durFrames], [7, 4], clamp);
@@ -129,19 +131,19 @@ export const UiCardScn: React.FC<{ scene: UiCardScene; genre: Genre; durFrames: 
                   {terminal || kind === 'form' ? (
                     <>
                       <span>{lab}</span>
-                      <span style={{ opacity: GHOST }}>{labRest}</span>
+                      <span style={{ opacity: GHOST }}>{mask(labRest)}</span>
                     </>
                   ) : (
-                    labelText
+                    p > 0.01 ? labelText : mask(labelText)
                   )}
                 </div>
                 {r.value ? <div style={{ fontFamily: kind === 'ranking' && !paperish ? FONT.inter : font, fontWeight: 800, fontSize: Math.min(rowH * 0.42, 42), color: isHl && hlP > 0.5 ? P.accent2 : ink, whiteSpace: 'nowrap' }}>{terminal || kind === 'form' ? (
                       <>
                         <span>{val}</span>
-                        <span style={{ opacity: GHOST }}>{valText.slice(val.length)}</span>
+                        <span style={{ opacity: GHOST }}>{mask(valText.slice(val.length))}</span>
                       </>
                     ) : (
-                      r.value
+                      p > 0.01 ? r.value : mask(valText)
                     )}
                   </div> : null}
               </div>
