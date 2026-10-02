@@ -138,3 +138,15 @@ test('teaser shots never run into the next scene: placed inside the span that sh
   assert.ok(short.hold > 0 && Math.abs((short.dur - short.hold) / short.speed - (462.5 - 0.08 - 461.05)) < 1e-6);
   assert.deepEqual(S.fitShotToSpan(seg, null), seg, 'no measurement: unchanged');
 });
+
+test('picture Short: a 9:16 window around the subject, never outside the picture', async () => {
+  const P = await import('../src/pipeline/docu-shorts-pictures.js');
+  const land = P.verticalCrop(1536, 1024, { x: 0.4, y: 0.2, w: 0.3, h: 0.5 });
+  assert.deepEqual([land.w, land.h], [576, 1024]);
+  assert.ok(land.x >= 0 && land.x + land.w <= 1536);
+  assert.ok(Math.abs(land.x + land.w / 2 - 0.55 * 1536) < 2, 'centred on the subject');
+  const edge = P.verticalCrop(1536, 1024, { x: 0.95, y: 0, w: 0.05, h: 1 });
+  assert.equal(edge.x + edge.w, 1536, 'a subject at the edge clamps the window inside');
+  const tall = P.verticalCrop(2134, 2880, { x: 0.16, y: 0.2, w: 0.7, h: 0.6 });
+  assert.ok(tall.w <= 2134 && tall.h <= 2880 && Math.abs(tall.w / tall.h - 9 / 16) < 0.01);
+});

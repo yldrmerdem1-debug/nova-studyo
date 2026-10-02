@@ -13,6 +13,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { callJSON } from "../llm.js";
+import { describePictures, newVerticalPicture, pictureAssets, planPictureTeaser, renderPictureTeaser, sizeOf } from "./docu-shorts-pictures.js";
 
 export const SHORT_MIN = 40;
 export const SHORT_MAX = 58;
@@ -363,14 +364,18 @@ export function isKeyWord(w, prev) {
 }
 
 /** Kelime zamanlarından altyazı (2-3 kelimelik parçalar, vurgu kelimeleri sarı) + kanca + kapaklı izle kartı. */
-export function buildTeaserAss({ words, hook = "", slams = [], voiceEnd, total, endCard = "FULL DOCUMENTARY ON THE CHANNEL" }) {
+export function buildTeaserAss({ words, hook = "", slams = [], figures = [], hookFor = null, voiceEnd, total, endCard = "FULL DOCUMENTARY ON THE CHANNEL" }) {
   const lines = buildShortAss({ cues: [], start: 0, end: total, hook: "", endCard: "" }).split("\n").filter((l) => !l.startsWith("Dialogue:"));
   const ev = [];
   // Açılış: anlatıcının üç kelimesi ("ships", "hill", "night") tam söylendiği anda ortaya çakılır,
   // her biri kendi görüntüsünün üstünde; açılış bitince kanca üstte etiket olarak kalır.
   slams.forEach((m) => ev.push(`Dialogue: 3,${assTime(m.s)},${assTime(m.e)},Slam,,0,0,0,,{\\fscx150\\fscy150\\t(0,90,\\fscx100\\fscy100)\\fad(0,80)}${assText(m.text)}`));
   const openEnd = slams.length ? slams.at(-1).e : 0;
-  if (hook) ev.push(`Dialogue: 1,${assTime(openEnd)},${assTime(voiceEnd + 0.2)},Hook,,0,0,0,,{\\fscx125\\fscy125\\t(0,160,\\fscx100\\fscy100)}${assText(hook.toUpperCase())}`);
+  // hookFor: the label stays only that long after the opening (a picture Short is not covered by it all along).
+  const hookEnd = hookFor != null ? Math.min(voiceEnd + 0.2, openEnd + hookFor) : voiceEnd + 0.2;
+  if (hook) ev.push(`Dialogue: 1,${assTime(openEnd)},${assTime(hookEnd)},Hook,,0,0,0,,{\\fscx125\\fscy125\\t(0,160,\\fscx100\\fscy100)\\fad(0,250)}${assText(hook.toUpperCase())}`);
+  // A striking number lands big on the picture when it is said ("4,773"), never as a dark card.
+  figures.forEach((m) => ev.push(`Dialogue: 3,${assTime(m.s)},${assTime(m.e)},Slam,,0,0,0,,{\\an5\\pos(${W / 2},760)\\fscx160\\fscy160\\t(0,110,\\fscx100\\fscy100)\\fad(0,150)}${assText(m.text)}`));
   // Açılışta alt yazı yok: çakılan kelime zaten ekranda (aynı sözü iki kez yazmak yankı olur).
   let i = words.findIndex((w) => w.s >= openEnd - 0.05);
   if (i < 0) i = words.length;
@@ -671,6 +676,14 @@ export async function makeDocuShort(opts = {}) {
     job = JSON.parse(fs.readFileSync(path.join(jobDir, "job.json"), "utf8"));
   } catch {}
   if (settings.elevenKey && opts.mode !== "cut") {
+    // Picture Short first (full-screen vertical pictures); the long video's moments if the archive is too thin.
+    if (opts.mode !== "moments") {
+      try {
+        return await makePictureTeaser({ ...opts, job });
+      } catch (e) {
+        logFn(`Shorts: görsel teaser yapılamadı (${String(e?.message || e).slice(0, 160)}), uzun videonun anlarıyla yapılıyor`);
+      }
+    }
     try {
       return await makeDocuTeaser({ ...opts, job });
     } catch (e) {
@@ -678,6 +691,113 @@ export async function makeDocuShort(opts = {}) {
     }
   }
   return makeDocuCut(opts);
+}
+
+/** Teaser in picture mode (docu-shorts-pictures.js): every sentence its own full-screen vertical picture. */
+export async function makePictureTeaser({ jobDir, job = {}, settings = {}, usage = null, logFn = () => {}, llm, visionLlm, ffmpeg, title: titleIn, speak = speakTeaser, newPicture = newVerticalPicture } = {}) {
+  const last = latestOutput(jobDir);
+  if (!last?.v || !fs.existsSync(last.s)) throw new Error("bitmiş video/altyazı bulunamadı");
+  const ff = ffmpeg || settings.ffmpegPath || "ffmpeg";
+  const cues = parseSrt(fs.readFileSync(last.s, "utf8"));
+  const title = titleIn || job.meta?.title || job.topic || "";
+  const dir = path.join(jobDir, "shorts");
+  fs.mkdirSync(dir, { recursive: true });
+  const assets = pictureAssets(jobDir);
+  if (assets.length < 10) throw new Error(`arşivde yeterli görsel yok (${assets.length})`);
+  const catalog = await describePictures({ assets, cacheFile: path.join(dir, "pictures.json"), ffmpeg: ff, ...(visionLlm ? { llm: visionLlm } : {}), settings, usage, logFn });
+  if (catalog.filter((a) => !a.textHeavy).length < 8) throw new Error("kullanılabilir görsel az");
+  logFn("Shorts: teaser metni ve görselleri planlanıyor...");
+  const plan = await planPictureTeaser({ cues, title, catalog, ...(llm ? { llm } : {}), settings, usage, logFn });
+  const text = plan.beats.map((b) => b.say).join(" ");
+  logFn(`Shorts: seslendiriliyor (${text.length} karakter)...`);
+  const voiceId = job.elevenVoiceId || settings.docuEnVoiceId || "nPczCjzI2devNBz1zQrb";
+  const tts = await speak({ text, voiceId, key: settings.elevenKey, model: settings.docuShortsVoiceModel || "eleven_v3" });
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "");
+  const voiceFile = path.join(dir, `short-${stamp}.voice.mp3`);
+  fs.writeFileSync(voiceFile, tts.audio);
+  fs.writeFileSync(path.join(dir, `short-${stamp}.words.json`), JSON.stringify(tts.words), "utf8");
+
+  // Pictures: the planned archive picture, a new vertical one where the archive has nothing, else the best unused.
+  const used = new Set(plan.beats.filter((b) => b.asset).map((b) => b.asset.rel));
+  const spare = catalog.filter((a) => !a.textHeavy && !used.has(a.rel)).sort((a, b) => b.quality - a.quality);
+  for (const b of plan.beats) {
+    if (b.asset) continue;
+    if (b.newPrompt && settings.openaiKey) {
+      try {
+        logFn(`Shorts: yeni dikey görsel üretiliyor — ${b.newPrompt.slice(0, 70)}`);
+        const abs = await newPicture({ prompt: b.newPrompt, dir: path.join(dir, "new"), settings, style: job.docuGenre === "epic" ? "Era-accurate historical scene." : "" });
+        b.asset = { abs, kind: "still", srcW: 864, srcH: 1536, box: { x: 0.2, y: 0.15, w: 0.6, h: 0.6 }, what: b.newPrompt, generated: true };
+        continue;
+      } catch (e) {
+        logFn(`Shorts: yeni görsel üretilemedi (${String(e?.message || e).slice(0, 100)})`);
+      }
+    }
+    b.asset = spare.shift();
+  }
+  plan.beats.forEach((b, k) => {
+    if (!b.asset) b.asset = plan.beats[k - 1]?.asset ?? catalog[0];
+    const a = b.asset;
+    if (!a.srcW || !a.srcH) {
+      const z = sizeOf(ff, a.abs);
+      if (z) Object.assign(a, { srcW: z.w, srcH: z.h });
+    }
+  });
+
+  const words = tts.words;
+  const starts = beatStarts(plan.beats, words);
+  const voiceEnd = words.at(-1).e;
+  const segments = plan.beats.map((b, k) => {
+    const s = k === 0 ? 0 : starts[k];
+    const e = k + 1 < plan.beats.length ? starts[k + 1] : voiceEnd + 0.45;
+    const a = b.asset;
+    const dur = Math.max(0.6, e - s);
+    // Footage too short for its sentence holds its still frame instead.
+    const clipOk = a.kind === "clip" && a.clipDur - 0.5 >= dur;
+    return { abs: clipOk || a.kind !== "clip" ? a.abs : a.still || a.abs, kind: clipOk ? "clip" : "still", clipStart: (a.clipStart || 0) + 0.5, srcW: a.srcW, srcH: a.srcH, box: a.box || { x: 0, y: 0, w: 1, h: 1 }, dur, beat: k, what: a.what, rel: a.rel, generated: !!a.generated };
+  });
+  const total = +(voiceEnd + 0.45 + 2.6).toFixed(2);
+  const slams = slamTimes(plan.beats, words);
+  // Figures: on the first spoken word of the number, held ~1.8 s (never into the next sentence).
+  const figures = [];
+  let off = 0;
+  plan.beats.forEach((b, k) => {
+    const from = off;
+    off += b.say.length + 1;
+    if (!b.figure) return;
+    const bare = (w) => String(w || "").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+    const said = words.find((w) => w.at >= from && w.at < off && bare(w.w) === bare(b.figureWord)) ?? words.find((w) => w.at >= from && /\d/.test(w.w));
+    if (!said) return;
+    const end = k + 1 < plan.beats.length ? starts[k + 1] : voiceEnd;
+    figures.push({ text: b.figure.toUpperCase(), s: said.s, e: Math.min(end - 0.05, said.s + 1.8) });
+  });
+  const assFile = path.join(dir, `short-${stamp}.ass`);
+  fs.writeFileSync(assFile, buildTeaserAss({ words, hook: plan.hook, slams, figures, hookFor: 3.5, voiceEnd: voiceEnd + 0.45, total }), "utf8");
+
+  let musicFile = null;
+  const sfx = {};
+  try {
+    const props = JSON.parse(fs.readFileSync(fs.readdirSync(path.join(jobDir, "docu")).map((f) => path.join(jobDir, "docu", f)).find((f) => f.endsWith(".props.json")), "utf8"));
+    const m = props.script?.music && path.join(jobDir, "docu", "public", props.script.music);
+    if (m && fs.existsSync(m)) musicFile = m;
+    const pub = (rel) => rel && path.join(jobDir, "docu", "public", rel);
+    sfx.whoosh = pub(props.script?.sfxFiles?.whoosh?.[1] ?? props.script?.sfxFiles?.whoosh?.[0]);
+    sfx.hit = pub(props.script?.sfxFiles?.hit?.[1] ?? props.script?.sfxFiles?.hit?.[0]);
+  } catch {}
+  let thumbFile = null;
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(jobDir, "titles.json"), "utf8"));
+    const t = pkg.recommended?.thumbnail && path.join(jobDir, pkg.recommended.thumbnail);
+    if (t && fs.existsSync(t)) thumbFile = t;
+  } catch {}
+  thumbFile ||= [path.join(jobDir, "thumbnail.jpg"), path.join(path.dirname(last.v), "thumbnail.jpg")].find((f) => fs.existsSync(f));
+  if (!thumbFile) throw new Error("kapak bulunamadı");
+  const out = path.join(dir, `short-${stamp}.mp4`);
+  logFn(`Shorts: ${segments.length} dikey görsel, ${total.toFixed(1)} sn render ediliyor...`);
+  renderPictureTeaser({ segments, voiceFile, musicFile, thumbFile, assFile, out, total, sfx, slamAt: slams.map((m) => m.s), ffmpeg: ff });
+  const meta = { file: out, mode: "pictures", hook: plan.hook, slams, figures, title: plan.title, description: plan.description, narration: text, beats: plan.beats.map((b) => ({ say: b.say, slam: b.slam, figure: b.figure, picture: b.asset?.rel || (b.asset?.generated ? "new" : null), what: b.asset?.what })), segments, start: 0, end: total, source: last.v };
+  fs.writeFileSync(path.join(dir, `short-${stamp}.json`), JSON.stringify(meta, null, 2), "utf8");
+  logFn(`Shorts hazır: ${out}`);
+  return meta;
 }
 
 function latestOutput(jobDir) {
