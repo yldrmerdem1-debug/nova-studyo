@@ -1,0 +1,178 @@
+{
+  "id": "belgesel",
+  "title": "Bir İmparatorluğun Gerçek Hikâyesi",
+  "chapters": [
+    "Bir tarif, bir ihanet"
+  ],
+  "genre": "documentary",
+  "locale": "tr-TR",
+  "visualStyle": "Authentic 1970s Istanbul documentary photograph, shot on grainy Kodak Tri-X black and white film, natural available light, candid and unposed, slightly soft focus, archival print texture, no text, no watermark.",
+  "cast": {
+    "hasan": "a Turkish man in his late twenties in 1974, thick black moustache, short wavy dark hair, white cotton shirt with rolled sleeves",
+    "nermin": "a Turkish woman in her early thirties in 1974, dark hair tied in a low bun, simple patterned cotton dress, kind but tired eyes"
+  },
+  "scenes": [
+    {
+      "type": "montage",
+      "mood": "tension",
+      "riser": true,
+      "imagePrompts": [
+        "Extreme close-up of weathered hands counting a few old coins on the worn wooden counter of a street food cart",
+        {
+          "prompt": "Extreme close-up of the man's eyes and moustache, intense gaze straight ahead, half of his face in deep shadow",
+          "cast": [
+            "hasan"
+          ]
+        },
+        "Close-up of a dented copper pot on a street food cart, thick steam rising into cold morning air",
+        "Close-up of a woman's hands writing with a fountain pen in an old notebook, the handwriting blurred and illegible, lit by a bare bulb",
+        "The long shadow of a walking man thrown across a cobbled alley wall at night by a streetlamp, the man himself out of frame, only his shadow visible",
+        "An open, empty wooden kitchen drawer lit by a sharp shaft of cold moonlight from a window, a single torn corner of paper left inside, clearly visible, strong contrast"
+      ],
+      "text": "Tarif Sokak İhanet",
+      "say": "[whispers] Bir tarif... Bir sokak... [dramatic] Ve bir ihanet.",
+      "dur": 4,
+      "chapter": 0
+    },
+    {
+      "type": "title",
+      "mood": "curious",
+      "kicker": "Bir imparatorluğun",
+      "title": "Gerçek Hikâyesi",
+      "imagePrompt": "The man stands in the middle of a crowded Istanbul street in 1974, looking into the camera, the Galata tower rising far behind him, crowds and an old tram blurred around him",
+      "cast": [
+        "hasan"
+      ],
+      "depth": true,
+      "sound": "busy 1970s Istanbul street, distant tram bell, crowd murmur, faint street vendors calling",
+      "say": "[curious] Bu... bir imparatorluğun gerçek hikâyesi.",
+      "dur": 3.4,
+      "chapter": 0
+    },
+    {
+      "type": "counter",
+      "mood": "triumph",
+      "from": 31000,
+      "to": 38410,
+      "label": "Şube",
+      "say": "[confident] Bugün, otuz sekiz binden fazla şubesi var.",
+      "dur": 1.6,
+      "chapter": 0
+    },
+    {
+      "type": "counter",
+      "mood": "triumph",
+      "from": 80,
+      "to": 112,
+      "label": "Ülke",
+      "say": "[confident] Yüz on iki ülkede.",
+      "dur": 1.4,
+      "chapter": 0
+    },
+    {
+      "type": "words",
+      "mood": "curious",
+      "text": "Ama her şey tek bir sokak arabasıyla başladı",
+      "keyword": "başladı",
+      "imagePrompt": "Wide shot of the man standing beside his small wooden street food cart on the far left of a narrow cobbled street, long evening shadows, empty street stretching away to the right",
+      "cast": [
+        "hasan"
+      ],
+      "depth": true,
+      "focus": [
+        0.3,
+        0.4
+      ],
+      "transition": "zoom",
+      "sound": "quiet cobbled back street at dusk, pigeons, distant seagulls, a wooden cart wheel creaking",
+      "say": "[curious] Ama her şey... tek bir sokak arabasıyla başladı.",
+      "dur": 3,
+      "chapter": 0
+    },
+    {
+      "type": "photo",
+      "mood": "calm",
+      "imagePrompt": "Close portrait of the man smiling at his cart, holding a paper cone of food out to a customer",
+      "cast": [
+        "hasan"
+      ],
+      "imagePrompts": [
+        "An old yellowed sheet of paper with faded, blurred, illegible handwritten ink notes, lying on a worn wooden kitchen table beside a tin cup, close up"
+      ],
+      "focus": [
+        0.5,
+        0.35
+      ],
+      "name": "Hasan Kervan",
+      "role": "Kurucu · 1974",
+      "sound": "food sizzling in a pan on a street cart, paper rustling, soft street chatter",
+      "say": "[warmly] Adı Hasan Kervan'dı. Bin dokuz yüz yetmiş dörtte, elinde tek bir tarifle yola çıktı.",
+      "dur": 3,
+      "chapter": 0
+    },
+    {
+      "type": "photo",
+      "mood": "tension",
+      "imagePrompt": "The woman sitting on the right side of a small kitchen table, writing carefully in a notebook under a single bare hanging bulb at night, dark empty kitchen around her",
+      "cast": [
+        "nermin"
+      ],
+      "depth": true,
+      "fullBleed": true,
+      "focus": [
+        0.62,
+        0.38
+      ],
+      "name": "Nermin Aydın",
+      "role": "Tarifin gerçek sahibi",
+      "sound": "silent kitchen at night, a bare lightbulb buzzing, pen scratching on paper, an old clock ticking faintly",
+      "say": "[quietly] Ama o tarifi... aslında o yazmamıştı.",
+      "dur": 3,
+      "chapter": 0
+    },
+    {
+      "type": "slam",
+      "mood": "reveal",
+      "word": "Çalındı",
+      "sub": "ve kimse fark etmedi",
+      "imagePrompt": "The silhouette of a man slipping out of a doorway at night holding folded papers against his chest, strongly backlit by a bright streetlamp and fog behind him, his face not visible",
+      "transition": "zoom",
+      "riser": true,
+      "sound": "empty street at night, a distant dog barking, a door closing softly",
+      "say": "[slowly] Ve o tarif... bir gece... [dramatic] çalındı.",
+      "dur": 3,
+      "chapter": 0
+    },
+    {
+      "type": "photo",
+      "mood": "sad",
+      "imagePrompt": "The woman sitting alone by a window on the left of the frame, looking out at the rain, raindrops on the glass",
+      "cast": [
+        "nermin"
+      ],
+      "depth": true,
+      "fullBleed": true,
+      "focus": [
+        0.35,
+        0.4
+      ],
+      "caption": "Tek kuruş almadı",
+      "sound": "steady rain on a window pane, soft distant thunder",
+      "say": "[sighs] Nermin... bundan tek kuruş almadı.",
+      "dur": 3,
+      "chapter": 0
+    },
+    {
+      "type": "words",
+      "mood": "sad",
+      "text": "Bu, o tarifin bedelini ödeyenlerin hikâyesi",
+      "keyword": "bedelini",
+      "imagePrompt": "An empty wooden street food cart abandoned on a wet cobbled street at night under a single streetlamp",
+      "silence": true,
+      "sound": "light rain on wet cobblestones, a lonely streetlamp humming",
+      "say": "[softly] Bu... o tarifin bedelini ödeyenlerin hikâyesi.",
+      "dur": 3.4,
+      "chapter": 0
+    }
+  ]
+}

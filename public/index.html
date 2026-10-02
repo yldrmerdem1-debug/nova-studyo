@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nova Stüdyo — Video Fabrikası</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎬</text></svg>" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="logo">
+        <div class="logo-mark">▶</div>
+        <div>
+          <div class="logo-name">Nova Stüdyo</div>
+          <div class="logo-sub">VİDEO FABRİKASI</div>
+        </div>
+      </div>
+
+      <div class="nav-label">ÇALIŞMA ALANI</div>
+      <nav>
+        <a href="#studio" class="nav-item" data-page="studio"><span>🎬</span> Stüdyo <span class="live-badge" id="liveBadge" hidden>CANLI</span></a>
+        <a href="#queue" class="nav-item" data-page="queue"><span>📋</span> Kuyruk <span class="count-badge" id="queueCount" hidden>0</span></a>
+        <a href="#library" class="nav-item" data-page="library"><span>🗂️</span> Kütüphane</a>
+      </nav>
+      <div class="nav-label">YAPILANDIRMA</div>
+      <nav>
+        <a href="#settings" class="nav-item" data-page="settings"><span>⚙️</span> Ayarlar</a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="status-row"><span class="dot" id="dotFfmpeg"></span> FFmpeg <b id="stFfmpeg">?</b></div>
+        <div class="status-row"><span class="dot" id="dotKey"></span> Claude API <b id="stKey">?</b></div>
+        <div class="status-row"><span class="dot" id="dotMode"></span> Mod <b id="stMode">?</b></div>
+        <!-- Canlı kredi: üretime başlamadan önce elde ne var? /api/credits -->
+        <div class="status-row" id="rowEleven" hidden><span class="dot" id="dotEleven"></span> Seslendirme <b id="stEleven">?</b></div>
+        <div class="status-row" id="rowKie" hidden><span class="dot" id="dotKie"></span> AI görsel <b id="stKie">?</b></div>
+      </div>
+    </aside>
+
+    <main class="main" id="main"><!-- sayfa buraya --></main>
+
+    <button class="ideas-tab" id="ideasTab">FİKİRLER ✨</button>
+    <div class="ideas-drawer" id="ideasDrawer" hidden>
+      <div class="ideas-head">
+        <b>✨ Video Fikirleri</b>
+        <button class="icon-btn" id="ideasClose">✕</button>
+      </div>
+      <div class="row">
+        <input id="ideasNiche" placeholder="Kanal nişi — örn. tarih, teknoloji, finans" />
+        <button class="btn primary" id="ideasGo">Üret</button>
+      </div>
+      <div id="ideasList" class="ideas-list"><div class="muted">Nişini yaz, sana izlenme odaklı uzun video fikirleri üreteyim.</div></div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="modal" hidden>
+    <div class="modal" id="modalBox"></div>
+  </div>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <script src="studio-editor.js"></script>
+  <script src="quality-desk.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

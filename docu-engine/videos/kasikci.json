@@ -1,0 +1,312 @@
+{
+  "id": "kasikci",
+  "title": "Üç Kaşığa Bir Elmas",
+  "chapters": [
+    "Üç Kaşığa Bir Elmas"
+  ],
+  "genre": "documentary",
+  "locale": "tr-TR",
+  "palette": {
+    "duoShadow": "#120b06",
+    "duoHighlight": "#f4e2b4"
+  },
+  "visualStyle": "Rich 17th-century Ottoman oil painting in the manner of an old master, dramatic candlelight chiaroscuro, deep warm shadows, visible canvas texture and fine varnish cracks, museum archive reproduction.",
+  "cast": {
+    "balikci": "a poor Ottoman fisherman in the 1600s, about forty, lean sun-darkened face, short grey-streaked beard, faded red cloth cap, patched loose linen shirt",
+    "kasikci": "an Ottoman spoon maker in the 1600s, about fifty, plump face, sly narrow eyes, neat black beard, small white turban, leather work apron"
+  },
+  "scenes": [
+    {
+      "type": "montage",
+      "mood": "tension",
+      "riser": true,
+      "chapter": 0,
+      "imagePrompts": [
+        "Extreme close-up of weathered bare hands digging through a pile of rubbish and seaweed on a muddy shore at dawn",
+        {
+          "prompt": "Extreme close-up of the man's eyes narrowing at something glinting below him, half of his face in deep shadow",
+          "cast": [
+            "balikci"
+          ]
+        },
+        "Close-up of three plain carved wooden spoons lying side by side on a rough wooden workbench, candlelight",
+        "Extreme close-up of a brass jeweler's loupe held against an eye, candle flame reflected in the lens",
+        "A heavy ornate palace gate slowly opening at night, torchlight spilling through the gap",
+        "A huge pear-shaped diamond resting on dark velvet, sharp rays of light breaking out of it into total darkness"
+      ],
+      "text": "Çöplük Kaşık Elmas",
+      "say": "[whispers] Bir çöplük... Üç tahta kaşık... [dramatic] Ve bir elmas.",
+      "dur": 4
+    },
+    {
+      "type": "title",
+      "mood": "curious",
+      "chapter": 0,
+      "kicker": "Kaşıkçı Elması",
+      "title": "Üç Kaşığa Bir Elmas",
+      "imagePrompt": "The man stands alone on a rocky shore facing the viewer, the domes and minarets of old Istanbul rising in the hazy distance behind him, morning light",
+      "cast": [
+        "balikci"
+      ],
+      "depth": true,
+      "sound": "waves on a rocky shore, seagulls, distant city bells",
+      "say": "[curious] Bu... üç kaşığa satılan bir elmasın hikâyesi.",
+      "dur": 3.4
+    },
+    {
+      "type": "counter",
+      "mood": "triumph",
+      "chapter": 0,
+      "from": 12,
+      "to": 86,
+      "label": "Kırat",
+      "say": "[confident] Tam seksen altı kırat.",
+      "dur": 1.8
+    },
+    {
+      "type": "counter",
+      "mood": "triumph",
+      "chapter": 0,
+      "from": 0,
+      "to": 49,
+      "label": "Pırlanta",
+      "say": "[confident] Etrafında kırk dokuz pırlanta.",
+      "dur": 1.8
+    },
+    {
+      "type": "words",
+      "mood": "curious",
+      "chapter": 0,
+      "text": "Ama hikâye bir sarayda değil bir çöplükte başlıyor",
+      "keyword": "çöplükte",
+      "imagePrompt": "Wide view of a rubbish heap on a muddy shore beside old stone city walls at dawn, a lone fisherman bending over it on the far left, empty sky and sea to the right",
+      "cast": [
+        "balikci"
+      ],
+      "focus": [
+        0.25,
+        0.5
+      ],
+      "transition": "zoom",
+      "sound": "gulls, lapping waves, cold wind",
+      "say": "[curious] Ama hikâye bir sarayda değil... bir çöplükte başlıyor.",
+      "dur": 3.2
+    },
+    {
+      "type": "photo",
+      "mood": "calm",
+      "chapter": 0,
+      "imagePrompt": "The man kneeling on the shore on the left of the frame, holding a dirty glittering stone in his open palm and staring at it, puzzled, soft dawn light",
+      "cast": [
+        "balikci"
+      ],
+      "depth": true,
+      "fullBleed": true,
+      "focus": [
+        0.35,
+        0.4
+      ],
+      "name": "Bir balıkçı",
+      "role": "Eğrikapı · 1600'ler",
+      "sound": "quiet shore at dawn, water lapping on stones",
+      "say": "[warmly] Rivayete göre Eğrikapı'da fakir bir balıkçı... çöplükte parlak bir taş buldu.",
+      "dur": 3.4
+    },
+    {
+      "type": "photo",
+      "mood": "tension",
+      "chapter": 0,
+      "imagePrompt": "The man in his cramped workshop on the right of the frame, lifting a small stone toward a candle and studying it with narrow, calculating eyes, wooden spoons hanging on the wall behind",
+      "cast": [
+        "kasikci"
+      ],
+      "depth": true,
+      "fullBleed": true,
+      "focus": [
+        0.62,
+        0.38
+      ],
+      "name": "Kaşıkçı",
+      "role": "Taşı alan adam",
+      "sound": "small workshop, wood carving scrapes, distant bazaar murmur",
+      "say": "[quietly] Taşı, çarşıdaki bir kaşıkçıya götürdü.",
+      "dur": 3
+    },
+    {
+      "type": "slam",
+      "mood": "reveal",
+      "chapter": 0,
+      "word": "Kaşık",
+      "sub": "bir elmasın karşılığı",
+      "imagePrompt": "Close-up of three plain wooden spoons being placed into a poor man's open calloused palm by a well-fed hand, candlelight",
+      "riser": true,
+      "transition": "zoom",
+      "sound": "quiet workshop, a single coin dropping, fabric rustle",
+      "say": "Kaşıkçı taşa karşılık... [dramatic] üç kaşık verdi.",
+      "dur": 3
+    },
+    {
+      "type": "photo",
+      "mood": "sad",
+      "chapter": 0,
+      "imagePrompt": "The silhouette of the fisherman walking away alone along the shore at sunset, three wooden spoons in his hand, long shadow on the wet sand",
+      "fullBleed": true,
+      "focus": [
+        0.5,
+        0.45
+      ],
+      "caption": "Bir servet, üç kaşık",
+      "sound": "evening waves, lonely gulls far away",
+      "say": "[sighs] Balıkçı, hayatının servetini... üç kaşığa bırakmıştı.",
+      "dur": 3.4
+    },
+    {
+      "type": "words",
+      "mood": "curious",
+      "chapter": 0,
+      "text": "Peki bir balıkçı bir elması nasıl tanımaz",
+      "keyword": "tanımaz",
+      "imagePrompt": "Close-up of ordinary grey pebbles on a wet shore at dawn, one cloudy dull stone among them catching a faint glint",
+      "sound": "small waves rolling over pebbles",
+      "say": "[curious] Peki bir balıkçı... bir elması nasıl tanımaz?",
+      "dur": 3
+    },
+    {
+      "type": "photo",
+      "mood": "calm",
+      "chapter": 0,
+      "imagePrompt": "Macro close-up of a rough uncut diamond crystal, cloudy and dull like an ordinary pebble, lying in a weathered open palm",
+      "fullBleed": true,
+      "focus": [
+        0.5,
+        0.5
+      ],
+      "caption": "Ham elmas: bulanık bir çakıl",
+      "sound": "quiet shore, soft wind",
+      "say": "[warmly] Çünkü ham elmas... bulanık, sıradan bir çakıl taşına benzer.",
+      "dur": 3.4
+    },
+    {
+      "type": "photo",
+      "mood": "tension",
+      "chapter": 0,
+      "imagePrompt": "An old craftsman pressing a large gem against a spinning stone polishing wheel in a candlelit workshop, fine sparks of light flying from it",
+      "fullBleed": true,
+      "focus": [
+        0.5,
+        0.45
+      ],
+      "sound": "grinding stone wheel, soft rhythmic creak, candle crackle",
+      "say": "[quietly] Işığı ancak kesilip parlatılınca... ortaya çıkar.",
+      "dur": 3.2
+    },
+    {
+      "type": "words",
+      "mood": "tension",
+      "chapter": 0,
+      "text": "Taş el değiştirdi her seferinde değeri katlandı",
+      "keyword": "katlandı",
+      "imagePrompt": "Dramatic close-up of richly dressed hands passing a large rough stone from one to another over a table of gold coins, candlelight, deep shadow",
+      "sound": "coins clinking, low murmuring voices in a stone room",
+      "say": "[serious] Taş el değiştirdi... her seferinde değeri katlandı.",
+      "dur": 3.2
+    },
+    {
+      "type": "photo",
+      "mood": "dread",
+      "chapter": 0,
+      "imagePrompt": "An old court jeweler in rich dark robes on the left of the frame, raising a brass loupe to his eye to examine a stone, frozen in astonishment, a single candle",
+      "depth": true,
+      "fullBleed": true,
+      "focus": [
+        0.35,
+        0.4
+      ],
+      "name": "Saray kuyumcusu",
+      "role": "Taşı tanıyan adam",
+      "sound": "silent chamber, candle flame flickering, a clock ticking",
+      "say": "[quietly] Sonunda bir kuyumcu taşa baktı... ve donup kaldı.",
+      "dur": 3.2
+    },
+    {
+      "type": "slam",
+      "mood": "reveal",
+      "chapter": 0,
+      "word": "Elmastı",
+      "sub": "seksen altı kırat",
+      "imagePrompt": "A huge pear-shaped diamond held in tweezers in front of a candle flame, light exploding out of it into sharp sparkling rays, darkness around",
+      "riser": true,
+      "say": "Bu bir cam parçası değildi... [dramatic] bir elmastı.",
+      "dur": 3
+    },
+    {
+      "type": "photo",
+      "mood": "triumph",
+      "chapter": 0,
+      "imagePrompt": "A vast torchlit Ottoman palace treasury chamber, the diamond set in gold and ringed with small diamonds displayed on a velvet cushion, gold vessels glowing all around",
+      "fullBleed": true,
+      "focus": [
+        0.5,
+        0.5
+      ],
+      "caption": "Osmanlı hazinesi",
+      "transition": "leak",
+      "sound": "echoing stone hall, faint footsteps, torches crackling",
+      "say": "[confident] Taş sonunda saraya... Osmanlı hazinesine girdi.",
+      "dur": 3.2
+    },
+    {
+      "type": "words",
+      "mood": "calm",
+      "chapter": 0,
+      "text": "Bugün hâlâ Topkapı Sarayı'nda duruyor",
+      "keyword": "Topkapı",
+      "imagePrompt": "The pear-shaped diamond ringed with small diamonds glittering inside an old glass display case in a dim vaulted stone room, soft light from above",
+      "sound": "quiet museum hall, soft distant echo",
+      "say": "[warmly] Ve bugün hâlâ... Topkapı Sarayı'nda duruyor.",
+      "dur": 3
+    },
+    {
+      "type": "photo",
+      "mood": "sad",
+      "chapter": 0,
+      "imagePrompt": "The fisherman grown old, sitting alone on a rock by the sea at dusk on the right of the frame, turning a worn wooden spoon in his fingers, looking at the water",
+      "cast": [
+        "balikci"
+      ],
+      "depth": true,
+      "fullBleed": true,
+      "focus": [
+        0.62,
+        0.42
+      ],
+      "caption": "Adı bile bilinmiyor",
+      "sound": "soft waves at dusk, wind",
+      "say": "[softly] Onu bulan balıkçının ise... adı bile bilinmiyor.",
+      "dur": 3.4
+    },
+    {
+      "type": "words",
+      "mood": "calm",
+      "chapter": 0,
+      "text": "Bir taş üç kaşık ve dört yüz yıllık bir efsane",
+      "keyword": "efsane",
+      "imagePrompt": "The pear-shaped diamond glowing faintly in total darkness like a distant star, a thin beam of light falling on it",
+      "sound": "deep soft wind, distant sea",
+      "say": "[slowly] Bir taş... üç kaşık... ve dört yüz yıllık bir efsane.",
+      "dur": 3.6
+    },
+    {
+      "type": "words",
+      "mood": "sad",
+      "chapter": 0,
+      "text": "Bazen en büyük servet onu tanımayanın elinde durur",
+      "keyword": "tanımayanın",
+      "imagePrompt": "A single worn wooden spoon lying on wet sand at dusk, gentle waves behind it, empty shore stretching away",
+      "silence": true,
+      "sound": "gentle waves on sand at dusk",
+      "say": "[softly] Bazen en büyük servet... onu tanımayanın elinde durur.",
+      "dur": 4
+    }
+  ]
+}

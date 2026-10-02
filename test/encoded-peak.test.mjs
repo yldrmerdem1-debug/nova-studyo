@@ -1,0 +1,24 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import {getSettings} from '../src/config.js';
+import {run} from '../src/util.js';
+import {measureSound} from '../src/pipeline/sound-design.js';
+import {kodlanmisTepeyiSinirla} from '../src/pipeline/loudness.js';
+
+const dir=fs.mkdtempSync(path.join(os.tmpdir(),'nova-peak-'));
+const file=path.join(dir,'hot.m4a');
+const ff=getSettings().ffmpegPath;
+await run(ff,['-f','lavfi','-i','sine=frequency=997:duration=2:sample_rate=48000','-af','volume=20','-c:a','aac','-b:a','192k','-y',file]);
+const before=await measureSound(ff,file);
+assert.ok(before.truePeakDb> -1.2,JSON.stringify(before));
+const result=await kodlanmisTepeyiSinirla(ff,file,{measured:before,measureFn:(p,f)=>measureSound(p,f)});
+assert.equal(result.corrected,true);
+assert.ok(result.measured.truePeakDb<=-1.2,JSON.stringify(result));
+assert.equal(result.warning,null);
+let duration=0;
+await run(ff,['-i',file,'-f','null','-'],{onLine:s=>{const m=String(s).match(/time=(\d+):(\d+):([\d.]+)/);if(m) duration=+m[1]*3600 + +m[2]*60 + +m[3];}});
+assert.ok(Math.abs(duration-2)<.15,`duration ${duration}`);
+fs.rmSync(dir,{recursive:true,force:true});
+console.log('Encoded peak correction passed');

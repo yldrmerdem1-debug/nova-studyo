@@ -1,0 +1,364 @@
+{
+  "scope": "61 original npm test files; consolidated initial run plus targeted corrected reruns, not a clean single invocation",
+  "files": [
+    {
+      "file": "test/gecis-plan.test.mjs",
+      "status": "passed",
+      "evidence": "editorial-full-suite.log (npm && completed before first failure)"
+    },
+    {
+      "file": "test/ai-karar.test.mjs",
+      "status": "passed",
+      "evidence": "editorial-full-suite.log (npm && completed before first failure)"
+    },
+    {
+      "file": "test/yonetmen.test.mjs",
+      "status": "passed",
+      "evidence": "editorial-full-suite.log (npm && completed before first failure)"
+    },
+    {
+      "file": "test/tipografi.test.mjs",
+      "status": "passed",
+      "evidence": "editorial-full-suite.log (npm && completed before first failure)"
+    },
+    {
+      "file": "test/obekleme.test.mjs",
+      "status": "passed",
+      "evidence": "editorial-full-suite.log (npm && completed before first failure)"
+    },
+    {
+      "file": "test/kirpma.test.mjs",
+      "status": "passed",
+      "evidence": "editorial-full-suite.log (npm && completed before first failure)"
+    },
+    {
+      "file": "test/gecis-ffmpeg.test.mjs",
+      "status": "passed",
+      "evidence": "editorial-full-suite.log (npm && completed before first failure)"
+    },
+    {
+      "file": "test/motion.test.mjs",
+      "status": "passed",
+      "evidence": "editorial-full-suite.log (npm && completed before first failure)"
+    },
+    {
+      "file": "test/yonetmen-render.test.mjs",
+      "status": "passed",
+      "evidence": "editorial-full-suite.log (npm && completed before first failure)"
+    },
+    {
+      "file": "test/hareket-uctan-uca.test.mjs",
+      "status": "passed",
+      "evidence": "audiovisual.md native rerun: AV difference 0.007 in both ratios, no relaxed threshold"
+    },
+    {
+      "file": "test/ses-xml.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/kesik-alaka.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-fixed-reruns.log"
+    },
+    {
+      "file": "test/kesik-icerik.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/vurgu-tasma.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/kurgu-cesitlilik.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/kurgu-plani.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/yeni-cihazlar.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/kunye.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/gecis-niyet.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/ses-seviye.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/tempo.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/arkaplan-secim.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/gorsel-tekrar.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/hiz-siniri.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/gorselsiz-konu.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/anlatilan-gorsel.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/cumle-hizasi.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/sorgu-onarim.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-fixed-reruns.log"
+    },
+    {
+      "file": "test/konu-kisisi.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/bos-bolum.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/soyut-tipografi.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/kapak.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/ai-butce.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/arayuz-secim.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/yedek-kart.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/kucuk-gorsel.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/token-tavani.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/tavan-tekrar.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/kodlayici-bellek.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/gecis-kurtarma.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/titreme.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/altyazi-noktalama.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/tipografi-kapisi.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/denetim-cumlesi.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/capa-orani.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/ses-etiketi.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/yazi-kirpma.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/muzik.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/muzik-seviye.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-fixed-reruns.log"
+    },
+    {
+      "file": "test/ai-kurtarma.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/ai-istem.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-fixed-reruns.log"
+    },
+    {
+      "file": "test/denetim-kararliligi.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/yeni-aci-kurallari.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/kamera.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/kelime-tetikli-kesme.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/nefes-ve-yapi.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/muzik-kunyesi.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-fixed-reruns.log"
+    },
+    {
+      "file": "test/muzik-pompalama.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/sekiz-duzeltme.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/import-butunlugu.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    },
+    {
+      "file": "test/render-uctan-uca.test.mjs",
+      "status": "passed",
+      "exitCode": 0,
+      "evidence": "editorial-remainder.log"
+    }
+  ],
+  "total": 61,
+  "passed": 61,
+  "missing": []
+}

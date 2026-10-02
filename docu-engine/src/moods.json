@@ -1,0 +1,51 @@
+{
+  "curious": {
+    "music": ["mysterious minimalist piano motif", "soft pizzicato strings", "light curious plucks", "low atmospheric pad"],
+    "voice": { "stability": 0.45, "style": 0.3 },
+    "grade": { "saturate": 1.0, "brightness": 1.0, "hue": 0 },
+    "push": 1.0,
+    "unease": 0
+  },
+  "calm": {
+    "music": ["warm sustained strings", "gentle piano", "slow and spacious", "soft ambient bed"],
+    "voice": { "stability": 0.55, "style": 0.2 },
+    "grade": { "saturate": 1.0, "brightness": 1.03, "hue": 0 },
+    "push": 0.7,
+    "unease": 0
+  },
+  "tension": {
+    "music": ["driving ticking pulse", "staccato strings swelling", "rising synth tension", "tight percussion building"],
+    "voice": { "stability": 0.36, "style": 0.5 },
+    "grade": { "saturate": 0.95, "brightness": 0.96, "hue": 0 },
+    "push": 1.6,
+    "unease": 0.35
+  },
+  "dread": {
+    "music": ["low ominous drone", "dissonant string clusters", "slow heartbeat pulse", "distant metallic textures"],
+    "voice": { "stability": 0.5, "style": 0.4 },
+    "grade": { "saturate": 0.7, "brightness": 0.9, "hue": -8 },
+    "push": 0.6,
+    "unease": 0.6
+  },
+  "reveal": {
+    "music": ["sudden heavy sub bass impact", "explosive orchestral hit", "powerful brass stab", "dramatic climax"],
+    "voice": { "stability": 0.32, "style": 0.65 },
+    "grade": { "saturate": 1.1, "brightness": 1.0, "hue": 0 },
+    "push": 1.3,
+    "unease": 0.2
+  },
+  "sad": {
+    "music": ["stark solo piano melody", "mournful cello sustain", "slow reverb-drenched decay", "sparse and fragile"],
+    "voice": { "stability": 0.6, "style": 0.25 },
+    "grade": { "saturate": 0.6, "brightness": 0.94, "hue": -12 },
+    "push": 0.5,
+    "unease": 0
+  },
+  "triumph": {
+    "music": ["soaring strings", "big warm brass", "uplifting driving drums", "heroic rising melody"],
+    "voice": { "stability": 0.36, "style": 0.6 },
+    "grade": { "saturate": 1.15, "brightness": 1.04, "hue": 4 },
+    "push": 1.2,
+    "unease": 0
+  }
+}

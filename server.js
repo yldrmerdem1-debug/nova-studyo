@@ -1,0 +1,560 @@
+import express from "express";
+import { settingsPatch } from "./src/settings-input.js";
+import { studioRouter } from "./src/studio-api.js";
+import { isJobEditing } from './src/job-locks.js';
+import { safeJobFileName } from './src/job-files.js';
+import path from "node:path";
+import fs from "node:fs";
+import { spawn } from "node:child_process";
+import { ROOT, HOME, PREVIEW_DIR, readJson, writeJson } from "./src/util.js";
+import { getSettings, saveSettings, publicSettings, THEMES, TONES, DURATIONS, VOICES, VISUAL_STYLES, audioLibraryInfo } from "./src/config.js";
+import { RATIOS } from "./src/pipeline/canvas.js";
+import { sseHandler } from "./src/bus.js";
+import { loadAllJobs, getJob, publicJob, deleteJob, jobDir } from "./src/store.js";
+import { newJobFromRequest, enqueue, continueAfterPicks, approveCost, cancelJob, awaitJobStopped, killAll, queueSnapshot, sweepStaleJobs, sweepIntermediate } from "./src/pipeline/index.js";
+import { previewVoice } from "./src/pipeline/voice.js";
+import { docuEngineDir, docuMusicSource } from "./src/pipeline/docu.js";
+import { docuElevenEstimate } from "./src/pipeline/docu-script.js";
+import { searchQuery } from "./src/pipeline/media.js";
+import { callJSON } from "./src/llm.js";
+
+const app = express();
+// CSV JSON escaping can expand a validated 5 MB source by up to six times.
+app.use('/api/jobs/:id/audience', express.json({ limit: '32mb' }));
+app.use(express.json({ limit: "4mb" }));
+app.use((err,req,res,next)=>{
+  if(err.type==='entity.parse.failed')return res.status(400).json({error:'Geçersiz JSON isteği.'});
+  if(err.type==='entity.too.large')return res.status(413).json({error:'İstek çok büyük. CSV dosyası en fazla 5 MB olabilir.'});
+  next(err);
+});
+app.use(express.static(path.join(ROOT, "public")));
+
+// İş kimliği newId() formatındadır: 20260805-a1b2c3. Doğrulanmazsa "../../.." gibi bir
+// değer path.join ile jobs klasörünün dışına çıkar ve deleteJob orayı özyinelemeli siler.
+const ID_RE = /^\d{8}-[0-9a-f]{6}$/;
+function validId(req, res, next) {
+  if (!ID_RE.test(String(req.params.id || ""))) return res.status(400).json({ error: "geçersiz iş kimliği" });
+  next();
+}
+app.param("id", (req, res, next) => validId(req, res, next));
+app.use('/api/jobs/:id', studioRouter);
+
+const PORT = Number(process.env.NOVA_PORT) || 4545;
+
+// açılış: yarım kalan işleri temizle
+sweepStaleJobs(loadAllJobs());
+
+// ---------- durum ----------
+
+app.get("/api/state", (req, res) => {
+  res.json({
+    settings: publicSettings(),
+    jobs: loadAllJobs().map(publicJob),
+    queue: queueSnapshot(),
+    presets: {
+      themes: Object.fromEntries(Object.entries(THEMES).map(([k, v]) => [k, { name: v.name, desc: v.desc }])),
+      tones: Object.fromEntries(Object.entries(TONES).map(([k, v]) => [k, v.name])),
+      durations: DURATIONS,
+      voices: VOICES,
+      visualStyles: VISUAL_STYLES,
+      ratios: RATIOS,
+    },
+  });
+});
+
+app.get("/api/events", sseHandler);
+
+app.post("/api/settings", (req, res) => {
+  try {
+    saveSettings(settingsPatch(req.body));
+    res.json({ ok: true, settings: publicSettings() });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// ---------- işler ----------
+
+app.post("/api/jobs", (req, res) => {
+  try {
+    const job = newJobFromRequest(req.body);
+    enqueue(job);
+    res.json({ ok: true, job: publicJob(job) });
+  } catch (e) {
+    res.status(400).json({ ok: false, error: e.message });
+  }
+});
+
+app.get("/api/jobs/:id", (req, res) => {
+  const j = getJob(req.params.id);
+  if (!j) return res.status(404).json({ error: "bulunamadı" });
+  res.json(publicJob(j));
+});
+
+app.get("/api/jobs/:id/candidates", (req, res) => {
+  const j = getJob(req.params.id);
+  if (!j) return res.status(404).json({ error: "bulunamadı" });
+  const dir = jobDir(j.id);
+  res.json({
+    job: publicJob(j),
+    script: readJson(path.join(dir, "script.json")),
+    candidates: readJson(path.join(dir, "candidates.json"), {}),
+    picks: readJson(path.join(dir, "picks.json"), {}),
+    // Seçim ekranı hangi görselin konuyla ilgisiz olduğunu göstersin diye:
+    // beatId -> {puan 0-3, gorunen}. Ön denetim çalışmadıysa boş gelir.
+    denetim: readJson(path.join(dir, "denetim.json"), {}),
+  });
+});
+
+app.post("/api/jobs/:id/picks", (req, res) => {
+  try {
+    continueAfterPicks(req.params.id, req.body.picks || {});
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ ok: false, error: e.message });
+  }
+});
+
+app.post("/api/jobs/:id/cost", (req, res) => {
+  try {
+    approveCost(req.params.id, !!req.body.approved);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ ok: false, error: e.message });
+  }
+});
+
+app.post("/api/jobs/:id/cancel", (req, res) => {
+  cancelJob(req.params.id);
+  res.json({ ok: true });
+});
+
+app.delete("/api/jobs/:id", async (req, res) => {
+  try {
+    if(isJobEditing(req.params.id)) return res.status(409).json({error:'Düzenleme işlemi sürüyor; tamamlanmasını bekleyin.'});
+    cancelJob(req.params.id);
+    // ffmpeg dosyaları hâlâ açık tutuyorsa Windows'ta rmSync EBUSY verir → önce bırakmasını bekle
+    await awaitJobStopped(req.params.id);
+    await deleteJob(req.params.id);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// güvenli dosya sunumu (video oynatma, thumbnail, seo, srt, sahne kanıtları)
+app.get("/api/jobs/:id/file/:name", (req, res) => {
+  const { id, name } = req.params;
+  if (!safeJobFileName(name)) return res.status(403).end();
+  const file = path.join(jobDir(id), name);
+  if (!fs.existsSync(file)) return res.status(404).end();
+  if (req.query.dl) res.setHeader("Content-Disposition", `attachment; filename="${id}-${name}"`);
+  res.sendFile(file);
+});
+
+// kapak varyantını varsayılan yap (thumbnail.jpg'nin üzerine kopyalar)
+app.post("/api/jobs/:id/thumbnail", (req, res) => {
+  const job=getJob(req.params.id);
+  if(!job) return res.status(404).json({error:'İş bulunamadı.'});
+  if(isJobEditing(job.id)||['running','queued','awaiting_picks','awaiting_cost'].includes(job.status)) return res.status(409).json({error:'İş sürüyor; kapak seçmek için tamamlanmasını bekleyin.'});
+  const name = String(req.body.name || "");
+  if (!/^thumb_[abc]\.jpg$/.test(name)) return res.status(400).json({ error: "geçersiz kapak adı" });
+  const src = path.join(jobDir(req.params.id), name);
+  if (!fs.existsSync(src)) return res.status(404).json({ error: "kapak bulunamadı" });
+  fs.copyFileSync(src, path.join(jobDir(req.params.id), "thumbnail.jpg"));
+  const recipeFile=path.join(jobDir(req.params.id),'cover.json');
+  writeJson(recipeFile,{...readJson(recipeFile,{}),selected:name,updatedAt:new Date().toISOString()});
+  res.json({ ok: true });
+});
+
+// SHORTS — bitmiş belgeselden dikey 40-58 sn'lik Shorts (src/pipeline/docu-shorts.js).
+const shortsBusy = new Set();
+const shortMetas = (id) => {
+  const dir = path.join(jobDir(id), "shorts");
+  try {
+    return fs.readdirSync(dir).filter((f) => /^short-\d{12}\.json$/.test(f)).sort().reverse()
+      .map((f) => ({ ...readJson(path.join(dir, f), {}), name: f.replace(/\.json$/, ".mp4") }))
+      .filter((m) => fs.existsSync(path.join(dir, m.name)));
+  } catch { return []; }
+};
+app.get("/api/jobs/:id/shorts", (req, res) => {
+  if (!getJob(req.params.id)) return res.status(404).json({ error: "İş bulunamadı." });
+  res.json({ busy: shortsBusy.has(req.params.id), shorts: shortMetas(req.params.id).map(({ file, source, ...m }) => m) });
+});
+app.post("/api/jobs/:id/shorts", async (req, res) => {
+  const job = getJob(req.params.id);
+  if (!job) return res.status(404).json({ error: "İş bulunamadı." });
+  if (job.mediaKind !== "docu" || job.status !== "done") return res.status(409).json({ error: "Shorts yalnızca tamamlanmış belgeseller için." });
+  if (shortsBusy.has(job.id)) return res.status(409).json({ error: "Bu video için Shorts zaten hazırlanıyor." });
+  shortsBusy.add(job.id);
+  try {
+    const { makeDocuShort } = await import("./src/pipeline/docu-shorts.js");
+    const settings = getSettings();
+    const ffmpeg = settings.ffmpegPath || "ffmpeg";
+    const m = await makeDocuShort({ jobDir: jobDir(job.id), settings, ffmpeg, title: job.meta?.title || job.topic });
+    res.json({ ok: true, short: { ...m, name: path.basename(m.file), file: undefined, source: undefined } });
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message || e).slice(0, 300) });
+  } finally {
+    shortsBusy.delete(job.id);
+  }
+});
+app.get("/api/jobs/:id/short/:name", (req, res) => {
+  const { id, name } = req.params;
+  if (!/^short-\d{12}\.mp4$/.test(name)) return res.status(403).end();
+  const file = path.join(jobDir(id), "shorts", name);
+  if (!fs.existsSync(file)) return res.status(404).end();
+  if (req.query.dl) res.setHeader("Content-Disposition", `attachment; filename="${id}-${name}"`);
+  res.sendFile(file);
+});
+
+app.post("/api/jobs/:id/open-folder", (req, res) => {
+  const dir = jobDir(req.params.id);
+  if (fs.existsSync(dir)) spawn("explorer", [dir], { detached: true });
+  res.json({ ok: true });
+});
+
+/**
+ * Anahtar testi — "kayıtlı" olması çalıştığı anlamına gelmiyor. Her sağlayıcının
+ * EN UCUZ salt-okunur ucuna gerçek bir istek atar. Hiçbiri üretim tetiklemez.
+ */
+const KEY_TESTS = {
+  openai: async (k) => {
+    const model=getSettings().openaiImageModel || 'gpt-image-2';
+    const r=await fetch(`https://api.openai.com/v1/models/${encodeURIComponent(model)}`,{headers:{Authorization:`Bearer ${k}`},signal:AbortSignal.timeout(15000)});
+    return r.ok ? {ok:true,bilgi:'Anahtar/model erişimi doğrulandı; üretim kredisi test edilmedi.'} : {ok:false,bilgi:r.status===401?'anahtar geçersiz':`Model erişimi doğrulanamadı (HTTP ${r.status})`};
+  },
+  anthropic: async (k) => {
+    const r = await fetch("https://api.anthropic.com/v1/models?limit=1", {
+      headers: { "x-api-key": k, "anthropic-version": "2023-06-01" },
+    });
+    if (r.ok) return { ok: true, bilgi: "geçerli" };
+    return { ok: false, bilgi: r.status === 401 ? "anahtar geçersiz" : `HTTP ${r.status}` };
+  },
+  pexels: async (k) => {
+    const r = await fetch("https://api.pexels.com/v1/search?query=nature&per_page=1", { headers: { Authorization: k } });
+    if (r.ok) return { ok: true, bilgi: "geçerli" };
+    return { ok: false, bilgi: r.status === 401 ? "anahtar geçersiz" : `HTTP ${r.status}` };
+  },
+  pixabay: async (k) => {
+    const r = await fetch(`https://pixabay.com/api/?key=${encodeURIComponent(k)}&q=nature&per_page=3`);
+    if (r.ok) return { ok: true, bilgi: "geçerli" };
+    return { ok: false, bilgi: r.status === 400 ? "anahtar geçersiz" : `HTTP ${r.status}` };
+  },
+  unsplash: async (k) => {
+    const r = await fetch("https://api.unsplash.com/search/photos?query=nature&per_page=1", {
+      headers: { Authorization: `Client-ID ${k}` },
+    });
+    if (r.ok) return { ok: true, bilgi: "geçerli" };
+    return { ok: false, bilgi: r.status === 401 ? "anahtar geçersiz" : `HTTP ${r.status}` };
+  },
+  eleven: async (k) => {
+    const r = await fetch("https://api.elevenlabs.io/v1/user/subscription", { headers: { "xi-api-key": k } });
+    if (!r.ok) return { ok: false, bilgi: r.status === 401 ? "anahtar geçersiz" : `HTTP ${r.status}` };
+    const s = await r.json();
+    const kalan = Math.max(0, (s.character_limit || 0) - (s.character_count || 0));
+    return { ok: true, bilgi: `${s.tier || "free"} plan · ${kalan.toLocaleString("tr-TR")} karakter kaldı` };
+  },
+  kie: async (k) => {
+    // Kie'de ücretsiz salt-okunur uç yok; var olmayan bir görev sorgulanır.
+    // Anahtar bozuksa 401/403, geçerliyse "görev yok" cevabı döner.
+    const r = await fetch("https://api.kie.ai/api/v1/jobs/recordInfo?taskId=nova-test-0000", {
+      headers: { Authorization: `Bearer ${k}` },
+    });
+    if (r.status === 401 || r.status === 403) return { ok: false, bilgi: "anahtar geçersiz" };
+    if (r.ok || r.status === 404) return { ok: true, bilgi: "anahtar kabul edildi" };
+    return { ok: false, bilgi: `HTTP ${r.status}` };
+  },
+  fal: async (k) => {
+    const r = await fetch("https://rest.alpha.fal.ai/tokens/", {
+      method: "POST", headers: { Authorization: `Key ${k}`, "Content-Type": "application/json" }, body: "{}",
+    });
+    if (r.status === 401 || r.status === 403) return { ok: false, bilgi: "anahtar geçersiz" };
+    return { ok: true, bilgi: "anahtar kabul edildi" };
+  },
+  higgs: async (k) => {
+    const r = await fetch("https://api.higgsfield.ai/v1/generations/nova-test-0000", {
+      headers: { Authorization: `Bearer ${k}` },
+    });
+    if (r.status === 401 || r.status === 403) return { ok: false, bilgi: "anahtar geçersiz" };
+    return { ok: true, bilgi: "anahtar kabul edildi" };
+  },
+  replicate: async (k) => {
+    // Hesap ucu ücretsiz ve salt-okunur; bakiye bilgisi vermiyor.
+    const r = await fetch("https://api.replicate.com/v1/account", { headers: { Authorization: `Bearer ${k}` } });
+    if (r.status === 401 || r.status === 403) return { ok: false, bilgi: "anahtar geçersiz" };
+    if (!r.ok) return { ok: false, bilgi: `HTTP ${r.status}` };
+    const j = await r.json().catch(() => ({}));
+    return { ok: true, bilgi: `geçerli · ${j.username || "hesap"} (bakiye replicate.com/account/billing)` };
+  },
+  europeana: async (k) => {
+    // reusability=open ile sorulur: hem anahtarı hem TİCARİ KULLANILABİLİR
+    // sonuç geldiğini doğrular. Süzgeçsiz sorguda dönenlerin çoğu
+    // "yalnızca eğitim amaçlı" çıkıyor (ölçüldü: 20 sonucun 17'si).
+    const u = `https://api.europeana.eu/record/v2/search.json?wskey=${encodeURIComponent(k)}` +
+      `&query=test&rows=1&media=true&reusability=open`;
+    const r = await fetch(u);
+    if (r.status === 401) return { ok: false, bilgi: "anahtar geçersiz" };
+    if (!r.ok) return { ok: false, bilgi: `HTTP ${r.status}` };
+    const j = await r.json().catch(() => null);
+    if (!j?.success) return { ok: false, bilgi: "anahtar reddedildi" };
+    return { ok: true, bilgi: `çalışıyor · ${Number(j.totalResults || 0).toLocaleString("tr-TR")} serbest kullanımlı eser` };
+  },
+};
+const KEY_FIELD = {
+  anthropic: "anthropicKey", pexels: "pexelsKey", pixabay: "pixabayKey", unsplash: "unsplashKey",
+  eleven: "elevenKey", kie: "kieKey", fal: "falKey", higgs: "higgsKey",
+  europeana: "europeanaKey", openai: "openaiKey", replicate: "replicateKey",
+};
+
+// Sinematik Belgesel vitrin senaryosu (docu-engine/videos/belgesel.json).
+app.get("/api/docu/sample", (req, res) => {
+  try {
+    res.json(JSON.parse(fs.readFileSync(path.join(docuEngineDir(), "videos", "belgesel.json"), "utf8")));
+  } catch (e) {
+    res.status(404).json({ error: "Örnek senaryo bulunamadı." });
+  }
+});
+
+app.post("/api/test-key/:which", async (req, res) => {
+  const which = String(req.params.which);
+  const test = KEY_TESTS[which];
+  if (!test) return res.status(400).json({ ok: false, bilgi: "bilinmeyen sağlayıcı" });
+  const key = getSettings()[KEY_FIELD[which]];
+  if (!key) return res.json({ ok: false, bilgi: "anahtar girilmemiş" });
+  try {
+    const sonuc = await Promise.race([
+      test(key),
+      new Promise((_, rej) => setTimeout(() => rej(new Error("zaman aşımı")), 20000)),
+    ]);
+    res.json(sonuc);
+  } catch (e) {
+    res.json({ ok: false, bilgi: e.message === "zaman aşımı" ? "zaman aşımı" : "bağlantı hatası" });
+  }
+});
+
+// disk bakımı: bitmiş işlerin ara dosyalarını süpür (çıktılara dokunmaz)
+app.post("/api/maintenance/sweep", (req, res) => {
+  try {
+    res.json({ ok: true, ...sweepIntermediate() });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// manuel modda ek arama ("daha fazla üret")
+app.get("/api/search", async (req, res) => {
+  try {
+    const { q, type = "image", kind = "generic" } = req.query;
+    if (!q) return res.status(400).json({ error: "q gerekli" });
+    res.json({ candidates: await searchQuery(String(q), String(type), String(kind)) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * CANLI KREDİ DURUMU — üretime başlamadan önce elde ne var?
+ *
+ * İki ayrı kaynak, iki ayrı birim:
+ *   ElevenLabs → karakter (1 karakter ≈ 1 kredi). 8 dk video ≈ 8-9 bin karakter.
+ *   Kie AI     → kredi. Görsel üretimi buradan düşüyor.
+ * Biri patlarsa diğeri yine dönsün diye ayrı ayrı yakalanıyor; kredi bilgisi
+ * olmaması işi durdurmaz, sadece gösterilmez.
+ */
+app.get("/api/credits", async (req, res) => {
+  const st = getSettings();
+  const { elevenKey, kieKey } = st;
+  const cikti = { eleven: null, kie: null };
+  // Sinematik Belgesel'in gerçek ihtiyacı: ses + (kütüphane yoksa ya da ElevenLabs
+  // bestesi seçildiyse) müzik, ortam ve efekt. Eski "8 dk ≈ 8.500 karakter" yalnızca
+  // anlatımı sayıyordu; 12 dk'lık bir belgeselde müzik tek başına bunun 3-4 katı.
+  const docuNeed = docuElevenEstimate(12, "tr", { musicSource: docuMusicSource(st), libraryReady: audioLibraryInfo(st).ready }).total;
+
+  const isler = [];
+  if (elevenKey) isler.push((async () => {
+    const r = await fetch("https://api.elevenlabs.io/v1/user/subscription", { headers: { "xi-api-key": elevenKey } });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const s = await r.json();
+    const limit = s.character_limit || 0, used = s.character_count || 0;
+    cikti.eleven = {
+      tier: s.tier || "free", used, limit,
+      left: Math.max(0, limit - used),
+      // Kalan kaç videoya yeter? 8 dk ≈ 8.500 karakter (ölçüldü).
+      videolar: Math.floor(Math.max(0, limit - used) / 8500),
+      // 12 dk'lık Sinematik Belgesel başına tahmini kredi ve kalanın kaç videoya yettiği.
+      docuPerVideo: docuNeed,
+      docuVideolar: Math.floor(Math.max(0, limit - used) / Math.max(1, docuNeed)),
+      yenilenme: s.next_character_count_reset_unix || null,
+    };
+  })());
+  if (kieKey) isler.push((async () => {
+    const r = await fetch("https://api.kie.ai/api/v1/chat/credit", { headers: { Authorization: `Bearer ${kieKey}` } });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const d = await r.json();
+    const kredi = typeof d.data === "number" ? d.data : Number(d.data?.credit ?? d.data ?? 0);
+    cikti.kie = { kredi, gorsel: Math.floor(kredi / 4) };   // 1 görsel ≈ 4 kredi ($0,04)
+  })());
+
+  await Promise.allSettled(isler);
+  res.json(cikti);
+});
+
+// ElevenLabs ses listesi + kota (anahtar varsa)
+app.get("/api/eleven-voices", async (req, res) => {
+  const { elevenKey } = getSettings();
+  if (!elevenKey) return res.json({ voices: [], quota: null });
+  try {
+    const [vr, sr] = await Promise.all([
+      fetch("https://api.elevenlabs.io/v2/voices?page_size=100", { headers: { "xi-api-key": elevenKey } }),
+      fetch("https://api.elevenlabs.io/v1/user/subscription", { headers: { "xi-api-key": elevenKey } }).catch(() => null),
+    ]);
+    if (!vr.ok) throw new Error(`HTTP ${vr.status}`);
+    const d = await vr.json();
+
+    let quota = null;
+    if (sr?.ok) {
+      const s = await sr.json();
+      quota = {
+        tier: s.tier || "free",
+        used: s.character_count || 0,
+        limit: s.character_limit || 0,
+        left: Math.max(0, (s.character_limit || 0) - (s.character_count || 0)),
+      };
+    }
+
+    // Ücretsiz planda "professional" (kütüphane) sesleri API'den kullanılamaz → HTTP 402.
+    // Kullanıcıya seçtirip videoyu patlatmaktansa listeden çıkar.
+    const freeTier = !quota || quota.tier === "free";
+    const usable = (d.voices || []).filter((v) => !freeTier || v.category !== "professional");
+    const blocked = (d.voices || []).length - usable.length;
+
+    res.json({
+      quota,
+      blocked,
+      voices: usable.map((v) => ({
+        id: v.voice_id,
+        name: v.name,
+        category: v.category,
+        labels: v.labels || {},
+        preview: v.preview_url || "",
+      })),
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message, voices: [], quota: null });
+  }
+});
+
+// ---------- ses önizleme ----------
+
+app.get("/api/voice-preview/:voiceId", async (req, res) => {
+  try {
+    const vid = req.params.voiceId;
+    if (!VOICES[vid]) return res.status(404).end();
+    const file = await previewVoice(vid, PREVIEW_DIR);
+    res.sendFile(file);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ---------- fikirler ----------
+
+app.post("/api/ideas", async (req, res) => {
+  const niche = String(req.body.niche || "").trim().slice(0, 200);
+  if (!niche) return res.status(400).json({ error: "Niş/konu alanı boş" });
+  const st = getSettings();
+  if (st.demoMode || !st.anthropicKey) {
+    return res.json({
+      ideas: [1, 2, 3, 4, 5].map((i) => ({
+        title: `${niche} hakkında fikir ${i} (demo)`,
+        hook: "Gerçek fikirler için Ayarlar'dan Anthropic API anahtarı ekleyin.",
+        theme: "belgesel", durationPreset: "standart",
+      })),
+    });
+  }
+  try {
+    const out = await callJSON({
+      system: "Sen viral YouTube içerik stratejistisin. Türkçe yanıt ver.",
+      user: `Kanal nişi/konusu: "${niche}". Bu niş için yüksek izlenme potansiyelli 8 uzun video fikri üret. Her fikir: çekici başlık, 1 cümlelik kanca (hook), uygun tema (belgesel|haber|top5|analiz|egitim|hikaye) ve süre (kisa|standart|detayli|derin|uzun).`,
+      schema: {
+        type: "object",
+        properties: {
+          ideas: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                title: { type: "string" },
+                hook: { type: "string" },
+                theme: { type: "string", enum: ["belgesel", "haber", "top5", "analiz", "egitim", "hikaye"] },
+                durationPreset: { type: "string", enum: ["kisa", "standart", "detayli", "derin", "uzun"] },
+              },
+              required: ["title", "hook", "theme", "durationPreset"],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ["ideas"],
+        additionalProperties: false,
+      },
+    });
+    res.json(out);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ---------- sağlık ----------
+
+app.get("/api/health", (req, res) => {
+  const st = getSettings();
+  // spawn başarısız olursa Node hem 'error' hem 'close' yayar. İki kez res.json()
+  // çağırmak ERR_HTTP_HEADERS_SENT fırlatır ve gömülü modda Electron'u çökertir.
+  let sent = false;
+  const reply = (ffmpeg, code = null) => {
+    if (sent) return;
+    sent = true;
+    res.json({ ffmpeg, node: process.version, ffmpegPath: st.ffmpegPath, code, home: HOME });
+  };
+  try {
+    const check = spawn(st.ffmpegPath, ["-version"], { windowsHide: true });
+    let ok = false;
+    check.stdout?.on("data", () => (ok = true));
+    check.on("error", (e) => reply(false, e.code || "SPAWN_HATASI"));
+    check.on("close", () => reply(ok, ok ? null : "CIKTI_YOK"));
+    setTimeout(() => reply(false, "ZAMAN_ASIMI"), 8000).unref?.();
+  } catch (e) {
+    reply(false, e.code || "SPAWN_HATASI");
+  }
+});
+
+const server = app.listen(PORT, "127.0.0.1", () => {
+  if (process.env.NOVA_EMBEDDED) console.log(`Nova Stüdyo sunucusu hazır (:${PORT})`);
+  else console.log(`\n  Nova Stüdyo hazır → http://localhost:${PORT}\n`);
+});
+
+server.on("error", (e) => {
+  if (e.code === "EADDRINUSE") {
+    console.error(`\n  HATA: ${PORT} portu kullanımda. Nova Stüdyo zaten açık olabilir.\n`);
+  } else {
+    console.error("Sunucu hatası:", e);
+  }
+  // Electron içinde çalışırken process.exit() TÜM uygulamayı sessizce öldürür
+  // (pencere hiç açılmaz). Kabuk katmanı hatayı kendi ele alır.
+  if (!process.env.NOVA_EMBEDDED) process.exit(1);
+});
+
+// Kapanışta ffmpeg alt süreçlerini kes — yoksa Windows'ta arkada çalışmaya devam ederler.
+// Electron kabuğu bunu before-quit'te çağırır; tarayıcı modunda Ctrl+C yakalanır.
+globalThis.__novaKillAll = killAll;
+let shuttingDown = false;
+const shutdown = () => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  try { killAll(); } catch {}
+  try { server.close(); } catch {}
+  if (!process.env.NOVA_EMBEDDED) setTimeout(() => process.exit(0), 300).unref();
+};
+for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, shutdown);
+process.on("exit", () => { try { killAll(); } catch {} });
+
+export { app, server, shutdown };

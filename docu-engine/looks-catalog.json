@@ -1,0 +1,1924 @@
+{
+  "version": 1,
+  "usage": {
+    "variant": "script.look = { variant: '<id>' } — one per video, from its own genre; unknown/absent = the original look.",
+    "chapterLooks": "script.chapterLooks = [ { accent?: \"#hex\", grade?: Grade, backdrop?: Backdrop } | null, ... ] indexed by scene.chapter.",
+    "textStyle": "scene.textStyle on words / slam / title / montage. Unset: the variant palette (its first entry leads, rotated per chapter). Accent styles (lyric, kinetic): at most 3 per video, on hooks, quotes and climaxes. lower-third is the editorial info caption: only on lines that carry a name, place, date/time or number (others get another style). words.textMode: 'full' (default) | 'key' (only the keyword, big, on its spoken frame) | 'none' (no text: a clean picture shot); words.kicker sets an info caption's small-caps kicker.",
+    "counterStyle": "scene.counterStyle on counter scenes, from the variant's counterStyles (era permitting: fromYear). Never the same treatment on two consecutive counters; 'photo' needs a picture in one of the two scenes before. Unset: rotated per video and chapter.",
+    "backdrop": "scene.backdrop = { kind, color?, color2?, variant?, tone? } for text scenes not over a picture (words, slam, title without image; counter, chart, quote, timeline). Big text (words, slam, title, counter, quote) always sits on 'related' — the nearest related picture/clip, darkened and drifting (tone light: washed into paper) — or an 'era' texture when no picture fits; an explicit paper/texture/blueprint/halftone/split-color/blur choice only sets that ground's tone. 'solid'/'gradient' are kept only on silence beats (energy 1, at most 2 per video).",
+    "grade": "scene.grade on photo / video scenes (also chapter and variant defaults). photo.natural still wins.",
+    "era": "script.era (\"1929-1933 ...\") gates era-bound furniture: no camcorder/terminal HUD on photos before 1980 (a newsreel film gate instead), counter treatments by fromYear."
+  },
+  "variants": {
+    "documentary": [
+      {
+        "id": "magnates-label",
+        "name": "Magnates label",
+        "description": "The original: warm brown ground, yellow printed labels with a red drop, sepia duotone cards on a dotted board.",
+        "light": false,
+        "colour": false,
+        "grade": "duotone",
+        "textStyles": [
+          "box"
+        ],
+        "counterStyles": [
+          "box",
+          "bare",
+          "outline",
+          "photo",
+          "odometer",
+          "newsprint"
+        ],
+        "palette": {},
+        "fonts": {},
+        "suits": "business rise-and-fall stories, corporate scandals; the classic YouTube explainer",
+        "original": true
+      },
+      {
+        "id": "swiss-editorial",
+        "name": "Swiss editorial",
+        "description": "Off-white paper, black grotesk type, one hard signal red; black-and-white photos as clean prints. Magazine-grade restraint.",
+        "light": true,
+        "colour": false,
+        "grade": "mono",
+        "backdrop": "solid",
+        "textStyles": [
+          "underline",
+          "stack",
+          "lower-third"
+        ],
+        "counterStyles": [
+          "bare",
+          "newsprint",
+          "outline",
+          "photo",
+          "box",
+          "odometer"
+        ],
+        "palette": {
+          "bg": "#f1eee6",
+          "ink": "#111111",
+          "accent": "#e3311d",
+          "accent2": "#111111"
+        },
+        "fonts": {
+          "headline": "archivo",
+          "body": "inter"
+        },
+        "suits": "design, brands, architecture, tech companies; calm authoritative explainers",
+        "original": false
+      },
+      {
+        "id": "cobalt-brief",
+        "name": "Cobalt brief",
+        "description": "Deep cobalt blue with tomato-red and ice accents, cobalt-to-ice duotone, modern grotesk. Crisp and confident.",
+        "light": false,
+        "colour": false,
+        "grade": "duotone",
+        "backdrop": "gradient",
+        "textStyles": [
+          "marker",
+          "outline",
+          "lower-third"
+        ],
+        "counterStyles": [
+          "box",
+          "bare",
+          "outline",
+          "photo",
+          "odometer",
+          "newsprint"
+        ],
+        "palette": {
+          "bg": "#0b1b4d",
+          "ink": "#f2f5ff",
+          "accent": "#ff5a36",
+          "accent2": "#8fd3ff"
+        },
+        "fonts": {
+          "headline": "spacegrotesk",
+          "body": "inter"
+        },
+        "suits": "tech, startups, economics, modern institutions",
+        "original": false
+      },
+      {
+        "id": "magazine-colour",
+        "name": "Magazine colour",
+        "description": "Full-colour photos, near-black ground, hot magenta and mint accents, huge condensed type. Energetic pop-culture feature.",
+        "light": false,
+        "colour": true,
+        "grade": "color",
+        "backdrop": "gradient",
+        "textStyles": [
+          "stack",
+          "marker",
+          "outline"
+        ],
+        "counterStyles": [
+          "box",
+          "bare",
+          "outline",
+          "photo",
+          "odometer",
+          "newsprint"
+        ],
+        "palette": {
+          "bg": "#121212",
+          "ink": "#ffffff",
+          "accent": "#ff3d7f",
+          "accent2": "#00c2a8"
+        },
+        "fonts": {
+          "headline": "anton",
+          "body": "inter"
+        },
+        "suits": "pop culture, celebrities, fast food, viral internet stories",
+        "original": false
+      },
+      {
+        "id": "kraft-archive",
+        "name": "Kraft archive",
+        "description": "Brown kraft-paper ground, typewriter captions, red stamps, sepia prints. A box of old files opened on camera.",
+        "light": true,
+        "colour": false,
+        "grade": "sepia",
+        "backdrop": "paper",
+        "textStyles": [
+          "typewriter",
+          "stamp",
+          "serif"
+        ],
+        "counterStyles": [
+          "bare",
+          "newsprint",
+          "outline",
+          "photo",
+          "box",
+          "odometer"
+        ],
+        "palette": {
+          "bg": "#cdb08a",
+          "ink": "#1d140c",
+          "accent": "#b3151a",
+          "accent2": "#1d140c"
+        },
+        "fonts": {
+          "headline": "playfair",
+          "body": "lora"
+        },
+        "suits": "history of a company or family, archival investigations, 20th-century stories",
+        "original": false
+      },
+      {
+        "id": "cinema-teal",
+        "name": "Cinema teal-orange",
+        "description": "Blockbuster teal-and-orange colour grade, letterboxed, broadcast lower thirds. Feels like a feature film.",
+        "light": false,
+        "colour": true,
+        "grade": "teal-orange",
+        "backdrop": "blur",
+        "textStyles": [
+          "lower-third",
+          "underline",
+          "outline"
+        ],
+        "counterStyles": [
+          "outline",
+          "bare",
+          "box",
+          "photo",
+          "odometer",
+          "newsprint"
+        ],
+        "palette": {
+          "bg": "#0c1416",
+          "ink": "#f4f1ea",
+          "accent": "#ff9b42",
+          "accent2": "#2ec4b6"
+        },
+        "fonts": {
+          "headline": "bebas",
+          "body": "inter"
+        },
+        "suits": "big dramatic stories: disasters, heists, expeditions",
+        "original": false
+      }
+    ],
+    "finance": [
+      {
+        "id": "terminal-green",
+        "name": "Terminal green",
+        "description": "The original: black-green trading terminal, mono data type, green/red, glitch cuts.",
+        "light": false,
+        "colour": false,
+        "grade": "duotone",
+        "textStyles": [
+          "box"
+        ],
+        "counterStyles": [
+          "ticker",
+          "odometer",
+          "bare",
+          "box",
+          "outline",
+          "photo"
+        ],
+        "palette": {},
+        "fonts": {},
+        "suits": "market crashes, trading, crypto, hedge funds",
+        "original": true
+      },
+      {
+        "id": "wall-street-gold",
+        "name": "Wall Street gold",
+        "description": "Black and gold, high-contrast serif headlines, warm-graded photos. Old money, private banks, luxury.",
+        "light": false,
+        "colour": true,
+        "grade": "warm",
+        "backdrop": "gradient",
+        "textStyles": [
+          "serif",
+          "underline",
+          "lower-third"
+        ],
+        "counterStyles": [
+          "box",
+          "bare",
+          "outline",
+          "photo",
+          "odometer",
+          "newsprint",
+          "ticker"
+        ],
+        "palette": {
+          "bg": "#0d0b08",
+          "ink": "#f4ecd8",
+          "accent": "#d4af37",
+          "accent2": "#b22222"
+        },
+        "fonts": {
+          "headline": "dmserif",
+          "body": "inter"
+        },
+        "suits": "billionaires, dynasties, luxury brands, banking history",
+        "original": false
+      },
+      {
+        "id": "bloomberg-orange",
+        "name": "Amber terminal",
+        "description": "Pure black with amber data type and blue ticks, black-and-white photos, heavy grotesk. A professional terminal, not a hacker screen.",
+        "light": false,
+        "colour": false,
+        "grade": "mono",
+        "backdrop": "solid",
+        "textStyles": [
+          "lower-third",
+          "glitch",
+          "stack"
+        ],
+        "counterStyles": [
+          "ticker",
+          "odometer",
+          "bare",
+          "box",
+          "outline",
+          "photo"
+        ],
+        "palette": {
+          "bg": "#000000",
+          "ink": "#ffffff",
+          "accent": "#ff9500",
+          "accent2": "#3fa9f5"
+        },
+        "fonts": {
+          "headline": "archivo",
+          "body": "jetbrains"
+        },
+        "suits": "markets, data-heavy explainers, economic crises",
+        "original": false
+      },
+      {
+        "id": "clean-white-editorial",
+        "name": "Clean white editorial",
+        "description": "White page, navy ink, one electric blue and one red, faint chart grid; natural-colour photos. The Economist / FT chart desk.",
+        "light": true,
+        "colour": true,
+        "grade": "color",
+        "backdrop": "solid",
+        "textStyles": [
+          "underline",
+          "stack",
+          "marker"
+        ],
+        "counterStyles": [
+          "bare",
+          "newsprint",
+          "outline",
+          "photo",
+          "box",
+          "odometer",
+          "ticker"
+        ],
+        "palette": {
+          "bg": "#f7f7f4",
+          "ink": "#0e1a2b",
+          "accent": "#1463ff",
+          "accent2": "#e5243b"
+        },
+        "fonts": {
+          "headline": "spacegrotesk",
+          "body": "inter"
+        },
+        "suits": "economics explainers, company analysis, anything with many numbers",
+        "original": false
+      },
+      {
+        "id": "money-red",
+        "name": "Money red",
+        "description": "Deep crimson ground, red duotone, hot red and gold accents, stamps and glitches. Fraud, bankruptcy, panic.",
+        "light": false,
+        "colour": false,
+        "grade": "duotone",
+        "backdrop": "halftone",
+        "textStyles": [
+          "stamp",
+          "glitch",
+          "outline"
+        ],
+        "counterStyles": [
+          "box",
+          "bare",
+          "outline",
+          "photo",
+          "odometer",
+          "newsprint",
+          "ticker"
+        ],
+        "palette": {
+          "bg": "#1a0306",
+          "ink": "#fff1f0",
+          "accent": "#ff2a3d",
+          "accent2": "#ffd166"
+        },
+        "fonts": {
+          "headline": "anton",
+          "body": "inter"
+        },
+        "suits": "fraud, Ponzi schemes, bankruptcies, collapses",
+        "original": false
+      },
+      {
+        "id": "salmon-paper",
+        "name": "Salmon paper",
+        "description": "Financial-newspaper salmon paper, claret and teal, serif headlines, warm photos. Serious long-form money journalism.",
+        "light": true,
+        "colour": false,
+        "grade": "warm",
+        "backdrop": "paper",
+        "textStyles": [
+          "serif",
+          "underline",
+          "lower-third"
+        ],
+        "counterStyles": [
+          "bare",
+          "newsprint",
+          "outline",
+          "photo",
+          "box",
+          "odometer",
+          "ticker"
+        ],
+        "palette": {
+          "bg": "#fbe9da",
+          "ink": "#33302e",
+          "accent": "#0d7680",
+          "accent2": "#990f3d"
+        },
+        "fonts": {
+          "headline": "dmserif",
+          "body": "inter"
+        },
+        "suits": "business history, CEO profiles, deal stories",
+        "original": false
+      }
+    ],
+    "horror": [
+      {
+        "id": "candle-red",
+        "name": "Candle red",
+        "description": "The original: near-black, bone ink, blood-red glow, carved Cinzel titles, flicker and dust.",
+        "light": false,
+        "colour": false,
+        "grade": "duotone",
+        "textStyles": [
+          "box"
+        ],
+        "counterStyles": [
+          "outline",
+          "bare",
+          "box",
+          "photo",
+          "odometer",
+          "newsprint"
+        ],
+        "palette": {},
+        "fonts": {},
+        "suits": "hauntings, occult history, classic dread",
+        "original": true
+      },
+      {
+        "id": "found-footage-vhs",
+        "name": "Found footage VHS",
+        "description": "Tape-colour footage with lifted blacks and red smear, REC-red and phosphor-green on-screen type, glitches.",
+        "light": false,
+        "colour": true,
+        "grade": "vhs",
+        "backdrop": "blur",
+        "textStyles": [
+          "glitch",
+          "typewriter",
+          "lower-third"
+        ],
+        "counterStyles": [
+          "odometer",
+          "bare",
+          "box",
+          "outline",
+          "photo"
+        ],
+        "palette": {
+          "bg": "#050807",
+          "ink": "#e8ffe8",
+          "accent": "#ff2e2e",
+          "accent2": "#9dff9d"
+        },
+        "fonts": {
+          "headline": "jetbrains",
+          "body": "jetbrains"
+        },
+        "suits": "disappearances, internet mysteries, 80s-90s cases, paranormal recordings",
+        "original": false
+      },
+      {
+        "id": "bone-white-ritual",
+        "name": "Bone white ritual",
+        "description": "Bone-white paper, dried-blood red, black-and-white photos, carved serif titles. Folk horror in daylight.",
+        "light": true,
+        "colour": false,
+        "grade": "mono",
+        "backdrop": "paper",
+        "textStyles": [
+          "serif",
+          "stamp",
+          "cutout"
+        ],
+        "counterStyles": [
+          "bare",
+          "newsprint",
+          "outline",
+          "photo",
+          "box",
+          "odometer"
+        ],
+        "palette": {
+          "bg": "#e6ddc8",
+          "ink": "#1a0f0c",
+          "accent": "#8a0f14",
+          "accent2": "#1a0f0c"
+        },
+        "fonts": {
+          "headline": "cinzel",
+          "body": "crimson"
+        },
+        "suits": "folk horror, cults, rural legends, witch trials",
+        "original": false
+      },
+      {
+        "id": "cyanotype-cold",
+        "name": "Cyanotype cold",
+        "description": "Prussian-blue prints, icy ink and one alarm red. Cold, clinical, hypothermic.",
+        "light": false,
+        "colour": false,
+        "grade": "cyanotype",
+        "backdrop": "gradient",
+        "textStyles": [
+          "outline",
+          "neon",
+          "serif"
+        ],
+        "counterStyles": [
+          "outline",
+          "bare",
+          "box",
+          "photo",
+          "odometer",
+          "newsprint"
+        ],
+        "palette": {
+          "bg": "#031018",
+          "ink": "#d8f1ff",
+          "accent": "#7fe0ff",
+          "accent2": "#ff3b3b"
+        },
+        "fonts": {
+          "headline": "bebas",
+          "body": "crimson"
+        },
+        "suits": "mountain / polar / sea deaths, Dyatlov-type mysteries, hospitals",
+        "original": false
+      },
+      {
+        "id": "occult-neon",
+        "name": "Occult neon",
+        "description": "Violet-black with magenta and cyan neon, purple duotone. Modern urban horror.",
+        "light": false,
+        "colour": false,
+        "grade": "duotone",
+        "backdrop": "gradient",
+        "textStyles": [
+          "neon",
+          "glitch",
+          "outline"
+        ],
+        "counterStyles": [
+          "outline",
+          "bare",
+          "box",
+          "photo",
+          "odometer",
+          "newsprint"
+        ],
+        "palette": {
+          "bg": "#0a0412",
+          "ink": "#f4e9ff",
+          "accent": "#ff2fd0",
+          "accent2": "#3cf0ff"
+        },
+        "fonts": {
+          "headline": "exo",
+          "body": "inter"
+        },
+        "suits": "urban legends, internet horror, cults in cities",
+        "original": false
+      },
+      {
+        "id": "daguerreotype",
+        "name": "Daguerreotype",
+        "description": "Sepia plates, candle gold and dried red, Victorian serif type, dust and flicker. 19th-century dread.",
+        "light": false,
+        "colour": false,
+        "grade": "sepia",
+        "backdrop": "texture",
+        "textStyles": [
+          "serif",
+          "typewriter",
+          "cutout"
+        ],
+        "counterStyles": [
+          "outline",
+          "bare",
+          "box",
+          "photo",
+          "odometer",
+          "newsprint"
+        ],
+        "palette": {
+          "bg": "#140d07",
+          "ink": "#efe0c4",
+          "accent": "#c9a15a",
+          "accent2": "#7a1c12"
+        },
+        "fonts": {
+          "headline": "playfair",
+          "body": "lora"
+        },
+        "suits": "Victorian mysteries, asylums, spiritualism, old photographs",
+        "original": false
+      }
+    ],
+    "crime": [
+      {
+        "id": "evidence-yellow",
+        "name": "Evidence yellow",
+        "description": "The original: cold steel ground, police-tape yellow labels, steel duotone evidence prints, letterbox.",
+        "light": false,
+        "colour": false,
+        "grade": "duotone",
+        "textStyles": [
+          "box"
+        ],
+        "counterStyles": [
+          "box",
+          "bare",
+          "outline",
+          "photo",
+          "odometer",
+          "newsprint"
+        ],
+        "palette": {},
+        "fonts": {},
+        "suits": "classic true crime, FBI cases, heists",
+        "original": true
+      },
+      {
+        "id": "cold-blue-case",
+        "name": "Cold blue case",
+        "description": "Midnight blue, ice-blue labels and alarm red, cool-graded colour photos, broadcast supers. Procedural.",
+        "light": false,
+        "colour": false,
+        "grade": "cool",
+        "backdrop": "gradient",
+        "textStyles": [
+          "lower-third",
+          "underline",
+          "glitch"
+        ],
+        "counterStyles": [
+          "box",
+          "bare",
+          "outline",
+          "photo",
+          "odometer",
+          "newsprint"
+        ],
+        "palette": {
+          "bg": "#07111c",
+          "ink": "#e6f0f7",
+          "accent": "#4fc3f7",
+          "accent2": "#ff4d4d"
+        },
+        "fonts": {
+          "headline": "oswald",
+          "body": "spacegrotesk"
+        },
+        "suits": "police procedurals, cold cases, forensic science",
+        "original": false
+      },
+      {
+        "id": "red-thread",
+        "name": "Red thread",
+        "description": "Oxblood darkness, red-string red, bone-duotone prints, highlighter and ransom letters. The obsessive investigator.",
+        "light": false,
+        "colour": false,
+        "grade": "duotone",
+        "backdrop": "texture",
+        "textStyles": [
+          "marker",
+          "cutout",
+          "stamp"
+        ],
+        "counterStyles": [
+          "box",
+          "bare",
+          "outline",
+          "photo",
+          "odometer",
+          "newsprint"
+        ],
+        "palette": {
+          "bg": "#120606",
+          "ink": "#f5e9e4",
+          "accent": "#e0201b",
+          "accent2": "#f5e9e4"
+        },
+        "fonts": {
+          "headline": "bebas",
+          "body": "courier"
+        },
+        "suits": "serial cases, obsessive investigations, conspiracies",
+        "original": false
+      },
+      {
+        "id": "newsprint-paper",
+        "name": "Newsprint paper",
+        "description": "Off-white newsprint, black ink, tabloid red; black-and-white halftone-feel prints, ransom cut-outs and stamps.",
+        "light": true,
+        "colour": false,
+        "grade": "mono",
+        "backdrop": "paper",
+        "textStyles": [
+          "cutout",
+          "stamp",
+          "typewriter"
+        ],
+        "counterStyles": [
+          "bare",
+          "newsprint",
+          "outline",
+          "photo",
+          "box",
+          "odometer"
+        ],
+        "palette": {
+          "bg": "#efeae0",
+          "ink": "#111111",
+          "accent": "#c8102e",
+          "accent2": "#111111"
+        },
+        "fonts": {
+          "headline": "archivo",
+          "body": "courier"
+        },
+        "suits": "tabloid-era cases (1920s-1980s), kidnappings, famous trials",
+        "original": false
+      },
+      {
+        "id": "color-noir",
+        "name": "Colour noir",
+        "description": "Natural colour with a teal-orange grade, amber and red accents, letterbox, lower-third supers. A crime film.",
+        "light": false,
+        "colour": true,
+        "grade": "teal-orange",
+        "backdrop": "blur",
+        "textStyles": [
+          "lower-third",
+          "outline",
+          "underline"
+        ],
+        "counterStyles": [
+          "outline",
+          "bare",
+          "box",
+          "photo",
+          "odometer",
+          "newsprint"
+        ],
+        "palette": {
+          "bg": "#0b1012",
+          "ink": "#f3efe6",
+          "accent": "#ffb000",
+          "accent2": "#d7263d"
+        },
+        "fonts": {
+          "headline": "bebas",
+          "body": "inter"
+        },
+        "suits": "modern cases, cartels, con artists, Netflix-style true crime",
+        "original": false
+      },
+      {
+        "id": "vhs-tape",
+        "name": "VHS evidence tape",
+        "description": "Tape colour, cyan and magenta OSD type, glitch hits, typed captions. Surveillance footage and 90s news.",
+        "light": false,
+        "colour": true,
+        "grade": "vhs",
+        "backdrop": "solid",
+        "textStyles": [
+          "glitch",
+          "typewriter",
+          "lower-third"
+        ],
+        "counterStyles": [
+          "odometer",
+          "bare",
+          "box",
+          "outline",
+          "photo"
+        ],
+        "palette": {
+          "bg": "#0a0a0f",
+          "ink": "#ffffff",
+          "accent": "#00e5ff",
+          "accent2": "#ff2bd6"
+        },
+        "fonts": {
+          "headline": "jetbrains",
+          "body": "jetbrains"
+        },
+        "suits": "80s-90s cases, surveillance, hackers, missing persons",
+        "original": false
+      }
+    ],
+    "epic": [
+      {
+        "id": "bronze-gold",
+        "name": "Bronze and gold",
+        "description": "The original: bronze darkness, gold carved titles that glow, war-drum reveals, letterbox, light leaks.",
+        "light": false,
+        "colour": false,
+        "grade": "duotone",
+        "textStyles": [
+          "box"
+        ],
+        "counterStyles": [
+          "outline",
+          "bare",
+          "box",
+          "photo",
+          "odometer",
+          "newsprint"
+        ],
+        "palette": {},
+        "fonts": {},
+        "suits": "empires, sieges, ancient and medieval war",
+        "original": true
+      },
+      {
+        "id": "marble-ivory",
+        "name": "Marble ivory",
+        "description": "Ivory marble ground, dark bronze ink, imperial red, warm prints; classical serif and quiet italics.",
+        "light": true,
+        "colour": false,
+        "grade": "warm",
+        "backdrop": "texture",
+        "textStyles": [
+          "serif",
+          "underline",
+          "stack"
+        ],
+        "counterStyles": [
+          "bare",
+          "newsprint",
+          "outline",
+          "photo",
+          "box",
+          "odometer"
+        ],
+        "palette": {
+          "bg": "#ebe5d8",
+          "ink": "#231b12",
+          "accent": "#8f6b1f",
+          "accent2": "#7d1c1c"
+        },
+        "fonts": {
+          "headline": "cinzel",
+          "body": "lora"
+        },
+        "suits": "Rome, Greece, Renaissance, philosophers and emperors",
+        "original": false
+      },
+      {
+        "id": "blood-and-iron",
+        "name": "Blood and iron",
+        "description": "Bleach-bypass photos, iron-black ground, blood red and brass, condensed stencil-like type, stamps. Modern war.",
+        "light": false,
+        "colour": false,
+        "grade": "bleach",
+        "backdrop": "texture",
+        "textStyles": [
+          "stamp",
+          "outline",
+          "stack"
+        ],
+        "counterStyles": [
+          "box",
+          "bare",
+          "outline",
+          "photo",
+          "odometer",
+          "newsprint"
+        ],
+        "palette": {
+          "bg": "#0e0c0b",
+          "ink": "#f0e6dc",
+          "accent": "#c1121f",
+          "accent2": "#d9a441"
+        },
+        "fonts": {
+          "headline": "oswald",
+          "body": "inter"
+        },
+        "suits": "World Wars, modern battles, military operations",
+        "original": false
+      },
+      {
+        "id": "imperial-purple",
+        "name": "Imperial purple",
+        "description": "Tyrian purple and gold, violet duotone, high-contrast serif. Dynasties, crowns, courts.",
+        "light": false,
+        "colour": false,
+        "grade": "duotone",
+        "backdrop": "gradient",
+        "textStyles": [
+          "serif",
+          "lower-third",
+          "underline"
+        ],
+        "counterStyles": [
+          "outline",
+          "bare",
+          "box",
+          "photo",
+          "odometer",
+          "newsprint"
+        ],
+        "palette": {
+          "bg": "#140b20",
+          "ink": "#f3ecff",
+          "accent": "#e3b341",
+          "accent2": "#b07cff"
+        },
+        "fonts": {
+          "headline": "dmserif",
+          "body": "lora"
+        },
+        "suits": "royal dynasties, Byzantium, Ottomans, palace intrigue",
+        "original": false
+      },
+      {
+        "id": "kodachrome-epic",
+        "name": "Kodachrome epic",
+        "description": "Saturated slide-film colour, orange and blue accents, big condensed type, letterbox. Epic in colour.",
+        "light": false,
+        "colour": true,
+        "grade": "kodachrome",
+        "backdrop": "blur",
+        "textStyles": [
+          "stack",
+          "outline",
+          "lower-third"
+        ],
+        "counterStyles": [
+          "box",
+          "bare",
+          "outline",
+          "photo",
+          "odometer",
+          "newsprint"
+        ],
+        "palette": {
+          "bg": "#10141a",
+          "ink": "#fff8ec",
+          "accent": "#ff7a1a",
+          "accent2": "#1f6feb"
+        },
+        "fonts": {
+          "headline": "anton",
+          "body": "inter"
+        },
+        "suits": "expeditions, explorers, 20th-century epics, space race",
+        "original": false
+      },
+      {
+        "id": "war-map-sepia",
+        "name": "War-room sepia",
+        "description": "Sepia prints on dark leather, brass and oxide red, typed dispatches and stamps. The general's map table.",
+        "light": false,
+        "colour": false,
+        "grade": "sepia",
+        "backdrop": "texture",
+        "textStyles": [
+          "typewriter",
+          "stamp",
+          "serif"
+        ],
+        "counterStyles": [
+          "box",
+          "bare",
+          "outline",
+          "photo",
+          "odometer",
+          "newsprint"
+        ],
+        "palette": {
+          "bg": "#1c140c",
+          "ink": "#f2e3c6",
+          "accent": "#e2b05c",
+          "accent2": "#8b2f1c"
+        },
+        "fonts": {
+          "headline": "playfair",
+          "body": "courier"
+        },
+        "suits": "campaign histories, generals, colonial wars, telegrams and maps",
+        "original": false
+      }
+    ],
+    "science": [
+      {
+        "id": "deep-space-cyan",
+        "name": "Deep space cyan",
+        "description": "The original: deep navy, cyan glow, measurement grid, airy Exo titles.",
+        "light": false,
+        "colour": false,
+        "grade": "duotone",
+        "textStyles": [
+          "box"
+        ],
+        "counterStyles": [
+          "outline",
+          "bare",
+          "box",
+          "photo",
+          "odometer"
+        ],
+        "palette": {},
+        "fonts": {},
+        "suits": "space, physics, cosmic scale",
+        "original": true
+      },
+      {
+        "id": "blueprint-lab",
+        "name": "Blueprint",
+        "description": "Blueprint blue with white grid lines and signal yellow, cyanotype prints, technical grotesk and mono.",
+        "light": false,
+        "colour": false,
+        "grade": "cyanotype",
+        "backdrop": "blueprint",
+        "textStyles": [
+          "outline",
+          "underline",
+          "lower-third"
+        ],
+        "counterStyles": [
+          "outline",
+          "bare",
+          "box",
+          "photo",
+          "odometer"
+        ],
+        "palette": {
+          "bg": "#0d3b73",
+          "ink": "#eaf4ff",
+          "accent": "#ffffff",
+          "accent2": "#ffcf3f"
+        },
+        "fonts": {
+          "headline": "spacegrotesk",
+          "body": "jetbrains"
+        },
+        "suits": "engineering, inventions, machines, how-it-works",
+        "original": false
+      },
+      {
+        "id": "clean-lab-white",
+        "name": "Clean lab white",
+        "description": "Lab-white ground, graphite ink, electric blue and coral, natural colour photos. Clear and friendly.",
+        "light": true,
+        "colour": true,
+        "grade": "color",
+        "backdrop": "solid",
+        "textStyles": [
+          "underline",
+          "stack",
+          "marker"
+        ],
+        "counterStyles": [
+          "bare",
+          "outline",
+          "photo",
+          "box",
+          "odometer"
+        ],
+        "palette": {
+          "bg": "#f4f6f8",
+          "ink": "#0b1320",
+          "accent": "#0066ff",
+          "accent2": "#ff5c39"
+        },
+        "fonts": {
+          "headline": "spacegrotesk",
+          "body": "inter"
+        },
+        "suits": "biology, medicine, climate, everyday science",
+        "original": false
+      },
+      {
+        "id": "aurora",
+        "name": "Aurora",
+        "description": "Violet-to-teal gradients, aurora green and pink neon, full-colour photos. Wonder and beauty.",
+        "light": false,
+        "colour": true,
+        "grade": "color",
+        "backdrop": "gradient",
+        "textStyles": [
+          "neon",
+          "stack",
+          "outline"
+        ],
+        "counterStyles": [
+          "outline",
+          "bare",
+          "box",
+          "photo",
+          "odometer"
+        ],
+        "palette": {
+          "bg": "#0a0620",
+          "ink": "#f5f3ff",
+          "accent": "#7cffcb",
+          "accent2": "#ff6ad5"
+        },
+        "fonts": {
+          "headline": "exo",
+          "body": "inter"
+        },
+        "suits": "northern lights, deep sea, nature wonders, astronomy for everyone",
+        "original": false
+      },
+      {
+        "id": "mars-orange",
+        "name": "Mars orange",
+        "description": "Rust-dark ground, Mars orange and ice-blue, warm duotone, heavy grotesk. Planetary, dusty, bold.",
+        "light": false,
+        "colour": false,
+        "grade": "duotone",
+        "backdrop": "split-color",
+        "textStyles": [
+          "stack",
+          "lower-third",
+          "underline"
+        ],
+        "counterStyles": [
+          "box",
+          "bare",
+          "outline",
+          "photo",
+          "odometer"
+        ],
+        "palette": {
+          "bg": "#1a0a05",
+          "ink": "#fff0e6",
+          "accent": "#ff6b2c",
+          "accent2": "#3ad0ff"
+        },
+        "fonts": {
+          "headline": "archivo",
+          "body": "spacegrotesk"
+        },
+        "suits": "Mars, rockets, deserts, energy, volcanoes",
+        "original": false
+      },
+      {
+        "id": "retro-nasa",
+        "name": "Retro mission",
+        "description": "Kodachrome mission photos, worm red and navy, typed telemetry, halftone grounds. The 1960s space program.",
+        "light": false,
+        "colour": true,
+        "grade": "kodachrome",
+        "backdrop": "halftone",
+        "textStyles": [
+          "typewriter",
+          "stamp",
+          "lower-third"
+        ],
+        "counterStyles": [
+          "box",
+          "bare",
+          "outline",
+          "photo",
+          "odometer"
+        ],
+        "palette": {
+          "bg": "#111418",
+          "ink": "#f1efe6",
+          "accent": "#fc3d21",
+          "accent2": "#5b8def"
+        },
+        "fonts": {
+          "headline": "oswald",
+          "body": "courier"
+        },
+        "suits": "Apollo, Cold War science, historic missions",
+        "original": false
+      }
+    ],
+    "inspire": [
+      {
+        "id": "golden-hour",
+        "name": "Golden hour",
+        "description": "The original: warm dark ground, golden light leaks, keepsake photo cards, Playfair titles.",
+        "light": false,
+        "colour": false,
+        "grade": "duotone",
+        "textStyles": [
+          "box"
+        ],
+        "counterStyles": [
+          "box",
+          "bare",
+          "outline",
+          "photo",
+          "odometer",
+          "newsprint"
+        ],
+        "palette": {},
+        "fonts": {},
+        "suits": "biographies, comebacks, founders",
+        "original": true
+      },
+      {
+        "id": "sunlit-paper",
+        "name": "Sunlit paper",
+        "description": "Cream paper, warm ink, tangerine and deep teal, warm-graded photos, editorial serif and highlighter.",
+        "light": true,
+        "colour": false,
+        "grade": "warm",
+        "backdrop": "paper",
+        "textStyles": [
+          "serif",
+          "marker",
+          "underline"
+        ],
+        "counterStyles": [
+          "bare",
+          "newsprint",
+          "outline",
+          "photo",
+          "box",
+          "odometer"
+        ],
+        "palette": {
+          "bg": "#fbf6ec",
+          "ink": "#2b1d12",
+          "accent": "#e8702a",
+          "accent2": "#2b6f6b"
+        },
+        "fonts": {
+          "headline": "dmserif",
+          "body": "lora"
+        },
+        "suits": "gentle life stories, artists, teachers, family histories",
+        "original": false
+      },
+      {
+        "id": "polaroid-colour",
+        "name": "Polaroid colour",
+        "description": "Saturated slide-film photos on white polaroid cards, sunflower and coral, scrapbook cut-outs. Joyful.",
+        "light": false,
+        "colour": true,
+        "grade": "kodachrome",
+        "backdrop": "gradient",
+        "textStyles": [
+          "marker",
+          "stack",
+          "cutout"
+        ],
+        "counterStyles": [
+          "box",
+          "bare",
+          "outline",
+          "photo",
+          "odometer",
+          "newsprint"
+        ],
+        "palette": {
+          "bg": "#16110e",
+          "ink": "#ffffff",
+          "accent": "#ffcf33",
+          "accent2": "#ff5d73"
+        },
+        "fonts": {
+          "headline": "spacegrotesk",
+          "body": "inter"
+        },
+        "suits": "athletes, musicians, youth, summer stories",
+        "original": false
+      },
+      {
+        "id": "blue-hour",
+        "name": "Blue hour",
+        "description": "Dusk-blue ground, pale blue ink and apricot, cool-graded photos, elegant italic serif. Reflective.",
+        "light": false,
+        "colour": false,
+        "grade": "cool",
+        "backdrop": "gradient",
+        "textStyles": [
+          "serif",
+          "lower-third",
+          "outline"
+        ],
+        "counterStyles": [
+          "outline",
+          "bare",
+          "box",
+          "photo",
+          "odometer",
+          "newsprint"
+        ],
+        "palette": {
+          "bg": "#0b1424",
+          "ink": "#eef4ff",
+          "accent": "#ffb86b",
+          "accent2": "#9ec5ff"
+        },
+        "fonts": {
+          "headline": "playfair",
+          "body": "inter"
+        },
+        "suits": "grief and recovery, writers, quiet genius, late-life success",
+        "original": false
+      },
+      {
+        "id": "monochrome-portrait",
+        "name": "Monochrome portrait",
+        "description": "Black and white only, one red accent, high-contrast serif. Gallery portraits, timeless.",
+        "light": false,
+        "colour": false,
+        "grade": "mono",
+        "backdrop": "solid",
+        "textStyles": [
+          "serif",
+          "underline",
+          "stack"
+        ],
+        "counterStyles": [
+          "box",
+          "bare",
+          "outline",
+          "photo",
+          "odometer",
+          "newsprint"
+        ],
+        "palette": {
+          "bg": "#0e0e0e",
+          "ink": "#f5f5f5",
+          "accent": "#ffffff",
+          "accent2": "#e63946"
+        },
+        "fonts": {
+          "headline": "dmserif",
+          "body": "inter"
+        },
+        "suits": "legends, icons, photographers, classic Hollywood",
+        "original": false
+      },
+      {
+        "id": "scrapbook-kraft",
+        "name": "Scrapbook kraft",
+        "description": "Kraft paper, cut-out letters, marker highlights, typed notes, sepia prints. A handmade memory book.",
+        "light": true,
+        "colour": false,
+        "grade": "sepia",
+        "backdrop": "paper",
+        "textStyles": [
+          "cutout",
+          "marker",
+          "typewriter"
+        ],
+        "counterStyles": [
+          "bare",
+          "newsprint",
+          "outline",
+          "photo",
+          "box",
+          "odometer"
+        ],
+        "palette": {
+          "bg": "#d9c4a0",
+          "ink": "#2a1c10",
+          "accent": "#d64933",
+          "accent2": "#2e5e4e"
+        },
+        "fonts": {
+          "headline": "archivo",
+          "body": "courier"
+        },
+        "suits": "childhood stories, underdogs, self-made makers",
+        "original": false
+      }
+    ]
+  },
+  "textStyles": [
+    {
+      "id": "box",
+      "description": "The genre's original treatment: a printed label box (label looks), a glowing word (glow looks) or a data underline (terminal).",
+      "genres": "all",
+      "scenes": [
+        "words",
+        "slam",
+        "title",
+        "montage"
+      ]
+    },
+    {
+      "id": "underline",
+      "description": "Printed label punch: the line in a confident bold face, the keyword slammed onto a solid label block (the genre label colour, slightly tilted) on its spoken frame. No underline bars.",
+      "genres": "all",
+      "scenes": [
+        "words",
+        "slam",
+        "title",
+        "montage"
+      ]
+    },
+    {
+      "id": "marker",
+      "description": "Hand-drawn highlighter: a rough, slightly skewed marker stroke sweeps behind the word in two passes.",
+      "genres": [
+        "documentary",
+        "crime",
+        "inspire",
+        "finance",
+        "science"
+      ],
+      "scenes": [
+        "words",
+        "slam",
+        "title",
+        "montage"
+      ]
+    },
+    {
+      "id": "outline",
+      "description": "Stroked letters that fill with colour left to right, with a stack of outlined echoes behind the slam word.",
+      "genres": "all",
+      "scenes": [
+        "words",
+        "slam",
+        "title",
+        "montage"
+      ]
+    },
+    {
+      "id": "stack",
+      "description": "Kinetic typography: the line is broken into stacked rows of different sizes, all justified to one width; the keyword row is the biggest.",
+      "genres": [
+        "documentary",
+        "finance",
+        "science",
+        "epic",
+        "inspire"
+      ],
+      "scenes": [
+        "words",
+        "slam",
+        "title",
+        "montage"
+      ]
+    },
+    {
+      "id": "serif",
+      "description": "Big editorial italic serif (DM Serif / Playfair), the keyword in the accent colour; quiet, magazine-like.",
+      "genres": [
+        "documentary",
+        "inspire",
+        "epic",
+        "horror",
+        "finance"
+      ],
+      "scenes": [
+        "words",
+        "slam",
+        "title",
+        "montage"
+      ]
+    },
+    {
+      "id": "typewriter",
+      "description": "Typed on a paper slip letter by letter with a cursor (worn typewriter face), keyword in red ink.",
+      "genres": [
+        "crime",
+        "documentary",
+        "horror",
+        "epic",
+        "inspire"
+      ],
+      "scenes": [
+        "words",
+        "slam",
+        "title",
+        "montage"
+      ]
+    },
+    {
+      "id": "cutout",
+      "description": "Ransom-note: every letter of the keyword / slam word on its own torn scrap in a different face and colour.",
+      "genres": [
+        "crime",
+        "horror",
+        "inspire",
+        "documentary"
+      ],
+      "scenes": [
+        "words",
+        "slam",
+        "title",
+        "montage"
+      ]
+    },
+    {
+      "id": "glitch",
+      "description": "RGB-split word with sliced horizontal displacement on landing and small digital relapses.",
+      "genres": [
+        "finance",
+        "horror",
+        "crime",
+        "science"
+      ],
+      "scenes": [
+        "words",
+        "slam",
+        "title",
+        "montage"
+      ]
+    },
+    {
+      "id": "lower-third",
+      "description": "Editorial info caption (Netflix/HBO documentary): a small-caps kicker with wide tracking (\"NORTH ATLANTIC · APRIL 15, 1912\"), a hairline rule and the line in a refined serif at the lower left, on a barely visible scrim. ONLY for lines that carry a name, place, date/time or number.",
+      "genres": "all",
+      "scenes": [
+        "words",
+        "slam",
+        "title",
+        "montage"
+      ]
+    },
+    {
+      "id": "neon",
+      "description": "Glowing gas-tube letters that flicker on, with a thin tube frame on slams. Best on dark grounds.",
+      "genres": [
+        "horror",
+        "science",
+        "finance",
+        "crime"
+      ],
+      "scenes": [
+        "words",
+        "slam",
+        "title",
+        "montage"
+      ]
+    },
+    {
+      "id": "stamp",
+      "description": "Rubber stamp: the word slams down in a double-bordered, worn-ink box, rotated.",
+      "genres": [
+        "crime",
+        "epic",
+        "horror",
+        "finance",
+        "documentary"
+      ],
+      "scenes": [
+        "words",
+        "slam",
+        "title",
+        "montage"
+      ]
+    },
+    {
+      "id": "motif",
+      "description": "The topic identity's own caption language (telegraph log paper with Morse, ticker tape, telemetry readout, patent annotation, teletype, field note, parchment cartouche, cipher cells), placed in the picture's negative space. Set by the topic bible only, never chosen freely.",
+      "genres": "all",
+      "scenes": [
+        "words"
+      ]
+    },
+    {
+      "id": "lyric",
+      "description": "ACCENT. Lyric-video kinetic typography: the whole narration line fills the screen word by word on the voice, mixed sizes and weights, keyword biggest in the accent colour; finished lines drift up and fade as the next arrives.",
+      "genres": "all",
+      "scenes": [
+        "words",
+        "slam",
+        "title",
+        "montage"
+      ],
+      "accent": true,
+      "maxPerVideo": 3
+    },
+    {
+      "id": "kinetic",
+      "description": "ACCENT. The punchy lyric: each word slams in on its spoken frame with motion blur and a slight rotation, the keyword shakes; finished lines whip out upward.",
+      "genres": "all",
+      "scenes": [
+        "words",
+        "slam",
+        "title",
+        "montage"
+      ],
+      "accent": true,
+      "maxPerVideo": 3
+    }
+  ],
+  "counterStyles": [
+    {
+      "id": "box",
+      "description": "The genre's original: the figure in a printed label box (label looks), a glowing frame (glow) or a terminal box.",
+      "genres": "all",
+      "scenes": [
+        "counter"
+      ]
+    },
+    {
+      "id": "bare",
+      "description": "Editorial: a huge bare numeral, flush left, a thin accent rule drawing in beside it and a small-caps label. Calm, confident.",
+      "genres": "all",
+      "scenes": [
+        "counter"
+      ]
+    },
+    {
+      "id": "odometer",
+      "description": "Mechanical counter: every digit on its own drum rolling into place, the low digits spinning fastest. Money piling up, tallies, dates.",
+      "genres": "all",
+      "scenes": [
+        "counter"
+      ],
+      "fromYear": 1900
+    },
+    {
+      "id": "photo",
+      "description": "The figure over the previous scene's picture, darkened and slowly pushing in: the number lands on the place it is about.",
+      "genres": "all",
+      "scenes": [
+        "counter"
+      ],
+      "needsPicture": true
+    },
+    {
+      "id": "ticker",
+      "description": "Stock-ticker paper tape sliding across the frame, the figure printed on it in mono type. Markets, prices, volumes.",
+      "genres": [
+        "finance"
+      ],
+      "scenes": [
+        "counter"
+      ],
+      "fromYear": 1867
+    },
+    {
+      "id": "newsprint",
+      "description": "A newspaper clipping: rules, a serif figure set as a headline, column text below, tilted on the ground. Historic stakes, \"the papers said\".",
+      "genres": [
+        "documentary",
+        "finance",
+        "crime",
+        "epic",
+        "inspire",
+        "horror"
+      ],
+      "scenes": [
+        "counter"
+      ],
+      "fromYear": 1800
+    },
+    {
+      "id": "outline",
+      "description": "A giant outlined numeral filling the frame, flooding with colour from the bottom as it counts; label tracked wide below. Big reveals.",
+      "genres": "all",
+      "scenes": [
+        "counter"
+      ]
+    }
+  ],
+  "backdrops": [
+    {
+      "id": "related",
+      "description": "DEFAULT under big text: the nearest related picture or clip (a neighbouring scene, or one whose narration shares names/nouns with the line), heavily darkened and graded, drifting with slow parallax and depth blur; a clip plays slowed. tone 'light' washes it into paper instead.",
+      "genres": "all",
+      "scenes": [
+        "words",
+        "slam",
+        "title",
+        "counter",
+        "chart",
+        "quote",
+        "timeline"
+      ]
+    },
+    {
+      "id": "era",
+      "description": "A period texture where no picture fits: variant newsprint (columns, headline rules), film (a projector gate with sprockets, flicker and dust) or ledger (ruled accounting paper).",
+      "genres": "all",
+      "scenes": [
+        "words",
+        "slam",
+        "title",
+        "counter",
+        "chart",
+        "quote",
+        "timeline"
+      ]
+    },
+    {
+      "id": "solid",
+      "description": "SILENCE BEATS ONLY (energy 1, at most 2 per video): one flat colour with a soft light falloff (color).",
+      "genres": "all",
+      "scenes": [
+        "words",
+        "slam",
+        "title",
+        "counter",
+        "chart",
+        "quote",
+        "timeline"
+      ],
+      "maxPerVideo": 2
+    },
+    {
+      "id": "gradient",
+      "description": "SILENCE BEATS ONLY (energy 1, at most 2 per video): a slow-drifting two-colour gradient (color -> color2).",
+      "genres": "all",
+      "scenes": [
+        "words",
+        "slam",
+        "title",
+        "counter",
+        "chart",
+        "quote",
+        "timeline"
+      ],
+      "maxPerVideo": 2
+    },
+    {
+      "id": "paper",
+      "description": "Fibrous paper stock with darkened edges (color = paper tone). A light ground: text turns to dark ink.",
+      "genres": "all",
+      "scenes": [
+        "words",
+        "slam",
+        "title",
+        "counter",
+        "chart",
+        "quote",
+        "timeline"
+      ]
+    },
+    {
+      "id": "blueprint",
+      "description": "Blueprint blue with a fine and a coarse white grid, drifting.",
+      "genres": [
+        "science",
+        "finance",
+        "documentary",
+        "epic"
+      ],
+      "scenes": [
+        "words",
+        "slam",
+        "title",
+        "counter",
+        "chart",
+        "quote",
+        "timeline"
+      ]
+    },
+    {
+      "id": "halftone",
+      "description": "Print halftone: dots in color2 fading across a color ground.",
+      "genres": "all",
+      "scenes": [
+        "words",
+        "slam",
+        "title",
+        "counter",
+        "chart",
+        "quote",
+        "timeline"
+      ]
+    },
+    {
+      "id": "blur",
+      "description": "The previous scene's picture, heavily blurred, in colour (big text: drawn as 'related').",
+      "genres": "all",
+      "scenes": [
+        "words",
+        "slam",
+        "title",
+        "counter",
+        "chart",
+        "quote",
+        "timeline"
+      ]
+    },
+    {
+      "id": "split-color",
+      "description": "Two colour fields split on a hard diagonal (color | color2).",
+      "genres": [
+        "documentary",
+        "finance",
+        "science",
+        "inspire"
+      ],
+      "scenes": [
+        "words",
+        "slam",
+        "title",
+        "counter",
+        "chart",
+        "quote",
+        "timeline"
+      ]
+    },
+    {
+      "id": "texture",
+      "description": "A tactile material (concrete / card) tinted with color, with a moving light.",
+      "genres": "all",
+      "scenes": [
+        "words",
+        "slam",
+        "title",
+        "counter",
+        "chart",
+        "quote",
+        "timeline"
+      ]
+    }
+  ],
+  "grades": [
+    {
+      "id": "duotone",
+      "description": "The look's two-colour duotone (shadow -> highlight): every picture inside the palette.",
+      "genres": "all",
+      "scenes": [
+        "photo",
+        "montage",
+        "words",
+        "slam",
+        "title",
+        "quote",
+        "split",
+        "board",
+        "document"
+      ]
+    },
+    {
+      "id": "mono",
+      "description": "Contrasty black and white.",
+      "genres": "all"
+    },
+    {
+      "id": "color",
+      "description": "Natural colour, lightly punched (contrast + saturation).",
+      "genres": "all"
+    },
+    {
+      "id": "warm",
+      "description": "Golden, warm highlights; nostalgic and hopeful.",
+      "genres": [
+        "inspire",
+        "documentary",
+        "epic",
+        "finance"
+      ]
+    },
+    {
+      "id": "cool",
+      "description": "Cold steel-blue cast, lowered saturation.",
+      "genres": [
+        "crime",
+        "horror",
+        "science",
+        "finance"
+      ]
+    },
+    {
+      "id": "teal-orange",
+      "description": "Blockbuster split-tone: teal shadows, orange skin and highlights.",
+      "genres": [
+        "crime",
+        "epic",
+        "documentary",
+        "science"
+      ]
+    },
+    {
+      "id": "sepia",
+      "description": "Brown-toned antique print.",
+      "genres": [
+        "epic",
+        "inspire",
+        "horror",
+        "documentary",
+        "crime"
+      ]
+    },
+    {
+      "id": "cyanotype",
+      "description": "Prussian-blue photographic print.",
+      "genres": [
+        "science",
+        "horror",
+        "epic"
+      ]
+    },
+    {
+      "id": "bleach",
+      "description": "Bleach bypass: desaturated, hard contrast, silvery — war-film grit.",
+      "genres": [
+        "epic",
+        "crime",
+        "horror"
+      ]
+    },
+    {
+      "id": "kodachrome",
+      "description": "Saturated vintage slide film: rich reds, deep blues.",
+      "genres": [
+        "inspire",
+        "science",
+        "epic",
+        "documentary"
+      ]
+    },
+    {
+      "id": "vhs",
+      "description": "Washed-out tape colour with lifted blacks and a slight red smear.",
+      "genres": [
+        "horror",
+        "crime",
+        "finance"
+      ]
+    },
+    {
+      "id": "selective",
+      "description": "Black and white with ONE hue kept in colour (script.topic.keepHue): the topic bible accent object. Set by the topic bible only, never chosen freely.",
+      "genres": "all"
+    }
+  ]
+}

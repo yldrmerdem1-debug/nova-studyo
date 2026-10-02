@@ -1,0 +1,158 @@
+{
+  "id": "apollo13",
+  "title": "Tarihin En Başarılı Başarısızlığı",
+  "chapters": ["Apollo 13"],
+  "genre": "science",
+  "locale": "tr-TR",
+  "visualStyle": "Authentic 1970 NASA archival photograph, Ektachrome film grain, hard mission lighting, documentary realism.",
+  "cast": {},
+  "scenes": [
+    {
+      "type": "montage", "mood": "tension", "riser": true, "chapter": 0, "source": "ai",
+      "imagePrompts": [
+        "Extreme close-up of an analog oxygen pressure gauge in a 1970 spacecraft, the needle falling toward zero",
+        "Close-up of a 1970 mission control console, rows of blinking indicator lights and toggle switches",
+        "Extreme close-up of an astronaut's gloved hand on a metal toggle switch, breath fogging in the cold cabin",
+        "The Earth small and blue through a tiny triangular spacecraft window, deep black space around it",
+        "Engineers' hands emptying a cardboard box of spare hoses, tape and plastic bags onto a table under fluorescent light",
+        "A tiny spacecraft silhouette drifting in front of the grey cratered Moon, total darkness"
+      ],
+      "text": "Oksijen Ay Dönüş",
+      "say": "[whispers] Oksijen bitiyor... Ay çok uzakta... [dramatic] ve dönüş yok.",
+      "dur": 4.2
+    },
+    {
+      "type": "title", "mood": "curious", "chapter": 0, "source": "archive",
+      "search": "Apollo 13 launch Saturn V 1970",
+      "kicker": "Apollo 13", "title": "Başarılı Başarısızlık",
+      "imagePrompt": "A Saturn V rocket lifting off from the launch pad in 1970, huge plume of fire and smoke, dawn sky",
+      "sound": "distant rocket rumble, crowd murmur far away, wind",
+      "say": "[curious] Bu... tarihin en başarılı başarısızlığının hikâyesi.",
+      "dur": 3.4
+    },
+    {
+      "type": "counter", "mood": "triumph", "chapter": 0,
+      "from": 0, "to": 400171, "suffix": " km", "label": "Dünya'dan uzaklık",
+      "say": "[confident] Dünyadan dört yüz bin kilometre uzakta...",
+      "dur": 2.4
+    },
+    {
+      "type": "photo", "mood": "calm", "chapter": 0, "source": "archive",
+      "search": "Apollo 13 crew portrait Lovell Swigert Haise",
+      "imagePrompt": "Official 1970 portrait of three astronauts in white spacesuits standing together",
+      "name": "Lovell · Swigert · Haise", "role": "Apollo 13 mürettebatı",
+      "say": "[warmly] Üç astronot: Jim Lovell, Jack Swigert ve Fred Haise.",
+      "dur": 3.4
+    },
+    {
+      "type": "words", "mood": "curious", "chapter": 0, "source": "archive",
+      "search": "Apollo 13 liftoff April 1970",
+      "text": "Hedef Ay'a inmekti", "keyword": "Ay'a",
+      "imagePrompt": "A white Saturn V rocket climbing into a blue sky trailing flame, seen from far away",
+      "sound": "deep distant rocket roar fading",
+      "say": "[curious] On bir Nisan bin dokuz yüz yetmiş... hedef Ay'a inmekti.",
+      "dur": 3.2
+    },
+    {
+      "type": "photo", "mood": "tension", "chapter": 0, "source": "ai",
+      "imagePrompt": "Inside a cramped 1970 spacecraft cabin, an astronaut in a white jumpsuit reaching up to flip a switch on a crowded instrument panel, dim instrument light",
+      "fullBleed": true, "focus": [0.5, 0.4],
+      "sound": "quiet spacecraft cabin hum, fans whirring, a switch click",
+      "say": "[quietly] Elli beşinci saatte... rutin bir düğmeye basıldı.",
+      "dur": 3.2
+    },
+    {
+      "type": "slam", "mood": "reveal", "chapter": 0, "source": "archive", "riser": true,
+      "search": "Apollo 13 damaged service module",
+      "word": "Patladı", "sub": "2 numaralı oksijen tankı",
+      "imagePrompt": "A damaged spacecraft service module drifting in space, one side panel blown away, torn metal and wires exposed",
+      "say": "Ve oksijen tankı... [dramatic] patladı.",
+      "dur": 3.0
+    },
+    {
+      "type": "words", "mood": "dread", "chapter": 0, "source": "archive",
+      "search": "Apollo 13 mission control flight controllers",
+      "text": "Houston bir sorunumuz var", "keyword": "sorunumuz",
+      "imagePrompt": "Flight controllers in white shirts leaning over consoles in a 1970 mission control room, tense faces",
+      "sound": "radio static, low murmur of voices in a control room",
+      "say": "[quietly] Houston... bir sorunumuz var.",
+      "dur": 3.0
+    },
+    {
+      "type": "photo", "mood": "tension", "chapter": 0, "source": "archive",
+      "search": "Gene Kranz flight director Apollo 13",
+      "imagePrompt": "A flight director in a white vest standing at a mission control console in 1970, looking at screens",
+      "name": "Gene Kranz", "role": "Uçuş direktörü",
+      "sound": "busy control room, phones, radio chatter",
+      "say": "[serious] Uçuş direktörü Gene Kranz ekibine tek bir şey söyledi: sakin kalın.",
+      "dur": 3.6
+    },
+    {
+      "type": "photo", "mood": "curious", "chapter": 0, "source": "archive",
+      "search": "Apollo 13 lunar module Aquarius",
+      "imagePrompt": "A lunar module spacecraft with gold foil and spindly legs floating in black space",
+      "caption": "Aquarius: cankurtaran sandalı",
+      "sound": "deep space hum, faint radio beeps",
+      "say": "[curious] Plan cüretkârdı: Ay modülü... cankurtaran sandalı olacaktı.",
+      "dur": 3.4
+    },
+    {
+      "type": "counter", "mood": "dread", "chapter": 0,
+      "from": 21, "to": 3, "suffix": "°C", "label": "Kabin sıcaklığı",
+      "say": "[quietly] Kabin sıcaklığı üç dereceye düştü.",
+      "dur": 2.6
+    },
+    {
+      "type": "photo", "mood": "calm", "chapter": 0, "source": "archive",
+      "search": "Apollo 13 CO2 scrubber mailbox adapter",
+      "imagePrompt": "A makeshift square air filter box built from cardboard, plastic bags and grey duct tape, taped to a hose inside a spacecraft",
+      "caption": "Bant, karton ve plastik torba",
+      "sound": "tape being torn, plastic rustling, quiet cabin hum",
+      "say": "[warmly] Yerdeki mühendisler... kutu, bant ve torbadan bir hava filtresi uydurdu.",
+      "dur": 3.6
+    },
+    {
+      "type": "words", "mood": "tension", "chapter": 0, "source": "ai",
+      "text": "Tek bir hata ve kapsül atmosferde yanacaktı", "keyword": "yanacaktı",
+      "imagePrompt": "A small cone-shaped capsule glowing orange hot as it plunges into Earth's atmosphere, a trail of plasma behind it",
+      "sound": "roaring wind, crackling heat",
+      "say": "[serious] Tek bir hata... ve kapsül atmosferde yanacaktı.",
+      "dur": 3.2
+    },
+    {
+      "type": "photo", "mood": "dread", "chapter": 0, "source": "archive", "silence": true,
+      "search": "Apollo 13 mission control waiting reentry",
+      "imagePrompt": "Flight controllers standing silently at their consoles, staring at a big screen, 1970 mission control",
+      "caption": "Dört dakika sessizlik",
+      "sound": "tense silence, faint radio static hiss",
+      "say": "[whispers] Dört dakikalık telsiz sessizliği...",
+      "dur": 3.4
+    },
+    {
+      "type": "slam", "mood": "triumph", "chapter": 0, "source": "archive", "riser": true,
+      "search": "Apollo 13 splashdown parachutes",
+      "word": "Döndüler", "sub": "17 Nisan 1970",
+      "imagePrompt": "A space capsule descending under three big red and white parachutes over a blue ocean",
+      "say": "Sonra paraşütler açıldı... [excited] döndüler.",
+      "dur": 3.0
+    },
+    {
+      "type": "photo", "mood": "triumph", "chapter": 0, "source": "archive",
+      "search": "Apollo 13 crew aboard USS Iwo Jima",
+      "imagePrompt": "Three astronauts smiling on the deck of a navy ship after splashdown, sailors cheering around them",
+      "caption": "Üçü de sağ salim",
+      "sound": "ship deck, cheering crowd, sea wind",
+      "say": "[warmly] Üç astronot da sağ salim eve döndü.",
+      "dur": 3.2
+    },
+    {
+      "type": "words", "mood": "calm", "chapter": 0, "source": "archive",
+      "search": "Apollo 13 view of Earth from spacecraft",
+      "text": "Bazen en büyük zafer eve dönebilmektir", "keyword": "eve",
+      "imagePrompt": "The blue Earth rising over the grey horizon of the Moon, seen from a small spacecraft window",
+      "sound": "soft deep space hum",
+      "say": "[softly] Bazen en büyük zafer... eve dönebilmektir.",
+      "dur": 4.0
+    }
+  ]
+}

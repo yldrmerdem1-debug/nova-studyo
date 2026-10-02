@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<title>Nova Stüdyo</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    background: radial-gradient(1100px 700px at 50% -10%, #16213a 0%, #0a0d13 62%);
+    color: #e8eefc;
+    font: 14px/1.6 "Segoe UI", system-ui, sans-serif;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 22px; user-select: none; -webkit-user-select: none;
+  }
+  .mark {
+    width: 74px; height: 74px; border-radius: 20px;
+    background: linear-gradient(140deg, #5b8cff, #a855f7 55%, #ef4444);
+    display: grid; place-items: center;
+    font-size: 34px; font-weight: 800; color: #fff;
+    box-shadow: 0 18px 50px rgba(91, 140, 255, .34);
+    animation: float 2.6s ease-in-out infinite;
+  }
+  @keyframes float { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-7px) } }
+  h1 { font-size: 22px; font-weight: 700; letter-spacing: .3px; }
+  p { color: #8c98b4; font-size: 13px; }
+  .bar { width: 240px; height: 3px; border-radius: 3px; background: #1b2338; overflow: hidden; }
+  .bar i {
+    display: block; height: 100%; width: 38%; border-radius: 3px;
+    background: linear-gradient(90deg, #5b8cff, #a855f7);
+    animation: slide 1.25s ease-in-out infinite;
+  }
+  @keyframes slide { 0% { transform: translateX(-100%) } 100% { transform: translateX(360%) } }
+</style>
+</head>
+<body>
+  <div class="mark">N</div>
+  <div style="text-align:center">
+    <h1>Nova Stüdyo</h1>
+    <p>Stüdyo hazırlanıyor…</p>
+  </div>
+  <div class="bar"><i></i></div>
+</body>
+</html>

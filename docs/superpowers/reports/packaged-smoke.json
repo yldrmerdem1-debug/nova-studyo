@@ -1,0 +1,13 @@
+{
+  "ffmpeg": true,
+  "node": "v24.18.0",
+  "home": "C:\\Users\\erdem\\Videos\\Nova Studyo\\quality-review\\packaged-home",
+  "emptyJobs": true,
+  "editorScriptHttpStatus": 200,
+  "musicVolume": 0,
+  "crf": 26,
+  "renderQuality": "custom",
+  "editIntensity": "dynamic",
+  "soundDesign": true,
+  "checkedAt": "2026-09-07T17:16:02.4385849Z"
+}

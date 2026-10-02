@@ -1,0 +1,20 @@
+# dependencies
+node_modules/
+
+# build outputs
+dist/
+dist-*/
+docu-engine/build/
+docu-engine/out/
+*.log
+
+# user data: settings (API keys), jobs, previews — never commit
+data/
+*.env
+.env*
+
+# OS / editor
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
