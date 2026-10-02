@@ -40,7 +40,8 @@ import {
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, parse as parsePath, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ensureFoley, libraryRoot, loadLibrary, musicHistoryFor, pickSfxPools, planAmbience, planEvents, planScore, readMusicHistory, recordMusicHistory, renderScore, sceneYears, sfxMeta } from './audio-director.mjs';
+import { ensureFoley, libraryRoot, loadLibrary, musicHistoryFor, pickSfxPools, planAmbience, planEvents, planScore, readMusicHistory, recordMusicHistory, renderScore, sceneYears, sfxMeta, storyGravity } from './audio-director.mjs';
+import { applyEditGrammar } from './edit-grammar.mjs';
 import { VOICE_CHAIN_VERSION, applySpace, panVariant, processVoice, widenBed } from './sound-craft.mjs';
 import { placeTimeline } from '../src/timeline.js';
 import { openingEnd } from '../src/opening/plan.js';
@@ -548,6 +549,8 @@ export async function produce(scriptIn, o) {
   const KNOWN_GENRES = ['documentary', 'finance', 'horror', 'crime', 'epic', 'science', 'inspire'];
   if (!KNOWN_GENRES.includes(script.genre)) script.genre = 'documentary';
   const log = o.log ?? ((m) => console.log('›', m));
+  // Transitions, effects and camera obey the story's gravity and each beat's meaning (edit-grammar.mjs).
+  for (const n of applyEditGrammar(script, { gravity: storyGravity(script, script.genre) }).notes) log(n);
   const progress = o.progress ?? (() => {});
   const cancelled = o.cancelled ?? (() => false);
   const guard = () => {

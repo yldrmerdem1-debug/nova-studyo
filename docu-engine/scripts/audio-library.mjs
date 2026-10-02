@@ -323,6 +323,87 @@ async function listen(track, key) {
   }
 }
 
+/* ------------------------------------------------------------ tone (gravity) */
+
+// A siege, a crash, a murder: the music must stay grave. moodFit cannot tell a sombre victory from a
+// soaring adventure cue ("Taking Flight" under a 1453 chapter), so every track also gets its register.
+const TONE_SCHEMA = {
+  register: 'grave | dramatic | heroic | light — grave: sombre, weighty, mournful, restrained, ominous; dramatic: serious cinematic tension or epic weight, no uplift; heroic: soaring, adventurous, triumphant fanfare, uplifting, "movie trailer hope"; light: playful, quirky, upbeat, corporate, whimsical, happy',
+  seriousness: 'number 0-1 — how well it fits a sober documentary about war, death, collapse or crime (1 = perfect, 0 = would sound cheap or disrespectful there)',
+  gameLike: 'boolean — sounds like video-game, fantasy-adventure, superhero or kids-film music',
+  note: 'string — max 12 words, why',
+};
+
+async function listenTone(track, key) {
+  const src = join(ROOT, track.file);
+  const dur = track.duration;
+  const loud = Math.max(0, (track.energy ?? []).indexOf(0));
+  const a0 = Math.min(6, Math.max(0, dur - 40));
+  const a1 = Math.max(0, Math.min(dur - 20, loud - 6));
+  const tmp = join(ROOT, '.tmp');
+  mkdirSync(tmp, { recursive: true });
+  const clip = join(tmp, `${track.id}.tone.mp3`);
+  ff(['-y', '-hide_banner', '-loglevel', 'error', '-i', src, '-filter_complex',
+    `[0:a]atrim=${a0.toFixed(1)}:${(a0 + 20).toFixed(1)},asetpts=PTS-STARTPTS[p0];[0:a]atrim=${a1.toFixed(1)}:${(a1 + 20).toFixed(1)},asetpts=PTS-STARTPTS[p1];[p0][p1]concat=n=2:v=0:a=1[o]`,
+    '-map', '[o]', '-ac', '1', '-ar', '22050', '-b:a', '48k', clip]);
+  const body = {
+    model: process.env.NOVA_AUDIO_TAG_MODEL || 'gpt-audio-1.5',
+    modalities: ['text'],
+    messages: [
+      { role: 'system', content: 'You are the music supervisor of a serious history and finance documentary channel (war, sieges, collapses, crime). You judge the emotional REGISTER of a track, strictly: uplifting adventure or trailer-hope music is "heroic" even when it is orchestral and epic. Reply with ONLY a JSON object with exactly these keys: ' + JSON.stringify(TONE_SCHEMA) },
+      { role: 'user', content: [
+        { type: 'text', text: `Track "${track.title}" by ${track.artist || 'unknown'}. Two 20-second excerpts: the opening, then the loudest part.` },
+        { type: 'input_audio', input_audio: { data: readFileSync(clip).toString('base64'), format: 'mp3' } },
+      ] },
+    ],
+  };
+  for (let attempt = 1; ; attempt++) {
+    const r = await fetch('https://api.openai.com/v1/chat/completions', { method: 'POST', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    if (r.ok) {
+      const txt = (await r.json()).choices?.[0]?.message?.content || '';
+      const j = JSON.parse(txt.slice(txt.indexOf('{'), txt.lastIndexOf('}') + 1));
+      const register = ['grave', 'dramatic', 'heroic', 'light'].includes(j.register) ? j.register : 'dramatic';
+      return { register, seriousness: Math.max(0, Math.min(1, Number(j.seriousness) || 0)), gameLike: j.gameLike === true, toneNote: String(j.note || '').slice(0, 120) };
+    }
+    const t = await r.text();
+    if (/insufficient_quota|billing/.test(t)) throw new Error('OpenAI kredisi yok');
+    if (attempt >= 4 || (r.status < 500 && r.status !== 429)) throw new Error(`OpenAI (${r.status}): ${t.slice(0, 200)}`);
+    await new Promise((res) => setTimeout(res, 3000 * attempt));
+  }
+}
+
+/** Adds register / seriousness / gameLike to every tagged track that lacks them (or all, with force). */
+async function tone(force) {
+  const key = process.env.NOVA_OPENAI_KEY;
+  if (!key) throw new Error('NOVA_OPENAI_KEY yok');
+  const todo = load().music.filter((m) => m.tags && (force || !m.tags.register));
+  console.log('ton dinlenecek', todo.length);
+  let done = 0;
+  let fatal = null;
+  const workers = Array.from({ length: 4 }, async () => {
+    while (todo.length && !fatal) {
+      const t = todo.shift();
+      try {
+        const tn = await listenTone(t, key);
+        update((lib) => {
+          const m = lib.music.find((x) => x.id === t.id);
+          if (m?.tags) Object.assign(m.tags, tn);
+        });
+      } catch (e) {
+        console.log('ton alınamadı', t.title, e.message.slice(0, 200));
+        if (/kredisi yok/.test(e.message)) fatal = e;
+      }
+      if (++done % 20 === 0) console.log('ton', done);
+    }
+  });
+  await Promise.all(workers);
+  if (fatal) throw fatal;
+  const lib = load().music.filter((m) => m.tags?.register);
+  const by = {};
+  for (const m of lib) by[m.tags.register] = (by[m.tags.register] || 0) + 1;
+  console.log('bitti', JSON.stringify(by), 'oyun gibi', lib.filter((m) => m.tags.gameLike).length);
+}
+
 async function tag(limit) {
   const key = process.env.NOVA_OPENAI_KEY;
   if (!key) throw new Error('NOVA_OPENAI_KEY yok');
@@ -409,6 +490,7 @@ if (direct) {
   if (cmd === 'ingest-music') ingestMusic(arg, rest.includes('--source') ? rest[rest.indexOf('--source') + 1] : 'youtube-audio-library');
   else if (cmd === 'ingest-sfx') await ingestSfx(arg);
   else if (cmd === 'tag') await tag(Number(arg) || 0);
+  else if (cmd === 'tone') await tone(arg === 'force');
   else if (cmd === 'measure') measureAll();
   else if (cmd === 'stats') stats();
   else if (cmd === 'plan') await planPreview(arg, rest[0]);

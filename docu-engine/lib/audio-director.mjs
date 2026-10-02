@@ -1073,8 +1073,46 @@ function cultureBonus(culture, pref) {
   return 0;
 }
 
-function musicPool(L) {
-  return L.music.filter((t) => t.tags && t.tags.documentaryUsable === true && fold(t.tags.vocals) !== 'lyrics' && (Number(t.duration) || 0) >= 25);
+/*
+ * GRAVITY — a siege, a crash, a murder, an execution: the score stays grave even in a "victory"
+ * chapter. moodFit cannot tell a sombre triumph from a soaring adventure cue (user, 1453 at 3:30:
+ * "bu ciddi bir konu, böyle müzikler çalmamalı"), so tracks carry their register (scripts/
+ * audio-library.mjs tone) and a grave story only hears grave and dramatic ones.
+ */
+const GRAVE_GENRES = new Set(['epic', 'crime', 'horror']);
+const GRAVE_WORDS = /\b(war|wars|siege|besieged|battle|killed|kill|killing|death|deaths|dead|died|dying|murder|murdered|massacre|executed|execution|slaughter|genocide|famine|plague|collapse|collapsed|crash|crashed|ruin|ruined|suicide|bankrupt|bankruptcy|depression|conquest|conquered|fell|fall|fallen|invasion|invaded|bombed|bombing|hijack|hijacking|prison|prisoners|handcuffs|blood|corpse|grave|graves)\b/g;
+
+/** 'grave' (war, death, collapse, crime) or 'open' (science, biography, wonder). script.musicGravity overrides. */
+export function storyGravity(script, genre) {
+  const set = String(script?.musicGravity ?? '').toLowerCase();
+  if (set === 'grave' || set === 'open') return set;
+  if (GRAVE_GENRES.has(genre)) return 'grave';
+  const text = [script?.title, ...(script?.scenes ?? []).map((s) => s?.say)].filter(Boolean).join(' ').toLowerCase();
+  const hits = (text.match(GRAVE_WORDS) ?? []).length;
+  const words = Math.max(1, text.split(/\s+/).length);
+  // A finance story about a crash and its suicides is grave; one passing "fell" in a science film is not.
+  return hits >= 6 && hits / words >= 0.003 ? 'grave' : 'open';
+}
+
+/** Can this track play under a grave story? Untoned tracks (older libraries) pass. */
+export function fitsGravity(t, gravity) {
+  if (gravity !== 'grave') return !t.tags?.gameLike;
+  const tg = t.tags ?? {};
+  if (!tg.register) return true;
+  return (tg.register === 'grave' || tg.register === 'dramatic') && !tg.gameLike && num(tg.seriousness, 1) >= 0.55;
+}
+
+function musicPool(L, gravity = 'open') {
+  const base = L.music.filter((t) => t.tags && t.tags.documentaryUsable === true && fold(t.tags.vocals) !== 'lyrics' && (Number(t.duration) || 0) >= 25);
+  const fit = base.filter((t) => fitsGravity(t, gravity));
+  // A small library keeps working: then the register only orders the pool (see gravityPenalty).
+  return fit.length >= 24 ? fit : base;
+}
+
+/** Soft side of the same rule, for a library too small to filter hard. */
+function gravityPenalty(t, gravity) {
+  if (gravity !== 'grave' || fitsGravity(t, gravity)) return 0;
+  return 0.6;
 }
 
 function trackScore(t, cue, ctx) {
@@ -1526,6 +1564,11 @@ const moodMix = (t, w) => MOODS.reduce((s, m) => s + (w[m] ?? 0) * (t.tags.moodF
 function trackScore2(t, cue, ctx) {
   let s = trackScore(t, cue, ctx);
   if (Number.isFinite(cue.energy)) s += 0.06 * (1 - Math.min(1, Math.abs((Number(t.tags.energy) || 3) - cue.energy) / 3));
+  // In a grave story, grief and calm want a mournful, restrained track, not a percussive tension cue.
+  if (ctx.gravity === 'grave' && (cue.mood === 'sad' || cue.mood === 'calm') && t.tags.register) {
+    if (t.tags.register === 'grave') s += 0.14;
+    if ((Number(t.tags.energy) || 3) >= 4) s -= 0.12;
+  }
   return s;
 }
 
@@ -1607,6 +1650,12 @@ function pickTheme(ctx, music, g) {
     let s = 0.5 * moodMix(t, w) + ctx.static.get(t.id) + 0.2 * num(t.tags.genreFit?.[g], 0.4) + cultureBonus(t.tags.culture, ctx.pref);
     s += ((Number(t.duration) || 0) >= 150 ? 0.05 : 0) + (f.melodic ? 0.04 : -0.06) + (f.beat ? -0.05 : 0);
     if (fold(t.tags.vocals) === 'wordless' && g !== 'epic' && g !== 'horror') s -= 0.05;
+    // The theme comes back on the grief and the finale: in a grave story it is a melody that can mourn,
+    // not a wall of drums (1453: "Clash Defiant" under the emperor's death).
+    if (ctx.gravity === 'grave' && t.tags.register) {
+      s += 0.15 * num(t.tags.moodFit?.sad, 0) + (t.tags.register === 'grave' ? 0.05 : 0);
+      if ((Number(t.tags.energy) || 3) >= 5) s -= 0.12;
+    }
     return { t, key: t.id, score: s };
   });
   return pickNear(scored, rngFor(ctx.seed, 'theme', g), 0.03, 4)?.t ?? null;
@@ -1690,7 +1739,8 @@ function planScoreV2({ script, sceneSeconds, lib, genre, seed, root, history = [
   const secs = sceneSecondsOf(script, sceneSeconds);
   const units = timeline(scenes, secs);
   if (!units.length) return { cues: [] };
-  const pool = musicPool(L);
+  const gravity = storyGravity(script, g);
+  const pool = musicPool(L, gravity);
   if (!pool.length) return { cues: [], reason: 'kütüphanede belgesele uygun müzik yok' };
   let runs = planRuns(units);
   annotateEnergy(runs, scenes);
@@ -1699,9 +1749,9 @@ function planScoreV2({ script, sceneSeconds, lib, genre, seed, root, history = [
   const recent = (Array.isArray(history) ? history : []).filter((e) => e && Array.isArray(e.tracks)).slice(-HISTORY_N).reverse();
   const ctx = {
     pool, genre: g, seed: seed ?? script?.seedKey ?? script?.id ?? 'nova', pref: culturePrefs(script, g), speech: speechMap(scenes, secs),
-    profile, recent, uses: new Map(), ranges: new Map(), palette: [], static: new Map(), theme: null, colour: new Set(),
+    profile, recent, uses: new Map(), ranges: new Map(), palette: [], static: new Map(), theme: null, colour: new Set(), gravity,
   };
-  for (const t of pool) ctx.static.set(t.id, styleScore(t, profile) + qualityOf(t) - historyPenalty(t, recent));
+  for (const t of pool) ctx.static.set(t.id, styleScore(t, profile) + qualityOf(t) - historyPenalty(t, recent) - gravityPenalty(t, gravity));
   const total = units.at(-1).to;
   const music = runs.map((r, k) => ({ r, k })).filter(({ r }) => !r.silence);
   const plain = music.filter(({ r }) => !r.resume);
@@ -1830,6 +1880,7 @@ function planScoreV2({ script, sceneSeconds, lib, genre, seed, root, history = [
   return {
     cues,
     selector: 'v2',
+    gravity,
     theme: ctx.theme && usedIds.includes(ctx.theme.id) ? { id: ctx.theme.id, title: ctx.theme.title } : null,
     palette: usedIds,
     profile: { year: profile.year, topics: profile.topics, signature: profile.signature, prefer: Object.entries(profile.w).filter(([, v]) => v > 0.25).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([k]) => k), avoid: Object.entries(profile.w).filter(([, v]) => v < -0.25).sort((a, b) => a[1] - b[1]).slice(0, 5).map(([k]) => k) },
@@ -2841,5 +2892,5 @@ export function planEvents({ script, lib, root, genre, seed, sceneSeconds, ff, m
 }
 
 /* Internals for tests and tooling. */
-export const _internals = { planRuns, timeline, bestStart, windowFit, culturePrefs, musicPool, prep, parseDefaultBeds, speechMap, quietPoint, SCORE_LUFS, NARRATION_LUFS, SFX_TARGET, XFADE, MIN_HOLD,
+export const _internals = { musicPoolFor: musicPool, planRuns, timeline, bestStart, windowFit, culturePrefs, musicPool, prep, parseDefaultBeds, speechMap, quietPoint, SCORE_LUFS, NARRATION_LUFS, SFX_TARGET, XFADE, MIN_HOLD,
   bestStart2, styleScore, qualityOf, historyPenalty, annotateEnergy, addBreaths, themeSpots, PALETTE_MIN, PALETTE_MAX, MAX_USES };

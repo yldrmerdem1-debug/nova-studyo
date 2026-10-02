@@ -140,7 +140,7 @@ export function buildShortAss({ cues, start, end, hook = "", endCard = "FULL DOC
     "Style: Cap,Impact,118,&H00FFFFFF,&H00FFFFFF,&H00000000,&H64000000,0,0,0,0,100,100,1,0,1,9,4,2,60,60,300,1",
     // Kanca: basılı etiket (opak kutu), hafif yamuk.
     `Style: Hook,Impact,84,&H00111111,&H00111111,${accent},&H00000000,0,0,0,0,100,100,1,-2.5,3,22,0,8,90,90,250,1`,
-    // Açılış patlaması: ortada büyük sarı etiket kelimeler (ilk videoların imza kancası).
+    // Açılış: anlatıcının söylediği üç kelime, söylendiği anda ortaya basılı etiket olarak çakılır.
     `Style: Slam,Impact,150,&H00111111,&H00111111,${accent},&H00000000,0,0,0,0,100,100,2,-3,3,30,0,5,60,60,0,1`,
     `Style: End,Impact,64,&H00111111,&H00111111,${accent},&H00000000,0,0,0,0,100,100,1,0,3,18,0,2,90,90,520,1`,
     "",
@@ -200,17 +200,27 @@ export const TEASER_WORDS = [105, 140];
 const TEASER_SCHEMA = {
   type: "object",
   properties: {
-    hook: { type: "string", description: "On-screen hook label at the top, 2-5 words, ALL CAPS" },
-    slams: { type: "array", items: { type: "string" }, description: "Exactly 3 single punchy words (ALL CAPS, from the story) slammed one by one in the first 1.5 seconds, like a movie trailer: e.g. CRASH / GREED / WAR" },
+    hook: { type: "string", description: "On-screen label at the top for the rest of the Short, 3-6 words, ALL CAPS, naming the story: e.g. 'THE NIGHT AN EMPIRE FELL'" },
+    opening: {
+      type: "object",
+      description: "The first spoken line, before the beats: three short fragments with a rhythm, each naming one concrete thing from the story, the last one the twist",
+      properties: {
+        say: { type: "string", description: "Exactly three fragments, each ending with a full stop: 'Seventy ships. One hill. And one night that ended an empire.' / 'One crash. One word. And a hero in handcuffs.'" },
+        words: { type: "array", items: { type: "string" }, description: "Exactly 3 words, one from each fragment, copied exactly as spoken (e.g. ships, hill, night): each is slammed big on screen at the moment the narrator says it" },
+        lines: { type: "array", items: { type: "integer" }, description: "Exactly 3 transcript line indices, one per fragment, whose {screen} shows that fragment's thing" },
+      },
+      required: ["say", "words", "lines"],
+      additionalProperties: false,
+    },
     beats: {
       type: "array",
-      description: "5-8 narration beats in order; their 'say' lines together are the whole Short's narration",
+      description: "8-12 narration beats in order; their 'say' lines together are the whole Short's narration",
       items: {
         type: "object",
         properties: {
-          say: { type: "string", description: "One spoken English sentence (or two short ones) for this beat" },
-          line: { type: "integer", description: "Index of the transcript line whose MOMENT of the long video is shown first under this beat (the picture must match what is said)" },
-          more: { type: "array", items: { type: "integer" }, description: "1-2 more transcript line indices whose moments are cut in under the same beat (fast cutting: a new picture every 1.5-3 s)" },
+          say: { type: "string", description: "ONE spoken English sentence of 6-16 words" },
+          line: { type: "integer", description: "Index of the transcript line whose MOMENT of the long video stays on screen for this whole sentence; its {screen} must show exactly what the sentence is about" },
+          more: { type: "array", items: { type: "integer" }, description: "Usually empty. Only for a sentence of 12+ words: one more line whose screen shows the SAME subject, cut in for the second half" },
         },
         required: ["say", "line", "more"],
         additionalProperties: false,
@@ -219,7 +229,7 @@ const TEASER_SCHEMA = {
     title: { type: "string", description: "YouTube Shorts title, max 70 chars, no hashtags" },
     description: { type: "string", description: "2-3 sentences that send viewers to the full documentary" },
   },
-  required: ["hook", "slams", "beats", "title", "description"],
+  required: ["hook", "opening", "beats", "title", "description"],
   additionalProperties: false,
 };
 
@@ -234,14 +244,16 @@ export async function planTeaser({ cues, title = "", screens = [], llm = callJSO
       lines,
       "",
       `Write a NEW vertical Short (${TEASER_WORDS[0]}-${TEASER_WORDS[1]} words of narration, about 45-55 seconds) whose only job is to make the viewer watch the full documentary:`,
-      "- beat 1 is the hook: the single most shocking fact or a question the viewer cannot leave unanswered — within the first 2 seconds",
-      "- then 3-5 of the documentary's most striking, concrete moments (numbers, names, reversals), fast, each one raising the stakes",
+      "- the opening is the hook: three short spoken fragments with a rhythm, like 'A recipe. A street. And a betrayal.' — each names one concrete thing from THIS story (an object, a place, a number, a person), the third is the twist; its three words are slammed on screen exactly as the narrator says them, each over a picture of that thing, so they must be words the viewer instantly connects to the story",
+      "- then the beats: 3-5 of the documentary's most striking, concrete moments (numbers, names, reversals), each one raising the stakes",
       "- never give away the ending or the answer; tease it",
       "- last beat: a short call to the full documentary on the channel (e.g. 'The full story is on the channel.')",
       "- plain spoken English, short sentences, no hashtags, no emojis, no stage directions",
-      "- {screen: ...} tells what the long video shows at that line; a beat that names a person, a place, a number or a headline must use moments whose screen shows exactly that (never another person's portrait)",
-      "- for each beat pick the transcript line whose moment in the long video best SHOWS what the beat says, plus 1-2 more moments (\"more\") that also fit it — the Short cuts to a new picture every 1.5-3 seconds; prefer moments with a striking picture (a face, a number on screen, a headline, a crowd)",
-      "- beats use different, far-apart parts of the video; never two beats on neighbouring lines",
+      "- each beat is ONE sentence with ONE picture: the picture stays on screen for the whole sentence and the cut lands when the next sentence starts, so what the viewer sees always matches what they hear",
+      "- {screen: ...} tells what the long video shows at that line; pick the line whose screen shows exactly the sentence's subject: the person it names (never another person's portrait), the number it says, the object, the place, the event",
+      "- prefer lines with a striking, readable picture (a face, a number on screen, a map, a headline, a crowd, fire); avoid title cards and empty backgrounds",
+      "- \"more\" stays empty unless the sentence has 12+ words; then one more line showing the same subject",
+      "- beats use different, far-apart parts of the video; never two beats on the same or neighbouring lines",
     ].join("\n"),
     schema: TEASER_SCHEMA,
     model: settings.docuShortsModel || "claude-sonnet-5-5",
@@ -249,15 +261,63 @@ export async function planTeaser({ cues, title = "", screens = [], llm = callJSO
     usage,
     logFn,
   });
+  const clampL = (x) => Math.max(0, Math.min(cues.length - 1, Number(x) || 0));
   const beats = (res?.beats || [])
-    .map((b) => {
-      const clampL = (x) => Math.max(0, Math.min(cues.length - 1, Number(x) || 0));
-      return { say: String(b.say || "").replace(/\s+/g, " ").trim(), line: clampL(b.line), more: (Array.isArray(b.more) ? b.more : []).slice(0, 3).map(clampL) };
-    })
+    .map((b) => ({ say: String(b.say || "").replace(/\s+/g, " ").trim(), line: clampL(b.line), more: (Array.isArray(b.more) ? b.more : []).slice(0, 1).map(clampL) }))
     .filter((b) => b.say);
   if (beats.length < 3) throw new Error("teaser planı eksik");
-  const slams = (Array.isArray(res.slams) ? res.slams : []).map((w) => String(w || "").replace(/[^\p{L}\p{N}$%'-]/gu, "").toUpperCase()).filter(Boolean).slice(0, 3);
-  return { hook: String(res.hook || "").trim(), slams, beats, title: String(res.title || "").trim(), description: String(res.description || "").trim() };
+  return { hook: String(res.hook || "").trim(), beats: [...openingBeats(res?.opening, clampL), ...beats], title: String(res.title || "").trim(), description: String(res.description || "").trim() };
+}
+
+/**
+ * Açılış: "Seventy ships. One hill. And one night." -> üç kısa vuruş; her biri kendi
+ * görüntüsünde, işaretli kelimesi (slam) anlatıcı söylediği anda ekrana çakılır.
+ * Kullanıcı: "bir tarif, bir sokak, bir ihanet — onların kanca mantığı iyiydi".
+ */
+export function openingBeats(opening, clampL = (x) => Number(x) || 0) {
+  const say = String(opening?.say || "").replace(/\s+/g, " ").trim();
+  if (!say) return [];
+  const frags = (say.match(/[^.!?]+[.!?]+["”']?/g) || []).map((f) => f.trim()).filter(Boolean);
+  const lines = (Array.isArray(opening.lines) ? opening.lines : []).map(clampL);
+  const words = Array.isArray(opening.words) ? opening.words : [];
+  if (frags.length !== 3) return [{ say, line: lines[0] ?? 0, more: [] }];
+  return frags.map((f, k) => ({ say: f, line: lines[k] ?? lines[0] ?? 0, more: [], slam: slamWord(f, words[k]) }));
+}
+
+const bare = (w) => String(w || "").toLowerCase().replace(/[^\p{L}\p{N}$%]/gu, "");
+const FILLER = new Set(["a", "an", "and", "the", "one", "of", "that", "to", "in", "on", "it", "was", "his", "her", "their", "its"]);
+
+/** The fragment's spoken word to slam: the planned one if it is really in the fragment, else its last real word. */
+export function slamWord(fragment, wanted) {
+  const spoken = String(fragment).split(/\s+/).map(bare).filter(Boolean);
+  if (wanted && spoken.includes(bare(wanted))) return bare(wanted).toUpperCase();
+  return ([...spoken].reverse().find((w) => !FILLER.has(w)) || spoken.at(-1) || "").toUpperCase();
+}
+
+/** Each beat's start in the voice (word timestamps), from its position in the joined narration. */
+export function beatStarts(beats, words) {
+  let off = 0;
+  return beats.map((b) => {
+    const at = off;
+    off += b.say.length + 1;
+    return (words.find((w) => w.at >= at) ?? words.at(-1)).s;
+  });
+}
+
+/** Slam words timed to the moment the narrator says them; each holds until the next beat starts. */
+export function slamTimes(beats, words) {
+  const starts = beatStarts(beats, words);
+  const out = [];
+  let off = 0;
+  beats.forEach((b, k) => {
+    const from = off;
+    off += b.say.length + 1;
+    if (!b.slam) return;
+    const said = words.find((w) => w.at >= from && w.at < off && bare(w.w) === bare(b.slam));
+    const end = k + 1 < beats.length ? starts[k + 1] : words.at(-1).e;
+    out.push({ text: b.slam, s: Math.max(0, (said ?? words.find((w) => w.at >= from) ?? words[0]).s - 0.04), e: end });
+  });
+  return out;
 }
 
 /** ElevenLabs: metin -> mp3 + kelime zamanları (with-timestamps), uzun videonun anlatıcısıyla. */
@@ -306,11 +366,15 @@ export function isKeyWord(w, prev) {
 export function buildTeaserAss({ words, hook = "", slams = [], voiceEnd, total, endCard = "FULL DOCUMENTARY ON THE CHANNEL" }) {
   const lines = buildShortAss({ cues: [], start: 0, end: total, hook: "", endCard: "" }).split("\n").filter((l) => !l.startsWith("Dialogue:"));
   const ev = [];
-  // Açılış: 3 kelime sırayla ortaya çakılır (0,5 sn arayla), sonra kanca üstte kalır.
-  const slamEnd = slams.length ? slams.length * 0.5 : 0;
-  slams.forEach((w, k) => ev.push(`Dialogue: 3,${assTime(k * 0.5)},${assTime(k * 0.5 + 0.5)},Slam,,0,0,0,,{\\fscx150\\fscy150\\t(0,90,\\fscx100\\fscy100)}${assText(w)}`));
-  if (hook) ev.push(`Dialogue: 1,${assTime(slamEnd)},${assTime(voiceEnd + 0.2)},Hook,,0,0,0,,{\\fscx135\\fscy135\\t(0,180,\\fscx100\\fscy100)}${assText(hook.toUpperCase())}`);
-  for (let i = 0; i < words.length; ) {
+  // Açılış: anlatıcının üç kelimesi ("ships", "hill", "night") tam söylendiği anda ortaya çakılır,
+  // her biri kendi görüntüsünün üstünde; açılış bitince kanca üstte etiket olarak kalır.
+  slams.forEach((m) => ev.push(`Dialogue: 3,${assTime(m.s)},${assTime(m.e)},Slam,,0,0,0,,{\\fscx150\\fscy150\\t(0,90,\\fscx100\\fscy100)\\fad(0,80)}${assText(m.text)}`));
+  const openEnd = slams.length ? slams.at(-1).e : 0;
+  if (hook) ev.push(`Dialogue: 1,${assTime(openEnd)},${assTime(voiceEnd + 0.2)},Hook,,0,0,0,,{\\fscx125\\fscy125\\t(0,160,\\fscx100\\fscy100)}${assText(hook.toUpperCase())}`);
+  // Açılışta alt yazı yok: çakılan kelime zaten ekranda (aynı sözü iki kez yazmak yankı olur).
+  let i = words.findIndex((w) => w.s >= openEnd - 0.05);
+  if (i < 0) i = words.length;
+  while (i < words.length) {
     const n = words[i].w.length > 8 || words.length - i <= 2 ? Math.min(2, words.length - i) : 3;
     const chunk = words.slice(i, i + n);
     const s = chunk[0].s;
@@ -333,10 +397,10 @@ export function buildTeaserAss({ words, hook = "", slams = [], voiceEnd, total, 
  * dikey düzen + altyazı + açılışta beyaz flaş. Ses: yeni anlatım + videonun müziği (alçak) +
  * kesmelerde whoosh, kancada ve son kartta vuruş; -14 LUFS.
  */
-export function renderTeaser({ video, segments, voiceFile, musicFile, thumbFile, assFile, out, total, sfx = {}, ffmpeg = "ffmpeg", fontsDir = "C:/Windows/Fonts" }) {
+export function renderTeaser({ video, segments, voiceFile, musicFile, thumbFile, assFile, out, total, sfx = {}, slamAt = [], ffmpeg = "ffmpeg", fontsDir = "C:/Windows/Fonts" }) {
   const esc = (p) => String(p).replace(/\\/g, "/").replace(/:/g, "\\:").replace(/'/g, "\\'");
   const args = ["-y", "-hide_banner", "-loglevel", "error"];
-  segments.forEach((g) => args.push("-ss", g.src.toFixed(2), "-t", (g.dur + 0.05).toFixed(2), "-i", video));
+  segments.forEach((g) => args.push("-ss", g.src.toFixed(2), "-t", ((g.dur - (g.hold || 0)) / (g.speed || 1) + 0.05).toFixed(2), "-i", video));
   const n = segments.length;
   const endDur = Math.max(1.5, total - segments.reduce((a, g) => a + g.dur, 0));
   args.push("-loop", "1", "-t", endDur.toFixed(2), "-i", thumbFile, "-i", voiceFile);
@@ -358,7 +422,10 @@ export function renderTeaser({ video, segments, voiceFile, musicFile, thumbFile,
     // Her kesme yön değiştirir: içeri / dışarı yavaş kamera (Shorts'ta durağan kare yok).
     // Hafif kamera (en fazla %4): daha fazlası kenardaki yazıları keser.
     const z = i % 2 ? `1.04-0.04*on/${frames}` : `1+0.04*on/${frames}`;
-    return `[${i}:v]scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,fps=30,setsar=1,zoompan=z='${z}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1920x1080:fps=30,trim=0:${g.dur.toFixed(3)},setpts=PTS-STARTPTS[s${i}]`;
+    // speed > 1: the scene is shorter than the sentence, so its footage plays slower to cover it.
+    // hold > 0: the picture ends before the sentence does, so its last frame stays (never the next scene).
+    const slow = ((g.speed || 1) > 1.001 ? `setpts=${(g.speed).toFixed(3)}*(PTS-STARTPTS),` : "") + ((g.hold || 0) > 0.02 ? `tpad=stop_mode=clone:stop_duration=${(g.hold + 0.1).toFixed(2)},` : "");
+    return `[${i}:v]${slow}scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,fps=30,setsar=1,zoompan=z='${z}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1920x1080:fps=30,trim=0:${g.dur.toFixed(3)},setpts=PTS-STARTPTS[s${i}]`;
   });
   // Kapak kartı: dikey kırpmada kenarları kesilmesin diye kapak orta %80'e sığdırılır, etrafı bulanık kopyası.
   parts.push(`[${n}:v]fps=30,setsar=1,split[ea][eb]`, `[ea]scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,gblur=sigma=24,eq=brightness=-0.25[eg]`, `[eb]scale=1500:-2[et]`, `[eg][et]overlay=(W-w)/2:(H-h)/2,setpts=PTS-STARTPTS[endc]`);
@@ -382,8 +449,10 @@ export function renderTeaser({ video, segments, voiceFile, musicFile, thumbFile,
     t += g.dur;
     cuts.push(t);
   }
-  const whooshAt = cuts.slice(0, -1).map((c) => Math.max(0, c - 0.28));
-  const hitAt = [0, cuts.at(-1)];
+  // Açılışta her çakılan kelimeye bir vuruş; whoosh yalnızca açılıştan sonraki kesmelerde.
+  const openEnd = slamAt.length ? slamAt.at(-1) + 0.3 : 0;
+  const whooshAt = cuts.slice(0, -1).filter((c) => c > openEnd).map((c) => Math.max(0, c - 0.28));
+  const hitAt = [...(slamAt.length ? slamAt : [0]), cuts.at(-1)];
   const place = (inIdx, times, gain, tag) => {
     if (inIdx == null || !times.length) return;
     parts.push(`[${inIdx}:a]volume=${gain},asplit=${times.length}${times.map((_, k) => `[${tag}${k}]`).join("")}`);
@@ -402,37 +471,107 @@ export function renderTeaser({ video, segments, voiceFile, musicFile, thumbFile,
   return out;
 }
 
-export const TEASER_SHOT_MAX = 2.6;
+export const TEASER_SHOT_MAX = 6;
+export const TEASER_STRETCH_MAX = 1.6;
 
 /**
- * Cümle aralıkları (kelime zamanlarından) -> montaj parçaları. Her cümle, seçilen anlarıyla
- * (line + more; eksikse yakındaki altyazı satırları) 1,5-2,6 sn'lik parçalara bölünür.
+ * Her altyazı satırının uzun videodaki SAHNE penceresi: aynı sahneye düşen ardışık satırlar
+ * tek pencere. Sahne bilinmiyorsa satırın kendisi ile bir sonraki satır arası.
  */
-export function teaserSegments({ beats, words, cues, videoDur, tail = 0.45, shotMax = TEASER_SHOT_MAX }) {
-  let off = 0;
-  const starts = beats.map((b) => {
-    const at = off;
-    off += b.say.length + 1;
-    return at;
+export function sceneWindows(cues, sceneIdx = []) {
+  return cues.map((c, i) => {
+    const k = sceneIdx[i];
+    if (k == null || k < 0) return { s: c.s, e: cues[i + 1]?.s ?? c.e + 0.5 };
+    let a = i;
+    while (a > 0 && sceneIdx[a - 1] === k) a--;
+    let b = i;
+    while (b + 1 < cues.length && sceneIdx[b + 1] === k) b++;
+    return { s: cues[a].s, e: cues[b + 1]?.s ?? cues[b].e + 0.5 };
   });
-  const beatStart = starts.map((at) => (words.find((w) => w.at >= at) ?? words.at(-1)).s);
+}
+
+/**
+ * Cümle aralıkları (kelime zamanlarından) -> montaj parçaları. Bir cümle = bir görüntü: kesme
+ * cümle değişirken gelir. Görüntü uzun videodaki o sahnenin içinden alınır (sahne geçişleri
+ * hariç); sahne cümleden kısaysa en fazla 1,6x ağırlaştırılır, yetmezse "more" satırına geçilir.
+ * Kullanıcı: "anlatılanla görsel çok saçma hızlı geçiyor".
+ */
+export function teaserSegments({ beats, words, cues, videoDur, windows = sceneWindows(cues), tail = 0.45, shotMax = TEASER_SHOT_MAX, stretchMax = TEASER_STRETCH_MAX }) {
+  const beatStart = beatStarts(beats, words);
   const voiceEnd = words.at(-1).e;
+  // The scene's usable footage: past the transition into it, before the transition out.
+  const usable = (line) => {
+    const w = windows[line] || { s: cues[line].s, e: cues[line].e };
+    const a = w.s + 0.25;
+    return { a, b: Math.max(a + 0.5, w.e - 0.25) };
+  };
+  const shot = (line, dur, beat) => {
+    const { a, b } = usable(line);
+    const len = b - a;
+    const speed = dur <= len ? 1 : Math.min(stretchMax, dur / len);
+    const need = dur / speed;
+    // Start just before the narrated line, but keep the whole shot inside its scene.
+    let src = need <= len ? Math.min(Math.max(a, cues[line].s - 0.3), b - need) : a;
+    src = Math.max(0, Math.min(src, videoDur - need - 0.1));
+    return { src: +src.toFixed(3), dur, speed: +speed.toFixed(3), beat, line };
+  };
   const out = [];
   beats.forEach((b, k) => {
     const s = k === 0 ? 0 : beatStart[k];
     const e = k + 1 < beats.length ? beatStart[k + 1] : voiceEnd + tail;
-    const D = Math.max(0.8, e - s);
-    const n = Math.max(1, Math.min(4, Math.ceil(D / shotMax)));
-    const moments = [b.line, ...(b.more || [])];
-    for (let j = 1; moments.length < n; j++) moments.push(Math.min(cues.length - 1, b.line + 2 * j));
-    for (let i = 0; i < n; i++) {
-      const dur = D / n;
-      const c = cues[moments[i]];
-      const src = Math.max(0, Math.min(c.s + 0.2, Math.max(0, videoDur - dur - 0.1)));
-      out.push({ src, dur, beat: k });
+    let left = Math.max(0.8, e - s);
+    const lines = [b.line, ...(b.more || [])].filter((x, i, all) => all.indexOf(x) === i);
+    for (let i = 0; left > 0.01; i++) {
+      const line = lines[Math.min(i, lines.length - 1)];
+      const last = i >= lines.length - 1;
+      const { a, b: end } = usable(line);
+      // The last picture takes the rest of the sentence; an earlier one only what its scene can hold.
+      let dur = last ? left : Math.min(left, shotMax, (end - a) * stretchMax);
+      if (left - dur < 1.2) dur = left; // never leave a sliver of a shot
+      out.push(shot(line, dur, k));
+      left -= dur;
     }
   });
   return out;
+}
+
+/**
+ * The stretch of the long video around `anchor` that still shows the same picture: frames are
+ * compared (32x18 grey) with the anchor frame, and a wipe, push or cut to another scene shows up
+ * as a large difference. Subtitle times alone are not enough: a scene often hands over to the
+ * next one a moment before the next line is spoken.
+ */
+export function sameShotSpan({ video, ffmpeg = "ffmpeg", anchor, before = 3, after = 7, fps = 10, threshold = 26 }) {
+  const t0 = Math.max(0, anchor - before);
+  const r = spawnSync(ffmpeg, ["-hide_banner", "-loglevel", "error", "-ss", t0.toFixed(2), "-t", (anchor - t0 + after).toFixed(2), "-i", video, "-an", "-vf", `fps=${fps},scale=32:18,format=gray`, "-f", "rawvideo", "-"], { maxBuffer: 64 * 1024 * 1024 });
+  const px = 32 * 18;
+  const buf = r.stdout;
+  const n = buf ? Math.floor(buf.length / px) : 0;
+  if (r.status !== 0 || n < 2) return null;
+  const at = Math.min(n - 1, Math.max(0, Math.round((anchor - t0) * fps)));
+  const diff = (i) => {
+    let d = 0;
+    for (let k = 0; k < px; k++) d += Math.abs(buf[i * px + k] - buf[at * px + k]);
+    return d / px;
+  };
+  let a = at;
+  while (a > 0 && diff(a - 1) < threshold) a--;
+  let b = at;
+  while (b < n - 1 && diff(b + 1) < threshold) b++;
+  return { s: t0 + a / fps, e: t0 + (b + 1) / fps };
+}
+
+/**
+ * Keeps every shot on its own picture: the footage is placed inside the span that still shows the
+ * line's picture; a span shorter than the shot plays slower (up to 2x) and then holds its last frame.
+ */
+export function fitShotToSpan(seg, span, slowMax = 2) {
+  if (!span) return seg;
+  const s = span.s + 0.05;
+  const avail = Math.max(0.3, span.e - 0.08 - s);
+  if (avail >= seg.dur) return { ...seg, src: +Math.min(Math.max(seg.src, s), span.e - 0.08 - seg.dur).toFixed(3), speed: 1, hold: 0 };
+  const speed = Math.min(slowMax, seg.dur / avail);
+  return { ...seg, src: +s.toFixed(3), speed: +speed.toFixed(3), hold: +Math.max(0, seg.dur - avail * speed).toFixed(3) };
 }
 
 /** What the long video shows under each subtitle line (from its props): portrait name, counter, headline, chart... */
@@ -449,31 +588,73 @@ export function screenOf(sc) {
     case "title": return `title card: ${short(sc.title || sc.kicker, 50)}`;
     default: {
       const who = sc.name ? `portrait of ${sc.name}` : "";
-      const what = short(sc.caption || sc.search || sc.imagePrompt, 70);
+      // A generated picture is what its prompt says; an archive one is best described by its caption or query.
+      const ai = /\/img-[0-9a-f]+\./.test(String(sc.image || ""));
+      const what = short(ai ? sc.imagePrompt || sc.caption || sc.search : sc.caption || sc.search || sc.imagePrompt, 70);
       return [who, what].filter(Boolean).join(" — ") || sc.type || "";
     }
   }
 }
-export function screensFor(jobDir, cues) {
+/** Each subtitle line's scene in the long video's props (-1 when it cannot be matched). */
+export function sceneIndexFor(scenes, cues) {
+  const norm = (x) => String(x || "").toLowerCase().replace(/\[[^\]]*\]/g, "").replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim();
+  const says = scenes.map((s) => norm(s.say));
+  let from = 0;
+  return cues.map((c) => {
+    const key = norm(c.t).split(" ").slice(0, 5).join(" ");
+    if (!key) return -1;
+    let i = says.findIndex((t, k) => k >= from && t.includes(key));
+    if (i < 0) i = says.findIndex((t) => t.includes(key));
+    if (i < 0) return -1;
+    from = i;
+    return i;
+  });
+}
+
+function propsScenes(jobDir) {
   try {
     const dir = path.join(jobDir, "docu");
     const props = JSON.parse(fs.readFileSync(path.join(dir, fs.readdirSync(dir).find((f) => f.endsWith(".props.json"))), "utf8"));
-    const scenes = props.script?.scenes || [];
-    const norm = (x) => String(x || "").toLowerCase().replace(/\[[^\]]*\]/g, "").replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim();
-    const says = scenes.map((s) => norm(s.say));
-    let from = 0;
-    return cues.map((c) => {
-      const key = norm(c.t).split(" ").slice(0, 5).join(" ");
-      if (!key) return "";
-      let i = says.findIndex((t, k) => k >= from && t.includes(key));
-      if (i < 0) i = says.findIndex((t) => t.includes(key));
-      if (i < 0) return "";
-      from = i;
-      return screenOf(scenes[i]);
-    });
+    return props.script?.scenes || [];
   } catch {
     return [];
   }
+}
+
+export function screensFor(jobDir, cues) {
+  const scenes = propsScenes(jobDir);
+  if (!scenes.length) return [];
+  // A picture swapped by hand (docu-scene-overrides.json) no longer matches the scene's prompt or
+  // query: describe it only if the override says what it shows, else mark it unknown.
+  let overrides = [];
+  try {
+    overrides = JSON.parse(fs.readFileSync(path.join(jobDir, "docu-scene-overrides.json"), "utf8")).filter((o) => o?.match && (o.set?.image || o.set?.video));
+  } catch {}
+  return sceneIndexFor(scenes, cues).map((i) => {
+    if (i < 0) return "";
+    const o = overrides.find((x) => String(scenes[i].say || "").includes(x.match));
+    if (o) return o.set.desc ? String(o.set.desc).slice(0, 80) : "(picture replaced, content unknown: do not pick)";
+    return screenOf(scenes[i]);
+  });
+}
+
+/**
+ * A slammed word must be on screen: when the planned line's screen does not mention it (e.g.
+ * CHAIN over a picture of walls), move that beat to the nearest line whose screen does.
+ */
+export function fixSlamLines(beats, screens) {
+  return beats.map((b) => {
+    if (!b.slam || !screens.length) return b;
+    const stem = b.slam.toLowerCase().replace(/(es|s)$/, "");
+    if (stem.length < 3) return b;
+    const has = (i) => new RegExp(`\\b${stem}`, "i").test(screens[i] || "");
+    if (has(b.line)) return b;
+    let best = -1;
+    screens.forEach((_, i) => {
+      if (has(i) && (best < 0 || Math.abs(i - b.line) < Math.abs(best - b.line))) best = i;
+    });
+    return best < 0 ? b : { ...b, line: best };
+  });
 }
 
 function videoDuration(ffmpeg, file) {
@@ -520,7 +701,9 @@ export async function makeDocuTeaser({ jobDir, job = {}, settings = {}, usage = 
   const cues = parseSrt(fs.readFileSync(last.s, "utf8"));
   const title = titleIn || job.meta?.title || job.topic || "";
   logFn("Shorts: teaser metni yazılıyor...");
-  const plan = await planTeaser({ cues, title, screens: screensFor(jobDir, cues), llm, settings, usage, logFn });
+  const screens = screensFor(jobDir, cues);
+  const plan = await planTeaser({ cues, title, screens, llm, settings, usage, logFn });
+  plan.beats = fixSlamLines(plan.beats, screens);
   const text = plan.beats.map((b) => b.say).join(" ");
   logFn(`Shorts: seslendiriliyor (${text.length} karakter)...`);
   const voiceId = job.elevenVoiceId || settings.docuEnVoiceId || "nPczCjzI2devNBz1zQrb";
@@ -532,11 +715,15 @@ export async function makeDocuTeaser({ jobDir, job = {}, settings = {}, usage = 
   fs.writeFileSync(voiceFile, tts.audio);
   fs.writeFileSync(path.join(dir, `short-${stamp}.words.json`), JSON.stringify(tts.words), "utf8");
   const videoDur = videoDuration(ff, last.v);
-  const segments = teaserSegments({ beats: plan.beats, words: tts.words, cues, videoDur });
+  const windows = sceneWindows(cues, sceneIndexFor(propsScenes(jobDir), cues));
+  const segments = teaserSegments({ beats: plan.beats, words: tts.words, cues, videoDur, windows }).map((g) =>
+    fitShotToSpan(g, sameShotSpan({ video: last.v, ffmpeg: ff, anchor: Math.min(cues[g.line].e - 0.1, cues[g.line].s + 0.5) })),
+  );
   const voiceEnd = tts.words.at(-1).e;
   const total = +(voiceEnd + 0.45 + 2.6).toFixed(2);
+  const slams = slamTimes(plan.beats, tts.words);
   const assFile = path.join(dir, `short-${stamp}.ass`);
-  fs.writeFileSync(assFile, buildTeaserAss({ words: tts.words, hook: plan.hook, slams: plan.slams, voiceEnd: voiceEnd + 0.45, total }), "utf8");
+  fs.writeFileSync(assFile, buildTeaserAss({ words: tts.words, hook: plan.hook, slams, voiceEnd: voiceEnd + 0.45, total }), "utf8");
   // Videonun kendi müziği (açılış parçası) ve kapağı.
   let musicFile = null;
   const sfx = {};
@@ -558,8 +745,8 @@ export async function makeDocuTeaser({ jobDir, job = {}, settings = {}, usage = 
   if (!thumbFile) throw new Error("kapak bulunamadı");
   const out = path.join(dir, `short-${stamp}.mp4`);
   logFn(`Shorts: ${segments.length} anlık montaj, ${total.toFixed(1)} sn render ediliyor...`);
-  renderTeaser({ video: last.v, segments, voiceFile, musicFile, thumbFile, assFile, out, total, sfx, ffmpeg: ff });
-  const meta = { file: out, mode: "teaser", hook: plan.hook, title: plan.title, description: plan.description, narration: text, beats: plan.beats, segments, start: 0, end: total, source: last.v };
+  renderTeaser({ video: last.v, segments, voiceFile, musicFile, thumbFile, assFile, out, total, sfx, slamAt: slams.map((m) => m.s), ffmpeg: ff });
+  const meta = { file: out, mode: "teaser", hook: plan.hook, slams, title: plan.title, description: plan.description, narration: text, beats: plan.beats, segments, start: 0, end: total, source: last.v };
   fs.writeFileSync(path.join(dir, `short-${stamp}.json`), JSON.stringify(meta, null, 2), "utf8");
   logFn(`Shorts hazır: ${out}`);
   return meta;
