@@ -363,7 +363,44 @@ export function isKeyWord(w, prev) {
   return !sentenceStart && /^\p{Lu}[\p{L}'’.-]{2,}/u.test(bare);
 }
 
-/** Kelime zamanlarından altyazı (2-3 kelimelik parçalar, vurgu kelimeleri sarı) + kanca + kapaklı izle kartı. */
+// Short phrases use the actual speech time, rather than switching every 2-3 words.
+// The existing 118px caption style needs a compact two-line text budget.
+function teaserPhrases(words) {
+  const chunks = [];
+  const sentenceEnd = /[.!?…]["'”’)]*$/;
+  const dangling = /^(a|an|the|and|or|but|at|by|for|from|in|of|on|to|with|could|would|should|will|ve|bir|ile|için)$/i;
+  for (let begin = 0; begin < words.length;) {
+    let end = begin + 1;
+    while (end < words.length && !sentenceEnd.test(words[end - 1].w)) end++;
+    const costs = new Map([[end, 0]]), next = new Map();
+    for (let i = end - 1; i >= begin; i--) {
+      let text = '', best = Infinity;
+      for (let j = i; j < Math.min(end, i + 6); j++) {
+        text += (text ? ' ' : '') + words[j].w;
+        if (j > i && text.length > 32) break;
+        const stop = j + 1;
+        const finish = stop < words.length ? Math.min(words[stop].s, words[j].e + 0.6) : words[j].e + 0.3;
+        const duration = finish - words[i].s;
+        const score = 10 + (text.length - 24) ** 2 / 32
+          + (j === i ? 45 : 0) + Math.max(0, 1.15 - duration) * 120
+          + Math.max(0, duration - 2.8) * 15
+          + (stop < end && dangling.test(words[j].w) ? 25 : 0)
+          - (/[,;:]$/.test(words[j].w) ? 4 : 0) + costs.get(stop);
+        if (score < best) { best = score; next.set(i, stop); }
+      }
+      costs.set(i, best);
+    }
+    for (let i = begin; i < end;) {
+      const stop = next.get(i);
+      chunks.push({ words: words.slice(i, stop), previous: words[i - 1], next: words[stop] });
+      i = stop;
+    }
+    begin = end;
+  }
+  return chunks;
+}
+
+/** Kelime zamanlarından sabit altyazı öbekleri (vurgu kelimeleri sarı) + kanca + kapaklı izle kartı. */
 export function buildTeaserAss({ words, hook = "", slams = [], figures = [], hookFor = null, voiceEnd, total, endCard = "FULL DOCUMENTARY ON THE CHANNEL" }) {
   const lines = buildShortAss({ cues: [], start: 0, end: total, hook: "", endCard: "" }).split("\n").filter((l) => !l.startsWith("Dialogue:"));
   const ev = [];
@@ -380,19 +417,17 @@ export function buildTeaserAss({ words, hook = "", slams = [], figures = [], hoo
   // Açılışta alt yazı yok: çakılan kelime zaten ekranda (aynı sözü iki kez yazmak yankı olur).
   let i = words.findIndex((w) => w.s >= openEnd - 0.05);
   if (i < 0) i = words.length;
-  while (i < words.length) {
-    const n = words[i].w.length > 8 || words.length - i <= 2 ? Math.min(2, words.length - i) : 3;
-    const chunk = words.slice(i, i + n);
-    const s = chunk[0].s;
-    const e = i + n < words.length ? Math.min(words[i + n].s, chunk.at(-1).e + 0.6) : chunk.at(-1).e + 0.3;
+  for (const phrase of teaserPhrases(words.slice(i))) {
+    const chunk = phrase.words;
+    const s = Math.max(openEnd, chunk[0].s);
+    const e = phrase.next ? Math.min(phrase.next.s, chunk.at(-1).e + 0.6) : chunk.at(-1).e + 0.3;
     const txt = chunk
       .map((c, k) => {
         const w = assText(c.w.toUpperCase());
-        return isKeyWord(c.w, (k ? chunk[k - 1] : words[i - 1])?.w) ? `{\\c&H00D4FF&}${w}{\\c&HFFFFFF&}` : w;
+        return isKeyWord(c.w, (k ? chunk[k - 1] : phrase.previous || words[i - 1])?.w) ? `{\\c&H00D4FF&}${w}{\\c&HFFFFFF&}` : w;
       })
       .join(" ");
-    ev.push(`Dialogue: 0,${assTime(s)},${assTime(Math.max(e, s + 0.12))},Cap,,0,0,0,,{\\fscx116\\fscy116\\t(0,80,\\fscx100\\fscy100)}${txt}`);
-    i += n;
+    ev.push(`Dialogue: 0,${assTime(s)},${assTime(e)},Cap,,0,0,0,,${txt}`);
   }
   ev.push(`Dialogue: 2,${assTime(voiceEnd + 0.3)},${assTime(total)},End,,0,0,0,,{\\fscx125\\fscy125\\t(0,160,\\fscx100\\fscy100)}${assText(endCard)}`);
   return [...lines.filter(Boolean), ...ev, ""].join("\n");

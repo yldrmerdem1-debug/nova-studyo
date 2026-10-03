@@ -776,14 +776,15 @@ test('borrow: the donor is the scene about the same thing, never one on screen w
   assert.ok(!(d2.kind === 'donor' && d2.from === 0), 'on screen 24 s earlier: never lent');
 });
 
-test('borrow: no fitting donor -> hold the previous shot when it fits the line, else AI over the cap (at most +8)', async () => {
+test('borrow: no fitting donor -> hold the previous shot when it fits the line, else AI over the cap (at most +30)', async () => {
   const { planBorrows } = await import('../docu-engine/lib/produce.mjs');
   const cap = new Map();
   const scenes = [
     { type: 'photo', say: 'Tena Bar, a sandy beach on the Columbia River.', search: 'sandy riverbank', dur: 5, image: 'beach.jpg' },
     { type: 'photo', say: 'Brian Ingram is camping on the sandy Columbia River beach at Tena Bar.', search: 'Brian Ingram 1980', dur: 5, capped: true },
     { type: 'photo', say: 'A geologist named Leonard Palmer reads the layers.', search: 'Leonard Palmer geologist', dur: 5, capped: true },
-    ...Array.from({ length: 10 }, (_, k) => ({ type: 'photo', say: `Suspect ${['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot', 'Golf', 'Hotel', 'India', 'Juliet'][k]} was never charged.`, dur: 5, capped: true })),
+    // 32 lines sharing no word with each other or with the beach: nothing fits any of them.
+    ...Array.from({ length: 32 }, (_, k) => ({ type: 'photo', say: `Kx${'abcdefghijklmnopqrstuvwxyzabcdef'[k]}${'zyxwvutsrqponmlkjihgfedcbazyxwvu'[k]}${'qwertyuiopasdfghjklzxcvbnmqwerty'[k]}.`, dur: 5, capped: true })),
   ];
   scenes.forEach((s, k) => k > 0 && cap.set(s, `prompt ${k}`));
   const own = scenes.map((s) => s.image ?? null);
@@ -791,8 +792,8 @@ test('borrow: no fitting donor -> hold the previous shot when it fits the line, 
   const { decisions, loose } = planBorrows(scenes, { own, need, capPrompt: (s) => cap.get(s) });
   assert.equal(decisions[0].kind, 'hold', 'camping on the beach holds the beach shot');
   assert.equal(decisions[1].kind, 'ai', 'nothing fits the geologist: his own picture after all');
-  assert.equal(decisions.filter((d) => d.kind === 'ai').length, 8, 'the cap gives way by at most 8');
-  assert.ok(decisions.slice(9).every((d) => d.kind === 'loose'), 'past +8: any far, unused picture (or none)');
+  assert.equal(decisions.filter((d) => d.kind === 'ai').length, 30, 'the cap gives way by at most 30');
+  assert.ok(decisions.slice(31).every((d) => d.kind === 'loose'), 'past +30: any far, unused picture (or none)');
   assert.equal(typeof loose, 'function');
 });
 

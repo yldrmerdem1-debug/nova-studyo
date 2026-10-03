@@ -1,8 +1,62 @@
 // Shorts (src/pipeline/docu-shorts.js): SRT okuma, pencere seçimi, Claude seçiminin sınırları, ASS altyazı.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 
 const S = await import('../src/pipeline/docu-shorts.js');
+
+const seconds = t => t.split(':').reduce((sum, n) => sum * 60 + Number(n), 0);
+const captionEvents = ass => ass.split('\n').filter(l => l.startsWith('Dialogue:') && l.split(',')[3] === 'Cap').map(l => {
+  const cols = l.split(',');
+  return { s: seconds(cols[1]), e: seconds(cols[2]), text: cols.slice(9).join(',').replace(/\{[^}]*\}/g, '').replace(/\\N/g, ' '), raw: l };
+});
+const constantinopleWords = JSON.parse(fs.readFileSync(new URL('./fixtures/1453-short-words.json', import.meta.url), 'utf8'));
+const constantinopleOptions = {
+  words: constantinopleWords, hook: 'SHIPS THAT CROSSED A HILL', hookFor: 3.5,
+  slams: [{text:'CHAIN',s:0.2,e:0.96},{text:'CANNON',s:1.811,e:2.62},{text:'TWENTY-ONE',s:4.006,e:4.92}],
+  figures: [{text:'4,773',s:14.928,e:16.728},{text:'60 OXEN',s:21.98,e:23.78}],
+  voiceEnd: 54.05, total: 56.65,
+};
+
+test('1453 teaser captions remain steady without replaying the pop on each phrase', () => {
+  const captions = captionEvents(S.buildTeaserAss(constantinopleOptions));
+  assert.ok(captions.every(c => !/\\(?:fsc[xy]|t\()/.test(c.raw)), 'normal captions must not restart the 116% pop');
+});
+
+test('1453 teaser captions follow readable phrases and never mix adjacent sentences', () => {
+  const captions = captionEvents(S.buildTeaserAss(constantinopleOptions));
+  assert.ok(captions.length <= 34, `too many switches: ${captions.length}`);
+  assert.ok(captions.filter(c => c.e - c.s < 1).length <= 2, 'avoid bursts of sub-second cues');
+  assert.ok(captions.every(c => !/[.!?] [A-Z]/.test(c.text)), 'a sentence end must end its cue');
+  assert.ok(captions.every(c => c.text.length <= 32), 'keep the existing 118px font readable on at most two lines');
+  for (let i = 0; i < captions.length; i++) {
+    assert.ok(captions[i].s >= 4.92 && captions[i].e > captions[i].s);
+    if (i) assert.ok(captions[i-1].e <= captions[i].s, 'captions never overlap');
+  }
+  assert.equal(captions.map(c => c.text).join(' '), constantinopleWords.filter(w => w.s >= 4.92).map(w => w.w.toUpperCase()).join(' '), 'every spoken word is retained in order');
+});
+
+test('caption repair preserves Claude styles and the intentional hook, slam, figure and end animations', () => {
+  const ass = S.buildTeaserAss(constantinopleOptions);
+  assert.equal(ass.split('\n').filter(l => l.startsWith('Style:')).join('\n'), S.buildShortAss({cues:[],start:0,end:56.65,hook:'',endCard:''}).split('\n').filter(l => l.startsWith('Style:')).join('\n'));
+  const events = ass.split('\n').filter(l => l.startsWith('Dialogue:') && l.split(',')[3] !== 'Cap');
+  assert.deepEqual(events, [
+    'Dialogue: 3,0:00:00.20,0:00:00.96,Slam,,0,0,0,,{\\fscx150\\fscy150\\t(0,90,\\fscx100\\fscy100)\\fad(0,80)}CHAIN',
+    'Dialogue: 3,0:00:01.81,0:00:02.62,Slam,,0,0,0,,{\\fscx150\\fscy150\\t(0,90,\\fscx100\\fscy100)\\fad(0,80)}CANNON',
+    'Dialogue: 3,0:00:04.01,0:00:04.92,Slam,,0,0,0,,{\\fscx150\\fscy150\\t(0,90,\\fscx100\\fscy100)\\fad(0,80)}TWENTY-ONE',
+    'Dialogue: 1,0:00:04.92,0:00:08.42,Hook,,0,0,0,,{\\fscx125\\fscy125\\t(0,160,\\fscx100\\fscy100)\\fad(0,250)}SHIPS THAT CROSSED A HILL',
+    'Dialogue: 3,0:00:14.93,0:00:16.73,Slam,,0,0,0,,{\\an5\\pos(540,1230)\\fscx160\\fscy160\\t(0,110,\\fscx100\\fscy100)\\fad(0,150)}4,773',
+    'Dialogue: 3,0:00:21.98,0:00:23.78,Slam,,0,0,0,,{\\an5\\pos(540,1230)\\fscx160\\fscy160\\t(0,110,\\fscx100\\fscy100)\\fad(0,150)}60 OXEN',
+    'Dialogue: 2,0:00:54.35,0:00:56.65,End,,0,0,0,,{\\fscx125\\fscy125\\t(0,160,\\fscx100\\fscy100)}FULL DOCUMENTARY ON THE CHANNEL',
+  ]);
+});
+
+test('teaser captions start after the final slam even with TTS boundary tolerance', () => {
+  const words = [{w:'The',s:0.97,e:1.1},{w:'walls',s:1.12,e:1.4},{w:'fell.',s:1.42,e:2}];
+  const captions = captionEvents(S.buildTeaserAss({words,slams:[{text:'NIGHT',s:0,e:1}],voiceEnd:2.45,total:5}));
+  assert.deepEqual(captions.map(c => [c.s,c.e,c.text]), [[1,2.3,'THE WALLS FELL.']]);
+  assert.equal(captionEvents(S.buildTeaserAss({words:[],voiceEnd:0,total:3})).length, 0);
+});
 
 const srt = (cues) => cues.map((c, i) => {
   const f = (t) => `00:${String(Math.floor(t / 60)).padStart(2, '0')}:${String(Math.floor(t % 60)).padStart(2, '0')},${String(Math.round((t % 1) * 1000)).padStart(3, '0')}`;

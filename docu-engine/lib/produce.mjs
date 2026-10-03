@@ -1349,9 +1349,12 @@ export async function produce(scriptIn, o) {
     + (sc.imagePrompts ?? []).filter((p) => !(typeof p === 'object' && p?.image)).length, 0);
   if (aiWanted() > AI_CAP) {
     const before = aiWanted();
-    for (const kinds of [['words', 'slam'], ['title'], ['photo']]) {
+    // Photo scenes are never cut: a borrowed picture under a photo line was the Napoleon QA's
+    // mismatch list (Smolensk's walls for "the golden domes of Moscow", a letter for the Berezina).
+    for (const kinds of [['words', 'slam'], ['title']]) {
       const cands = script.scenes.map((sc, i) => ({ sc, i }))
-        .filter(({ sc, i }) => i > 0 && kinds.includes(sc.type) && !sc.image && sc.imagePrompt && !sc.bg && !aiCached(sc.imagePrompt, sc.cast) && !(sc.cast?.length && sc.type === 'photo'));
+        // The first and the last picture are the film's frame (Napoleon ended 13 s on a borrowed letter).
+        .filter(({ sc, i }) => i > 0 && i < script.scenes.length - 1 && kinds.includes(sc.type) && !sc.image && sc.imagePrompt && !sc.bg && !aiCached(sc.imagePrompt, sc.cast) && !(sc.cast?.length && sc.type === 'photo'));
       const need = Math.min(cands.length, aiWanted() - AI_CAP);
       if (need <= 0) continue;
       // Evenly spaced picks across the video: keeps AI pictures in every chapter.
@@ -2978,7 +2981,8 @@ const sceneImages = (sc) => [sc.image, sc.video, ...(sc.images ?? []), ...(sc.cl
  * fits. `crop`: base zoom of a borrowed still. `minRate`: slowest footage
  * playback (the engine's CLIP_MIN_RATE).
  */
-export const BORROW = { good: 0.12, gapSec: 60, extraAi: 8, crop: 1.5, minRate: 0.6 };
+// extraAi 8 -> 30: Napoleon (archive rate-limited, 91 scenes to AI) put 24 random far pictures on screen.
+export const BORROW = { good: 0.12, gapSec: 60, extraAi: 30, crop: 1.5, minRate: 0.6 };
 
 const BORROW_STOP = new Set(`a an the and or but nor of in on at to for from with by as is was were be been being are am it its this that these those he she his her him hers they them their theirs we us our you your i me my not no so then than there here what who whom whose which when where why how into onto over under after before just only even very also some any all every each more most much many still now ever never would could should can will shall may might must has have had do does did done up out down off about again like back last first later soon once twice yet too well really almost nothing something anything everything someone anyone everyone nobody one two three four five six seven eight nine ten hundred thousand million
 bir bu şu ve ile de da ki mi mı mu mü ne için gibi daha çok en her hiç sonra önce ama fakat ise olarak olan oldu değil kadar

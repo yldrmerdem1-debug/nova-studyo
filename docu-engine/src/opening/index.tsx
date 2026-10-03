@@ -329,14 +329,18 @@ const DelayedBody: React.FC<{ wait: number; held: Held; durFrames: number; body:
   const { fps } = useVideoConfig();
   const f = useCurrentFrame();
   const look = useLook();
-  const scrim = interpolate(f - wait, [0, 8], [0.1, 0.32], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+  // The held picture can be anything (Napoleon: white snow): once the number lands it falls back far
+  // enough for light type, and the type carries its own shadow — "<100,000" in pale blue vanished on snow.
+  const scrim = interpolate(f - wait, [0, 8], [0.1, 0.6], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
   const ground = React.useMemo(() => <AbsoluteFill />, []);
   return (
     <AbsoluteFill>
       <Photo src={held.src} clip={held.clip} durFrames={durFrames} imgW={held.imgW} imgH={held.imgH} speed={0.8} fill />
-      <AbsoluteFill style={{ background: `radial-gradient(ellipse at center, rgba(0,0,0,${scrim * 0.6}) 30%, rgba(0,0,0,${Math.min(0.85, scrim + 0.3)}) 100%)` }} />
+      <AbsoluteFill style={{ background: `radial-gradient(ellipse at center, rgba(0,0,0,${scrim * 0.85}) 35%, rgba(0,0,0,${Math.min(0.9, scrim + 0.3)}) 100%)` }} />
       <SequenceFrom from={wait} dur={Math.max(1, durFrames - wait)}>
-        <LookContext.Provider value={{ ...look, ground, backdrop: undefined }}>{body}</LookContext.Provider>
+        <AbsoluteFill style={{ filter: 'drop-shadow(0 0 14px rgba(0,0,0,0.8)) drop-shadow(0 2px 3px rgba(0,0,0,0.9))' }}>
+          <LookContext.Provider value={{ ...look, ground, backdrop: undefined }}>{body}</LookContext.Provider>
+        </AbsoluteFill>
       </SequenceFrom>
       {wait > 0 ? <CutFlash at={wait} fps={fps} /> : null}
     </AbsoluteFill>

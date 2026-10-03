@@ -1,5 +1,13 @@
 # Nova Studyo — Sürüm Notları
 
+## 1.15.4 (3 Ekim 2026)
+
+- **Her fotoğraf sahnesine kendi görseli**: AI görsel tavanı artık yalnızca yazı/slam/başlık sahnelerinden keser (bunlar önceki kareyi tutar); fotoğraf sahnesi arşivde bulunamazsa kendi AI görselini alır. Napolyon'da arşiv araması hız sınırına takılınca (HTTP 429) 40 sahne başka sahnelerin resmini ödünç almıştı, 24'ü ilgisiz uzak bir kareydi ("Moskova'nın altın kubbeleri" altında Smolensk surları, Berezina'da bir mektup). Tavan üstü pay 8 → 30; filmin ilk ve son karesi her zaman kendi görseli.
+- **Sayaç her zeminde okunur**: sayı söylenene kadar önceki resim kalır, sayı geldiğinde resim belirgin kararır ve rakam ile alt yazısı gölgeli halo taşır (karlı orman üstünde soluk mavi "<100,000" görünmüyordu).
+- **Shorts görsel modu kuralları**: dönem hikâyesinde günümüz fotoğrafı/drone/renkli çekim katalogdan çıkar; mecazlar ("plato", "uçurum") kelimesi kelimesine resmedilmez; adı geçen gerçek kişiye arşivdeki kendi portresi (gerekirse ikinci kez), gerçek kişinin AI benzeri asla üretilmez (anonim figür); yeni görseller dönemin arşiv dokusunda (1850-1955: siyah-beyaz fotoğraf).
+- **Shorts'ta karanlık klip yok**: görüntü modeli klibin tek karesini görür; klip kullanılacağı aralıkta kararıyorsa sabit karesi kullanılır.
+- **Shorts'ta rakam sayı bitince**: "$205" artık "two hundred and FIVE dollars" bitince, "12.8%" "percent" ile gelir.
+
 ## 1.15.3 (3 Ekim 2026)
 
 - **Vurucu kapaklar**: YouTube kapakları kanalın kendi tarzında — Anton, kalın siyah kontur, beyaz + sarı (vurgu satırı), sayılar kırmızı; görsel daha parlak ve sıcak, konunun arkasında turuncu ışıltı, karartma yalnızca yazının olduğu tarafta; kırmızı halka yazının içine girmez. Kapak planlayıcısı iki satırlık vurucu yazıyı, dev rakamı ve videonun en "imkânsız" karesini tercih eder.
