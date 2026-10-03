@@ -73,7 +73,8 @@ const PRINT = !Array.isArray(SCRIPT?.scenes) || SCRIPT.scenes.some((s) => s?.typ
 function wantedFonts(): Set<FontKey> | null {
   const genre = SCRIPT?.genre ? GENRES[SCRIPT.genre as GenreId] : undefined;
   if (!genre) return null;
-  const keys = new Set<FontKey>([genre.headline, genre.body, 'plexMono']);
+  // Anton: the YouTube thumbnail's punch face (src/thumbnail), whatever the look.
+  const keys = new Set<FontKey>([genre.headline, genre.body, 'plexMono', 'anton']);
   if (PRINT) for (const k of ['oldstandard', 'fraktur', 'oswald'] as FontKey[]) keys.add(k);
   // A counter may be drawn as a newspaper clipping (src/counterStyles.tsx): its serif.
   if (SCRIPT?.scenes?.some((s) => s?.type === 'counter')) keys.add('oldstandard');

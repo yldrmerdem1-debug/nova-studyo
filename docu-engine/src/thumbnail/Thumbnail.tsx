@@ -26,6 +26,8 @@ import type { Box, ThumbGrade, ThumbPic, ThumbProps, ThumbSpec } from './types';
  */
 
 const HEX = /^#[0-9a-f]{6}$/i;
+const PUNCH_YELLOW = '#ffd21f';
+const PUNCH_RED = '#ff2a1f';
 const clamp = (x: number, a: number, b: number) => Math.min(b, Math.max(a, x));
 
 function brandGenre(p: ThumbProps): Genre {
@@ -56,10 +58,10 @@ function redOf(g: Genre): string {
 
 const gradeFilter = (g: ThumbGrade | undefined): string =>
   ({
-    natural: 'contrast(1.14) saturate(1.15)',
+    natural: 'contrast(1.24) saturate(1.34) brightness(1.08)',
     mono: 'grayscale(1) contrast(1.32) brightness(1.04)',
     cold: 'saturate(0.7) contrast(1.22) brightness(0.96)',
-    warm: 'sepia(0.28) saturate(1.3) contrast(1.16)',
+    warm: 'sepia(0.22) saturate(1.45) contrast(1.24) brightness(1.08)',
     duo: 'grayscale(1) contrast(1.28) brightness(1.06)',
   })[g ?? 'natural'];
 
@@ -137,9 +139,16 @@ const BigWords: React.FC<{
   labelInk?: string;
   hiBg?: string;
   hiInk?: string;
-}> = ({ w, x, y, width, height, align = 'left', valign = 'center', color, accent, hi = -1, mode = 'plain', labelBg, labelInk, hiBg, hiInk }) => {
+  /** Numbers in the line drawn in this colour (the punch red). */
+  numColor?: string;
+}> = ({ w, x, y, width, height, align = 'left', valign = 'center', color, accent, hi = -1, mode = 'plain', labelBg, labelInk, hiBg, hiInk, numColor }) => {
   let k = 0;
-  const stroke = Math.max(4, Math.round(w.size * 0.05));
+  // Punch: a thick black stroke reads at 320x180 on any picture (user: "tıklanacak hale getir").
+  const stroke = Math.max(5, Math.round(w.size * 0.075));
+  // No highlight chosen: the last line is the accent line ("70 SHIPS. / ONE HILL.").
+  const total = w.lines.reduce((n, l) => n + l.length, 0);
+  const lastFrom = total - (w.lines.at(-1)?.length ?? 0);
+  const isHiAt = (idx: number) => (hi >= 0 ? idx === hi : w.lines.length > 1 && idx >= lastFrom);
   return (
     <div
       style={{
@@ -152,7 +161,7 @@ const BigWords: React.FC<{
         <div key={li} style={{ fontFamily: w.font, fontSize: w.size, lineHeight: mode === 'label' ? 1.02 : 0.92, letterSpacing: '0.01em', whiteSpace: 'nowrap', marginTop: mode === 'label' && li ? w.size * 0.08 : 0 }}>
           {line.map((word, wi) => {
             const idx = k++;
-            const isHi = idx === hi;
+            const isHi = isHiAt(idx);
             if (mode === 'label') {
               return (
                 <span
@@ -171,8 +180,8 @@ const BigWords: React.FC<{
               <span
                 key={wi}
                 style={{
-                  color: isHi ? accent : color,
-                  WebkitTextStroke: `${stroke}px rgba(0,0,0,0.92)`,
+                  color: isHi ? accent : numColor && /\d/.test(word) ? numColor : color,
+                  WebkitTextStroke: `${stroke}px rgba(0,0,0,0.95)`,
                   paintOrder: 'stroke fill',
                   textShadow: `0 ${w.size * 0.04}px ${w.size * 0.1}px rgba(0,0,0,0.9)`,
                   marginRight: wi < line.length - 1 ? w.size * 0.2 : 0,
@@ -220,7 +229,7 @@ function Hero({ spec, g, accent, head, locale, scale, scrim }: Ctx) {
   const zoom = clamp(spec.zoom ?? 1, 0.6, 2.2);
   const cx = side === 'left' ? W * 0.7 : W * 0.3;
   // The sharp layer only has to span the frame's height around the subject: the depth layer fills the rest.
-  const at = placePic(spec.hero, { cx, cy: H * 0.53, subjectH: H * 0.82 * zoom, maxSubjectW: W * 0.6 * zoom, cover: { x: cx - 40, y: 0, w: 80, h: H } });
+  const at = placePic(spec.hero, { cx, cy: H * 0.53, subjectH: H * 0.95 * zoom, maxSubjectW: W * 0.64 * zoom, cover: { x: cx - 40, y: 0, w: 80, h: H } });
   const s = at.subject;
   const scx = s.x + s.w / 2;
   const scy = s.y + s.h / 2;
@@ -229,9 +238,9 @@ function Hero({ spec, g, accent, head, locale, scale, scrim }: Ctx) {
   const tw = words(spec.text, head, { w: W * 0.5, h: H * 0.72 }, 230, scale, locale);
   return (
     <AbsoluteFill style={{ background: '#000' }}>
-      <DepthBackdrop pic={spec.hero} g={g} grade={spec.grade} dim={0.38} />
-      {/* rim light: an accent halo behind the subject */}
-      <AbsoluteFill style={{ background: `radial-gradient(ellipse ${rx}px ${ry}px at ${scx}px ${scy}px, ${alpha(accent, 0.5)} 0%, ${alpha(accent, 0.18)} 45%, rgba(0,0,0,0) 72%)`, mixBlendMode: 'screen' }} />
+      <DepthBackdrop pic={spec.hero} g={g} grade={spec.grade} dim={0.62} />
+      {/* warm glow behind the subject: fire-light, never a cold flat ground */}
+      <AbsoluteFill style={{ background: `radial-gradient(ellipse ${rx}px ${ry}px at ${scx}px ${scy}px, rgba(255,150,40,0.42) 0%, rgba(255,120,30,0.16) 45%, rgba(0,0,0,0) 72%)`, mixBlendMode: 'screen' }} />
       <AbsoluteFill style={{ filter: `drop-shadow(0 0 34px ${alpha(accent, 0.45)})` }}>
         <AbsoluteFill
           style={{
@@ -249,10 +258,10 @@ function Hero({ spec, g, accent, head, locale, scale, scrim }: Ctx) {
           </AbsoluteFill>
         </AbsoluteFill>
       </AbsoluteFill>
-      <AbsoluteFill style={{ background: `linear-gradient(${fade}, rgba(0,0,0,${0.78 + scrim * 0.2}) 0%, rgba(0,0,0,${0.5 + scrim * 0.3}) 38%, rgba(0,0,0,0) 60%)` }} />
-      <Vignette strength={0.65} />
+      <AbsoluteFill style={{ background: `linear-gradient(${fade}, rgba(0,0,0,${0.72 + scrim * 0.2}) 0%, rgba(0,0,0,${0.36 + scrim * 0.3}) 34%, rgba(0,0,0,0) 54%)` }} />
+      <Vignette strength={0.45} />
       {spec.tag ? <Tag text={spec.tag.toLocaleUpperCase(caseLocale(locale))} x={side === 'left' ? 58 : W * 0.62} y={H - 118} bg={g.labelBg} ink={g.labelInk} font={FONT[head]} /> : null}
-      <BigWords w={tw} x={side === 'left' ? 52 : W * 0.48} y={90} width={W * 0.5} height={H * 0.72} align={side === 'left' ? 'left' : 'right'} color="#ffffff" accent={accent} hi={spec.highlight} />
+      <BigWords w={tw} x={side === 'left' ? 52 : W * 0.48} y={90} width={W * 0.5} height={H * 0.72} align={side === 'left' ? 'left' : 'right'} color="#ffffff" accent={accent} hi={spec.highlight} numColor={PUNCH_RED} />
     </AbsoluteFill>
   );
 }
@@ -285,7 +294,7 @@ function Split({ spec, g, accent, head, locale, scale, scrim }: Ctx) {
       <Vignette strength={0.5} />
       {labels[0] ? <Tag text={up(labels[0])} x={40} y={36} bg="#ffffff" ink="#111111" font={FONT[head]} size={52} rotate={-2} /> : null}
       {labels[1] ? <Tag text={up(labels[1])} x={W - 40 - Math.max(120, up(labels[1]).length * 30)} y={36} bg={g.labelBg} ink={g.labelInk} font={FONT[head]} size={52} rotate={2} /> : null}
-      <BigWords w={tw} x={W * 0.05} y={H * 0.66} width={W * 0.9} height={H * 0.3} align="center" valign="bottom" color="#ffffff" accent={accent} hi={spec.highlight} />
+      <BigWords w={tw} x={W * 0.05} y={H * 0.66} width={W * 0.9} height={H * 0.3} align="center" valign="bottom" color="#ffffff" accent={accent} hi={spec.highlight} numColor={PUNCH_RED} />
     </AbsoluteFill>
   );
 }
@@ -301,7 +310,10 @@ function Circle({ spec, g, accent, red, head, locale, scale, scrim }: Ctx) {
   const cy = s.y + s.h / 2;
   // The ring stays inside the frame (a ring cut by the edge reads as a mistake).
   // /1.12: the hand-drawn wobble and overshoot reach ~11% past the radius.
-  const rx = clamp(Math.min(s.w * 0.72, (cx - 26) / 1.12, (W - cx - 26) / 1.12), 70, W * 0.3);
+  // ...and out of the words' column: a ring through the words reads as a scribble.
+  const textEdge = side === 'left' ? W * 0.47 : W * 0.53;
+  const clearOfText = side === 'left' ? (cx - textEdge) / 1.12 : (textEdge - cx) / 1.12;
+  const rx = clamp(Math.min(s.w * 0.72, (cx - 26) / 1.12, (W - cx - 26) / 1.12, clearOfText), 70, W * 0.3);
   const ry = clamp(Math.min(s.h * 0.72, (cy - 26) / 1.12, (H - cy - 26) / 1.12), 60, H * 0.4);
   // A hand-drawn ring: one and a bit turns, the end overshooting the start.
   const pts: string[] = [];
@@ -333,8 +345,8 @@ function Circle({ spec, g, accent, red, head, locale, scale, scrim }: Ctx) {
   return (
     <AbsoluteFill style={{ background: '#000' }}>
       <Pic pic={spec.hero} at={at} grade={spec.grade} g={g} />
-      <AbsoluteFill style={{ background: `linear-gradient(${fade}, rgba(0,0,0,${0.82 + scrim * 0.18}) 0%, rgba(0,0,0,${0.55 + scrim * 0.3}) 36%, rgba(0,0,0,0) 58%)` }} />
-      <Vignette strength={0.6} />
+      <AbsoluteFill style={{ background: `linear-gradient(${fade}, rgba(0,0,0,${0.74 + scrim * 0.18}) 0%, rgba(0,0,0,${0.4 + scrim * 0.3}) 34%, rgba(0,0,0,0) 54%)` }} />
+      <Vignette strength={0.45} />
       <svg width={W} height={H} style={{ position: 'absolute', left: 0, top: 0 }}>
         <path d={ring} fill="none" stroke="#000" strokeOpacity={0.55} strokeWidth={24} strokeLinecap="round" strokeLinejoin="round" />
         <path d={ring} fill="none" stroke={red} strokeWidth={15} strokeLinecap="round" strokeLinejoin="round" />
@@ -347,7 +359,7 @@ function Circle({ spec, g, accent, red, head, locale, scale, scrim }: Ctx) {
         ) : null}
       </svg>
       {spec.tag ? <Tag text={spec.tag.toLocaleUpperCase(caseLocale(locale))} x={side === 'left' ? 56 : W - 360} y={50} bg={g.labelBg} ink={g.labelInk} font={FONT[head]} /> : null}
-      <BigWords w={tw} x={side === 'left' ? 50 : W * 0.54} y={H * 0.16} width={W * 0.44} height={H * 0.62} align={side === 'left' ? 'left' : 'right'} valign="center" color="#ffffff" accent={accent} hi={spec.highlight} />
+      <BigWords w={tw} x={side === 'left' ? 50 : W * 0.54} y={H * 0.16} width={W * 0.44} height={H * 0.62} align={side === 'left' ? 'left' : 'right'} valign="center" color="#ffffff" accent={accent} hi={spec.highlight} numColor={PUNCH_RED} />
     </AbsoluteFill>
   );
 }
@@ -369,14 +381,15 @@ function NumberT({ spec, g, accent, head, locale, scale, scrim }: Ctx) {
   const x = side === 'left' ? 48 : W * 0.38;
   return (
     <AbsoluteFill style={{ background: '#000' }}>
-      <DepthBackdrop pic={spec.hero} g={g} grade={spec.grade} dim={0.32} />
+      <DepthBackdrop pic={spec.hero} g={g} grade={spec.grade} dim={0.55} />
+      <AbsoluteFill style={{ background: `radial-gradient(ellipse ${rx}px ${ry}px at ${scx}px ${scy}px, rgba(255,150,40,0.36) 0%, rgba(0,0,0,0) 70%)`, mixBlendMode: 'screen' }} />
       <AbsoluteFill style={{ WebkitMaskImage: `radial-gradient(ellipse ${rx}px ${ry}px at ${scx}px ${scy}px, #000 55%, rgba(0,0,0,0) 100%)`, maskImage: `radial-gradient(ellipse ${rx}px ${ry}px at ${scx}px ${scy}px, #000 55%, rgba(0,0,0,0) 100%)` }}>
         <Pic pic={spec.hero} at={at} grade={spec.grade} g={g} />
       </AbsoluteFill>
-      <AbsoluteFill style={{ background: `linear-gradient(${fade}, rgba(0,0,0,${0.8 + scrim * 0.2}) 0%, rgba(0,0,0,${0.5 + scrim * 0.3}) 45%, rgba(0,0,0,0) 66%)` }} />
-      <Vignette strength={0.6} />
+      <AbsoluteFill style={{ background: `linear-gradient(${fade}, rgba(0,0,0,${0.74 + scrim * 0.2}) 0%, rgba(0,0,0,${0.4 + scrim * 0.3}) 40%, rgba(0,0,0,0) 60%)` }} />
+      <Vignette strength={0.45} />
       <BigWords w={nw} x={x} y={H * 0.1} width={W * 0.6} height={H * 0.52} align={side === 'left' ? 'left' : 'right'} valign="bottom" color={accent} accent={accent} />
-      <BigWords w={rest} x={x} y={H * 0.63} width={W * 0.58} height={H * 0.26} align={side === 'left' ? 'left' : 'right'} valign="top" color="#ffffff" accent={accent} hi={spec.highlight} />
+      <BigWords w={rest} x={x} y={H * 0.63} width={W * 0.58} height={H * 0.26} align={side === 'left' ? 'left' : 'right'} valign="top" color="#ffffff" accent={accent} hi={spec.highlight} numColor={PUNCH_RED} />
     </AbsoluteFill>
   );
 }
@@ -400,7 +413,7 @@ function DocumentT({ spec, g, accent, red, head, locale, scale }: Ctx) {
   const paper = g.paper && isLight(g.paper) ? g.paper : '#efe9dc';
   return (
     <AbsoluteFill style={{ background: '#000' }}>
-      <DepthBackdrop pic={spec.hero} g={g} grade={spec.grade} dim={0.3} />
+      <DepthBackdrop pic={spec.hero} g={g} grade={spec.grade} dim={0.48} />
       <AbsoluteFill style={{ background: `radial-gradient(ellipse at ${side === 'left' ? '70%' : '30%'} 50%, rgba(0,0,0,0) 30%, rgba(0,0,0,0.7) 100%)` }} />
       <div
         style={{
@@ -439,9 +452,10 @@ export const Thumbnail: React.FC<Record<string, unknown>> = (raw) => {
   const ctx: Ctx = {
     spec,
     g,
-    accent: accentOf(spec, g),
-    red: redOf(g),
-    head: g.headline,
+    // The channel's punch: Anton, yellow highlight, red numbers — the same on every video, whatever its look.
+    accent: spec.accent && HEX.test(spec.accent) ? accentOf(spec, g) : PUNCH_YELLOW,
+    red: PUNCH_RED,
+    head: 'anton',
     locale,
     scale: clamp(spec.textScale ?? 1, 0.7, 1.4),
     scrim: clamp(spec.scrim ?? 0, 0, 1),

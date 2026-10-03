@@ -2,6 +2,7 @@
 
 ## 1.15.3 (3 Ekim 2026)
 
+- **Vurucu kapaklar**: YouTube kapakları kanalın kendi tarzında — Anton, kalın siyah kontur, beyaz + sarı (vurgu satırı), sayılar kırmızı; görsel daha parlak ve sıcak, konunun arkasında turuncu ışıltı, karartma yalnızca yazının olduğu tarafta; kırmızı halka yazının içine girmez. Kapak planlayıcısı iki satırlık vurucu yazıyı, dev rakamı ve videonun en "imkânsız" karesini tercih eder.
 - **Shorts görsel modu**: her cümle videonun kendi arşivinden (tablo, arşiv fotoğrafı, AI karesi, klip) tam ekran dikey bir görselle; görseller görüntü modeliyle bir kez kataloglanır (gerçekte ne gösterdiği, yazı ağırlıklı mı, ne kadar çarpıcı, konu nerede), dikey kırpma konuya göre; hiçbir şey göstermiyorsa yeni dikey görsel üretilir (en fazla 3); sayılar görselin üstüne söylendiği anda büyük yazıyla; kanca etiketi yalnızca girişte. Arşiv yetmezse eski "uzun videonun anları" teaser'ına düşer.
 - **Senaryo yazarı kredi yakmıyor**: yazı/başlık sahnesinde eksik `imagePrompt` komşu sahneden doldurulur — her bölüm için yapılan ek Claude onarım çağrısı kalktı (Napolyon'da 8/8 bölüm).
 - **YouTube açıklaması temiz**: YouTube Ses Kitaplığı parçaları tek satır ("Music: YouTube Audio Library"); "kaynak doğrulanamadı" gibi iç notlar açıklamaya değil "Yayın öncesi kontrol" bölümüne; İngilizce videoda görsel künyesindeki "Changes" satırı İngilizce.
