@@ -374,8 +374,9 @@ export function buildTeaserAss({ words, hook = "", slams = [], figures = [], hoo
   // hookFor: the label stays only that long after the opening (a picture Short is not covered by it all along).
   const hookEnd = hookFor != null ? Math.min(voiceEnd + 0.2, openEnd + hookFor) : voiceEnd + 0.2;
   if (hook) ev.push(`Dialogue: 1,${assTime(openEnd)},${assTime(hookEnd)},Hook,,0,0,0,,{\\fscx125\\fscy125\\t(0,160,\\fscx100\\fscy100)\\fad(0,250)}${assText(hook.toUpperCase())}`);
-  // A striking number lands big on the picture when it is said ("4,773"), never as a dark card.
-  figures.forEach((m) => ev.push(`Dialogue: 3,${assTime(m.s)},${assTime(m.e)},Slam,,0,0,0,,{\\an5\\pos(${W / 2},760)\\fscx160\\fscy160\\t(0,110,\\fscx100\\fscy100)\\fad(0,150)}${assText(m.text)}`));
+  // A striking number lands big on the picture when it is said ("4,773"), never as a dark card — in the lower
+  // middle, above the captions: faces and subjects sit in the upper half of a vertical picture.
+  figures.forEach((m) => ev.push(`Dialogue: 3,${assTime(m.s)},${assTime(m.e)},Slam,,0,0,0,,{\\an5\\pos(${W / 2},1230)\\fscx160\\fscy160\\t(0,110,\\fscx100\\fscy100)\\fad(0,150)}${assText(m.text)}`));
   // Açılışta alt yazı yok: çakılan kelime zaten ekranda (aynı sözü iki kez yazmak yankı olur).
   let i = words.findIndex((w) => w.s >= openEnd - 0.05);
   if (i < 0) i = words.length;
