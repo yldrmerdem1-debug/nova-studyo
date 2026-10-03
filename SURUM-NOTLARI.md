@@ -1,5 +1,15 @@
 # Nova Studyo — Sürüm Notları
 
+## 1.15.3 (3 Ekim 2026)
+
+- **Shorts görsel modu**: her cümle videonun kendi arşivinden (tablo, arşiv fotoğrafı, AI karesi, klip) tam ekran dikey bir görselle; görseller görüntü modeliyle bir kez kataloglanır (gerçekte ne gösterdiği, yazı ağırlıklı mı, ne kadar çarpıcı, konu nerede), dikey kırpma konuya göre; hiçbir şey göstermiyorsa yeni dikey görsel üretilir (en fazla 3); sayılar görselin üstüne söylendiği anda büyük yazıyla; kanca etiketi yalnızca girişte. Arşiv yetmezse eski "uzun videonun anları" teaser'ına düşer.
+- **Senaryo yazarı kredi yakmıyor**: yazı/başlık sahnesinde eksik `imagePrompt` komşu sahneden doldurulur — her bölüm için yapılan ek Claude onarım çağrısı kalktı (Napolyon'da 8/8 bölüm).
+- **YouTube açıklaması temiz**: YouTube Ses Kitaplığı parçaları tek satır ("Music: YouTube Audio Library"); "kaynak doğrulanamadı" gibi iç notlar açıklamaya değil "Yayın öncesi kontrol" bölümüne; İngilizce videoda görsel künyesindeki "Changes" satırı İngilizce.
+- **Kuşatma teması**: şemadaki ince kesik çizgili çubuk yerine mazgallı sur silüeti; arka plandaki kesik ok yerine kalın sefer oku; geçiş paneli boş parşömen değil (büyük konu kelimesi + kuleli surlar).
+- **Ses tepe seviyesi**: AAC kodlaması sonrası ölçülür, -1 dBTP'yi aşarsa bir kez düzeltilir (1453: -0,2 → artık ~-2,5 dBTP, -14 LUFS).
+- **Önce söyle, sonra göster (devamı)**: slam alt satırı, önce/sonra karşılaştırmasının ikinci tarafı, zaman çizelgesi olayları ve belge vurgusu kendi sözlerini bekler.
+- **1850 öncesi hikâyede stok sitesi kuralı**: 1453'te dönem denetimi Pexels/Unsplash/Mixkit karelerinin yarısını reddetti (modern İstanbul, canlandırmacılar, kruvaziyer...). Artık insan, şehir, ordu, gemi, yapı için stok adayı aranmaz — kurum arşivi (tablo, gravür) ya da AI; stok yalnızca zamansız kareler için (deniz, gök, ateş, hava, gece, doğa).
+
 ## 1.15.2 (2 Ekim 2026)
 
 ### Önce söyle, sonra göster
