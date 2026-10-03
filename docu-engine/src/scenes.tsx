@@ -2277,7 +2277,9 @@ export const Words: React.FC<Common & { scene: WordsScene }> = ({ scene, genre, 
         {mode === 'key' && since >= 0 && look.textStyle !== 'box' ? (
           <StyledSlam ctx={textCtx(look, genre, scene.kicker)} word={keyText} since={since} durFrames={durFrames} subAt={9999} weight={0.74} />
         ) : mode === 'key' && since >= 0 ? (
-          <AbsoluteFill style={{ justifyContent: 'center', alignItems: 'center' }}>
+          // Over a picture the word sits where captions sit (low, or the depth split's empty side), never
+          // across the middle of a portrait: "ROSTOPCHIN" covered the governor's eyes (Napoleon QA 8:46).
+          <AbsoluteFill style={pictured ? (scene.layers ? textZone : { justifyContent: 'flex-end', alignItems: 'center', paddingBottom: genre.letterbox ? 250 : 200 }) : { justifyContent: 'center', alignItems: 'center' }}>
             <div style={{ position: 'relative', transform: `scale(${pop * drift})` }}>
               {doc ? (
                 <div style={{ position: 'absolute', left: '-0.12em', right: '-0.12em', top: '0.06em', bottom: '-0.02em', fontSize: boxSize, background: genre.labelBg, transformOrigin: 'left center', transform: `scaleX(${sweep}) rotate(-1.5deg)`, boxShadow: `0 0.06em 0 ${genre.accent2}` }} />

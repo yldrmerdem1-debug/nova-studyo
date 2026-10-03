@@ -1086,7 +1086,9 @@ export const StyledSlam: React.FC<SlamProps> = ({ ctx, word, sub, since, durFram
         <div style={{ transform: `scale(${drift})`, transformOrigin: 'left center' }}>
           {kickT ? (
             <div style={{ overflow: 'hidden', marginBottom: 10 }}>
-              <div style={{ fontFamily: FONT[g.body], fontWeight: 700, fontSize: kSize, letterSpacing: '0.18em', textTransform: 'uppercase', color: P.accent, whiteSpace: 'nowrap', transform: `translateY(${interpolate(since, [2, 10], [110, 0], { ...clamp, easing: outExpo })}%)`, textShadow: P.shadow }}>{kickT}</div>
+              {/* The word's own ink and a real shadow, not the raw accent: a dark red, then a pale pink
+                  "BORODINO" vanished above HAUNT on Napoleon's snow (QA 7:16). */}
+              <div style={{ fontFamily: FONT[g.body], fontWeight: 700, fontSize: kSize, letterSpacing: '0.18em', textTransform: 'uppercase', color: P.ink, whiteSpace: 'nowrap', transform: `translateY(${interpolate(since, [2, 10], [110, 0], { ...clamp, easing: outExpo })}%)`, textShadow: isLight(P.ink) ? '0 2px 5px rgba(0,0,0,0.75), 0 6px 26px rgba(0,0,0,0.6)' : P.shadow }}>{kickT}</div>
             </div>
           ) : null}
           <StyledWord text={word} ctx={ctx} size={size} since={since} hero seed={`sl${ctx.index}`} />

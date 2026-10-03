@@ -104,7 +104,8 @@ const Bare: React.FC<Props> = ({ scene, genre, locale, durFrames, speed }) => {
   const labelSize = label ? fitFont(label, genre.body, { maxW: 1400, cap: 38, trackPx: 0.24 * 38, upper: true }) : 0;
   const ink = readable(genre.ink, ground, 7);
   const rule = readable(genre.accent, ground, 3);
-  const labelInk = readable(genre.accent, ground, 4.5);
+  // Ink warmed by the accent: the pure accent red read as a dim smear over a picture (Napoleon "~10,000").
+  const labelInk = readable(mix(genre.ink, genre.accent, 0.3), ground, 7);
   const rise = interpolate(f, [0, 10], [1, 0], { ...clamp, easing: outExpo });
   const ruleW = interpolate(f, [end - 6, end + 10], [0, 1], { ...clamp, easing: outCubic });
   const cam = interpolate(f, [0, durFrames], [1, 1 + 0.045 * speed], clamp);
