@@ -150,3 +150,67 @@ test('picture Short: a 9:16 window around the subject, never outside the picture
   const tall = P.verticalCrop(2134, 2880, { x: 0.16, y: 0.2, w: 0.7, h: 0.6 });
   assert.ok(tall.w <= 2134 && tall.h <= 2880 && Math.abs(tall.w / tall.h - 9 / 16) < 0.01);
 });
+
+test('picture Short planner (1929 Short): no present-day pictures in a period story, real people get their archive portrait, never an AI likeness', async () => {
+  const P = await import('../src/pipeline/docu-shorts-pictures.js');
+  const S = await import('../src/pipeline/docu-shorts.js');
+  const pic = (id, what, extra = {}) => ({ id, rel: `${id}.jpg`, kind: 'still', quality: 4, what, ...extra });
+  const catalog = [
+    pic('p1', 'Black-and-white photo of a huge crowd on Wall Street, 1929'),
+    pic('p2', 'Modern color low-angle view of the New York Stock Exchange facade'),
+    pic('p3', 'Aerial modern color footage of an arid desert plateau'),
+    pic('p4', 'Vintage press photo portrait of mustached man in suit, captioned Roger Babson'),
+    pic('p5', 'Elderly bespectacled goateed man in a tweed suit, 1920s photo', { say: 'Irving Fisher, the most famous economist in America, said stocks had reached a plateau' }),
+    pic('p6', 'Bank run crowd, 1930s photo'),
+    pic('p7', 'Breadline of men in overcoats, 1930s photo'),
+    pic('p8', 'Wildflowers in a meadow', { modern: true }),
+  ];
+  assert.equal(P.periodFit(catalog[1], 1929), false, 'modern colour photo');
+  assert.equal(P.periodFit(catalog[7], 1929), false, 'vision flagged modern');
+  assert.equal(P.periodFit(catalog[0], 1929), true);
+  assert.equal(P.periodFit(catalog[1], 2008), true, 'a present-day story may use present-day pictures');
+  assert.equal(P.portraitFor('Irving Fisher', catalog).id, 'p5', 'found by the narration over it');
+  assert.equal(P.portraitFor('Roger Babson', catalog).id, 'p4', 'found by its caption');
+
+  let seen = '';
+  const llm = async ({ user }) => {
+    seen = user;
+    return {
+      hook: 'THE CRASH', title: 't', description: 'd',
+      opening: { say: 'One bell. One prophet. And a crash.', words: ['bell', 'prophet', 'crash'], pictures: ['p1', 'p4', 'p2'] },
+      beats: [
+        { say: 'Roger Babson warned a crash was coming.', picture: 'p4', newPrompt: '', person: 'Roger Babson', figure: '', figureWord: '' },
+        { say: 'Irving Fisher said stocks had reached a permanently high plateau.', picture: 'new', newPrompt: 'Irving Fisher at a lectern', person: 'Irving Fisher', figure: '', figureWord: '' },
+        { say: 'Babson was laughed at.', picture: 'p4', newPrompt: '', person: 'Roger Babson', figure: '', figureWord: '' },
+        { say: 'The hero was led away in handcuffs.', picture: 'new', newPrompt: 'Richard Whitney in handcuffs led by police', person: 'Richard Whitney', figure: '', figureWord: '' },
+      ],
+    };
+  };
+  const plan = await P.planPictureTeaser({ cues: [{ t: 'story' }], catalog, year: 1929, llm });
+  assert.ok(!/p2 ·|p3 ·|p8 ·/.test(seen), 'present-day pictures never reach the planner');
+  assert.ok(/narration over it/.test(seen) && /figure of speech/.test(seen) && /never a likeness/.test(seen));
+  const [o1, o2, o3, babson, fisher, babson2, whitney] = plan.beats;
+  assert.equal(o1.asset.id, 'p1');
+  assert.equal(o3.asset, undefined, 'a modern pick is dropped');
+  assert.equal(babson.asset.id, 'p4', 'the portrait comes back for the person');
+  assert.equal(fisher.asset.id, 'p5', '"new" for a real person becomes their archive portrait');
+  assert.equal(babson2.asset, undefined, 'a portrait is used at most twice');
+  assert.ok(!/Whitney/.test(whitney.newPrompt) && /anonymous/.test(whitney.newPrompt), 'no likeness of a real person');
+  assert.match(S.newPictureStyle(1929), /black-and-white/);
+  assert.equal(S.newPictureStyle(2015), '');
+});
+
+test('picture Short figures land when the whole number is said, unit included (say then show)', async () => {
+  const S = await import('../src/pipeline/docu-shorts.js');
+  const ws = (t) => t.split(' ').map((w, k) => ({ w, s: k, e: k + 0.9 }));
+  const a = ws('Whitney bids two hundred and five dollars for U.S. Steel');
+  assert.equal(a[S.numberEnd(a, 2)].w, 'dollars');
+  const b = ws('the Dow crashes twelve point eight percent. No savior comes.');
+  assert.equal(b[S.numberEnd(b, 3)].w, 'percent.');
+  const c = ws('six million jobless turn to one voice');
+  assert.equal(c[S.numberEnd(c, 0)].w, 'million', 'a noun after the number is not part of it');
+  const d = ws('By 1933, Adolf Hitler');
+  assert.equal(d[S.numberEnd(d, 1)].w, '1933,', 'the sentence break ends it');
+  const e = ws('Over nine thousand banks fail');
+  assert.equal(e[S.numberEnd(e, 1)].w, 'thousand');
+});

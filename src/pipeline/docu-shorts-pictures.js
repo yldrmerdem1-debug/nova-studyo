@@ -15,6 +15,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { callJSON, callVisionJSON } from "../llm.js";
 import { openAIImagesProvider } from "./openai-images.js";
+import { donemYili, hikayeDonemi } from "./docu-archive.js";
 
 const W = 1080;
 const H = 1920;
@@ -76,6 +77,26 @@ function sizeOf(ffmpeg, file) {
   return m ? { w: +m[1], h: +m[2] } : null;
 }
 
+/**
+ * Mean brightness (0-255) of the darkest of n frames in [start, start+dur] of a clip, or null. The vision
+ * catalogue sees one frame; the 1929 Short's trading-floor footage turned into a black shoulder after it.
+ */
+export function darkestFrame(ffmpeg, file, start, dur, n = 6) {
+  const r = spawnSync(ffmpeg, ["-hide_banner", "-loglevel", "error", "-ss", String(Math.max(0, start)), "-t", String(dur), "-i", file, "-vf", `fps=${(n / Math.max(0.5, dur)).toFixed(3)},scale=32:18,format=gray`, "-f", "rawvideo", "pipe:1"], { maxBuffer: 1 << 24 });
+  const buf = r.stdout;
+  if (r.status !== 0 || !buf || buf.length < 576) return null;
+  let min = 255;
+  for (let k = 0; k + 576 <= buf.length; k += 576) {
+    let sum = 0;
+    for (let i = k; i < k + 576; i++) sum += buf[i];
+    min = Math.min(min, sum / 576);
+  }
+  return min;
+}
+
+/** Footage this dark at any moment of its window reads as a black screen on a phone. */
+export const DARK_CLIP = 32;
+
 const DESC_SCHEMA = {
   type: "object",
   properties: {
@@ -87,13 +108,14 @@ const DESC_SCHEMA = {
           n: { type: "integer", description: "the picture's number as labelled" },
           what: { type: "string", description: "What it really shows, concrete, max 18 words: who/what, action, place, era cues (painting, photo, engraving...)" },
           textHeavy: { type: "boolean", description: "true when it is mostly text, a diagram, a chart, a document or a title card" },
+          modern: { type: "boolean", description: "true when it is a present-day photo or footage: colour digital image, drone/aerial shot, modern clothes, cars, buildings, a reenactment" },
           quality: { type: "integer", description: "1-5: how striking it would be full screen on a phone (faces, action, drama, light = high; empty, murky, generic = low)" },
           x: { type: "number", description: "main subject box, left edge 0-1" },
           y: { type: "number", description: "main subject box, top edge 0-1" },
           w: { type: "number", description: "main subject box width 0-1" },
           h: { type: "number", description: "main subject box height 0-1" },
         },
-        required: ["n", "what", "textHeavy", "quality", "x", "y", "w", "h"],
+        required: ["n", "what", "textHeavy", "modern", "quality", "x", "y", "w", "h"],
         additionalProperties: false,
       },
     },
@@ -129,7 +151,7 @@ export async function describePictures({ assets, cacheFile, ffmpeg = "ffmpeg", l
         const x = batch[(Number(p.n) || 0) - 1];
         if (!x) continue;
         const c = (v) => Math.max(0, Math.min(1, Number(v) || 0));
-        cache[x.a.rel] = { what: String(p.what || "").slice(0, 160), textHeavy: !!p.textHeavy, quality: Math.max(1, Math.min(5, Number(p.quality) || 3)), box: { x: c(p.x), y: c(p.y), w: c(p.w) || 1, h: c(p.h) || 1 } };
+        cache[x.a.rel] = { what: String(p.what || "").slice(0, 160), textHeavy: !!p.textHeavy, modern: !!p.modern, quality: Math.max(1, Math.min(5, Number(p.quality) || 3)), box: { x: c(p.x), y: c(p.y), w: c(p.w) || 1, h: c(p.h) || 1 } };
       }
       fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
       fs.writeFileSync(cacheFile, JSON.stringify(cache, null, 1), "utf8");
@@ -138,6 +160,39 @@ export async function describePictures({ assets, cacheFile, ffmpeg = "ffmpeg", l
     }
   }
   return assets.map((a) => ({ ...a, ...(cache[a.rel] || {}) })).filter((a) => a.what);
+}
+
+/** The story's main year (script.era, else the years in the narration), or null. */
+export function storyYear(jobDir) {
+  return donemYili(hikayeDonemi(propsOf(jobDir)?.script || {}));
+}
+
+// 1929 Short: "modern color photo" of the NYSE facade, drone footage of a desert plateau and a cliff
+// stood in for a 1929 story. Words the vision catalogue uses for a present-day picture.
+const MODERN_LOOK = /\bmodern\b|\bcontemporary\b|present[- ]day|\bdrone\b|\bcolou?r (?:photo|photograph|footage|shot|film|image|video)/i;
+
+/** A picture that belongs on screen in a story of this year: no present-day pictures before 1990. */
+export function periodFit(a, year) {
+  if (year == null || year >= 1990) return true;
+  return !a.modern && !MODERN_LOOK.test(a.what || "");
+}
+
+/** Pictures that show a person: their archive portrait (named in the description, or under narration naming them). */
+export function portraitFor(name, catalog) {
+  const surname = String(name || "").trim().split(/\s+/).filter((w) => w.length > 2).at(-1);
+  if (!surname) return null;
+  const re = new RegExp(`\\b${surname.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
+  const person = /\b(portrait|man|woman|face|men|figure|president|king|sultan|emperor|general)\b/i;
+  return catalog
+    .filter((a) => !a.textHeavy && (re.test(a.what || "") || (re.test(a.say || "") && person.test(a.what || ""))))
+    .sort((a, b) => Number(re.test(b.what || "")) - Number(re.test(a.what || "")) || b.quality - a.quality)[0] || null;
+}
+
+/** A new-picture prompt with the real person taken out: an anonymous figure, never a likeness. */
+export function anonymise(prompt, name) {
+  let p = String(prompt || "");
+  for (const w of String(name || "").split(/\s+/).filter((x) => x.length > 2)) p = p.replace(new RegExp(`\\b${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}('s)?\\b`, "gi"), "a man");
+  return `${p.replace(/\ba man(?:\s+a man)+/gi, "a man")}. An anonymous figure seen from behind or in silhouette, no recognisable face`;
 }
 
 const PIC_SCHEMA = {
@@ -162,11 +217,12 @@ const PIC_SCHEMA = {
         properties: {
           say: { type: "string", description: "ONE spoken sentence, 6-16 words" },
           picture: { type: "string", description: "id of the catalogue picture that SHOWS what this sentence is about, or \"new\"" },
-          newPrompt: { type: "string", description: "Only when picture is \"new\": an image prompt for a NEW vertical (9:16) picture of exactly what the sentence says — era-accurate, cinematic light, no text, no modern objects; else empty" },
+          newPrompt: { type: "string", description: "Only when picture is \"new\": an image prompt for a NEW vertical (9:16) picture of exactly what the sentence says — era-accurate, cinematic light, no text, no modern objects, no real person; else empty" },
+          person: { type: "string", description: "Full name of the real person this sentence is about (named or meant), else empty" },
           figure: { type: "string", description: "When the sentence says a striking number or date: how it is printed big on screen ('4,773', '8 METERS', '1453'); else empty" },
           figureWord: { type: "string", description: "The first spoken word of that number ('four', 'eight', 'fourteen'); else empty" },
         },
-        required: ["say", "picture", "newPrompt", "figure", "figureWord"],
+        required: ["say", "picture", "newPrompt", "person", "figure", "figureWord"],
         additionalProperties: false,
       },
     },
@@ -178,11 +234,13 @@ const PIC_SCHEMA = {
 };
 
 /** Claude: the teaser's words, and for every sentence the picture that shows it. */
-export async function planPictureTeaser({ cues, title = "", catalog, llm = callJSON, settings = {}, usage = null, logFn = () => {}, maxNew = 3 }) {
+export async function planPictureTeaser({ cues, title = "", catalog: all, year = null, llm = callJSON, settings = {}, usage = null, logFn = () => {}, maxNew = 3 }) {
   const story = cues.map((c) => c.t).join(" ").replace(/\s+/g, " ").slice(0, 14000);
+  const catalog = all.filter((a) => periodFit(a, year));
+  if (catalog.length < all.length) logFn(`Shorts: ${all.length - catalog.length} günümüz görseli ${year} hikâyesinden çıkarıldı`);
   const pics = catalog
     .filter((a) => !a.textHeavy)
-    .map((a) => `${a.id} · ${a.kind === "clip" ? "footage" : "still"} · q${a.quality} · ${a.what}`)
+    .map((a) => `${a.id} · ${a.kind === "clip" ? "footage" : "still"} · q${a.quality} · ${a.what}${a.say ? ` · narration over it: "${a.say.slice(0, 90)}"` : ""}`)
     .join("\n");
   const res = await llm({
     system: "You write and picture-edit YouTube Shorts that sell a full-length history documentary on the same channel. Return only the requested JSON.",
@@ -197,8 +255,11 @@ export async function planPictureTeaser({ cues, title = "", catalog, llm = callJ
       "- the opening is the hook: three short spoken fragments with a rhythm ('A recipe. A street. And a betrayal.'), each naming one concrete thing of this story, the third the twist; each fragment gets the picture of that thing",
       "- then 3-5 of the most striking, concrete moments (numbers, names, reversals), each raising the stakes; never give away the ending; the last beat calls to the full documentary on the channel",
       "- plain spoken English, short sentences, no hashtags, emojis or stage directions",
-      "- EVERY sentence gets ONE picture that shows exactly what it says: the person it names (never someone else), the object, the place, the event. Prefer q4-q5 pictures with faces, action, fire, crowds, ships, armies. Never the same picture twice. Never a picture of something the sentence does not talk about",
-      `- if nothing in the archive shows a sentence, use "new" and write newPrompt (at most ${maxNew} new pictures in the whole Short)`,
+      "- EVERY sentence gets ONE picture that shows exactly what it says: the person it names (never someone else), the object, the place, the event. Prefer q4-q5 pictures with faces, action, fire, crowds, ships, armies. Never a picture of something the sentence does not talk about",
+      "- never picture a figure of speech literally: a 'plateau', a 'cliff', a 'storm', a 'bloodbath', a 'bubble' are words, not landscapes — show the person who said it or the real thing that happened (the crowd, the trading floor, the ruined man)",
+      `- every picture must belong to the story's time${year != null ? ` (${year < 0 ? `${-year} BC` : year})` : ""}: no present-day photos or footage`,
+      "- a real person the sentence is about gets THEIR archive portrait (find it by the description or by the narration over it); a portrait may come back once when the story returns to that person; otherwise never the same picture twice",
+      `- if nothing in the archive shows a sentence, use "new" and write newPrompt (at most ${maxNew} new pictures in the whole Short) — only for scenes without a real, named person: places, objects, crowds, anonymous figures; never a likeness of a real person`,
       "- a sentence with a striking number or date: put it in figure (it is printed big on the picture when said)",
     ].join("\n"),
     schema: PIC_SCHEMA,
@@ -208,16 +269,26 @@ export async function planPictureTeaser({ cues, title = "", catalog, llm = callJ
     logFn,
   });
   const byId = new Map(catalog.map((a) => [a.id, a]));
-  const used = new Set();
+  const uses = new Map();
   let news = 0;
-  const pick = (id, prompt) => {
-    if (id && byId.has(id) && !used.has(id)) {
-      used.add(id);
-      return { asset: byId.get(id) };
-    }
+  let prev = null;
+  // A picture once; a person's portrait twice (the story returns to them), never on two beats in a row.
+  const free = (a, person) => a && a.id !== prev && (uses.get(a.id) || 0) < (person ? 2 : 1);
+  const take = (a) => {
+    uses.set(a.id, (uses.get(a.id) || 0) + 1);
+    prev = a.id;
+    return { asset: a };
+  };
+  const pick = (id, prompt, person = "") => {
+    const a = byId.get(id);
+    if (free(a, person)) return take(a);
+    // A real person is never generated: their archive portrait, else an anonymous figure.
+    const face = person && portraitFor(person, catalog);
+    if (free(face, person)) return take(face);
+    prev = null;
     if (prompt && news < maxNew) {
       news++;
-      return { newPrompt: prompt };
+      return { newPrompt: person ? anonymise(prompt, person) : prompt };
     }
     return null;
   };
@@ -225,7 +296,7 @@ export async function planPictureTeaser({ cues, title = "", catalog, llm = callJ
   const op = res?.opening || {};
   const frags = (clean(op.say).match(/[^.!?]+[.!?]+["”']?/g) || []).map((f) => f.trim());
   const opening = frags.length === 3 ? frags.map((say, k) => ({ say, slam: String(op.words?.[k] || "").replace(/[^\p{L}\p{N}'-]/gu, "").toUpperCase(), ...(pick(op.pictures?.[k]) || {}) })) : [];
-  const beats = (res?.beats || []).map((b) => ({ say: clean(b.say), figure: clean(b.figure), figureWord: clean(b.figureWord), ...(pick(b.picture, clean(b.newPrompt)) || {}) })).filter((b) => b.say);
+  const beats = (res?.beats || []).map((b) => ({ say: clean(b.say), figure: clean(b.figure), figureWord: clean(b.figureWord), person: clean(b.person), ...(pick(b.picture === "new" ? "" : b.picture, clean(b.newPrompt), clean(b.person)) || {}) })).filter((b) => b.say);
   if (beats.length < 3) throw new Error("teaser planı eksik");
   return { hook: clean(res.hook), beats: [...opening, ...beats], title: clean(res.title), description: clean(res.description) };
 }

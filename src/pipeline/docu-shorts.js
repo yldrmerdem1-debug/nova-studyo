@@ -13,7 +13,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { callJSON } from "../llm.js";
-import { describePictures, newVerticalPicture, pictureAssets, planPictureTeaser, renderPictureTeaser, sizeOf } from "./docu-shorts-pictures.js";
+import { DARK_CLIP, darkestFrame, describePictures, newVerticalPicture, periodFit, pictureAssets, planPictureTeaser, renderPictureTeaser, sizeOf, storyYear } from "./docu-shorts-pictures.js";
 
 export const SHORT_MIN = 40;
 export const SHORT_MAX = 58;
@@ -694,6 +694,32 @@ export async function makeDocuShort(opts = {}) {
   return makeDocuCut(opts);
 }
 
+const NUM_WORD = /^(?:\d[\d,.]*%?|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|billion|trillion|point|half)$/;
+const NUM_UNIT = /^(?:percent|per|cent|dollars?|pounds?|francs?|marks?|metres?|meters?|miles?|kilometres?|kilometers?|feet|tons?|degrees?)$/;
+
+/** Index of the last spoken word of the number starting at words[i] ("two hundred and five dollars" -> "dollars"). */
+export function numberEnd(words, i) {
+  const bare = (k) => String(words[k]?.w || "").toLowerCase().replace(/[^\p{L}\p{N}%.,]/gu, "").replace(/[.,]+$/, "");
+  const ends = (k) => /[.!?;:,]["”']?$/.test(String(words[k]?.w || "").trim());
+  let j = i;
+  while (!ends(j) && j + 1 < words.length) {
+    const n = bare(j + 1);
+    if (NUM_WORD.test(n) || (n === "and" && NUM_WORD.test(bare(j + 2)))) j++;
+    else break;
+  }
+  // The unit belongs to the figure ("12.8%" lands on "percent").
+  while (!ends(j) && j + 1 < words.length && NUM_UNIT.test(bare(j + 1))) j++;
+  return j;
+}
+
+/** How a new picture must look to sit among the archive of a story set in `year`. */
+export function newPictureStyle(year, genre = "") {
+  if (year == null || year >= 1990) return genre === "epic" ? "Era-accurate historical scene." : "";
+  const era = year < 0 ? `${-year} BC` : String(year);
+  // Photography era: the archive is black-and-white photographs, a colour render would stand out.
+  return `Era-accurate scene of ${era}${year >= 1850 && year < 1955 ? ", a black-and-white archival photograph of the time, film grain" : ", painterly historical look"}.`;
+}
+
 /** Teaser in picture mode (docu-shorts-pictures.js): every sentence its own full-screen vertical picture. */
 export async function makePictureTeaser({ jobDir, job = {}, settings = {}, usage = null, logFn = () => {}, llm, visionLlm, ffmpeg, title: titleIn, speak = speakTeaser, newPicture = newVerticalPicture } = {}) {
   const last = latestOutput(jobDir);
@@ -708,7 +734,8 @@ export async function makePictureTeaser({ jobDir, job = {}, settings = {}, usage
   const catalog = await describePictures({ assets, cacheFile: path.join(dir, "pictures.json"), ffmpeg: ff, ...(visionLlm ? { llm: visionLlm } : {}), settings, usage, logFn });
   if (catalog.filter((a) => !a.textHeavy).length < 8) throw new Error("kullanılabilir görsel az");
   logFn("Shorts: teaser metni ve görselleri planlanıyor...");
-  const plan = await planPictureTeaser({ cues, title, catalog, ...(llm ? { llm } : {}), settings, usage, logFn });
+  const year = storyYear(jobDir);
+  const plan = await planPictureTeaser({ cues, title, catalog, year, ...(llm ? { llm } : {}), settings, usage, logFn });
   const text = plan.beats.map((b) => b.say).join(" ");
   logFn(`Shorts: seslendiriliyor (${text.length} karakter)...`);
   const voiceId = job.elevenVoiceId || settings.docuEnVoiceId || "nPczCjzI2devNBz1zQrb";
@@ -720,13 +747,13 @@ export async function makePictureTeaser({ jobDir, job = {}, settings = {}, usage
 
   // Pictures: the planned archive picture, a new vertical one where the archive has nothing, else the best unused.
   const used = new Set(plan.beats.filter((b) => b.asset).map((b) => b.asset.rel));
-  const spare = catalog.filter((a) => !a.textHeavy && !used.has(a.rel)).sort((a, b) => b.quality - a.quality);
+  const spare = catalog.filter((a) => !a.textHeavy && !used.has(a.rel) && periodFit(a, year)).sort((a, b) => b.quality - a.quality);
   for (const b of plan.beats) {
     if (b.asset) continue;
     if (b.newPrompt && settings.openaiKey) {
       try {
         logFn(`Shorts: yeni dikey görsel üretiliyor — ${b.newPrompt.slice(0, 70)}`);
-        const abs = await newPicture({ prompt: b.newPrompt, dir: path.join(dir, "new"), settings, style: job.docuGenre === "epic" ? "Era-accurate historical scene." : "" });
+        const abs = await newPicture({ prompt: b.newPrompt, dir: path.join(dir, "new"), settings, style: newPictureStyle(year, job.docuGenre) });
         b.asset = { abs, kind: "still", srcW: 864, srcH: 1536, box: { x: 0.2, y: 0.15, w: 0.6, h: 0.6 }, what: b.newPrompt, generated: true };
         continue;
       } catch (e) {
@@ -752,13 +779,20 @@ export async function makePictureTeaser({ jobDir, job = {}, settings = {}, usage
     const e = k + 1 < plan.beats.length ? starts[k + 1] : voiceEnd + 0.45;
     const a = b.asset;
     const dur = Math.max(0.6, e - s);
-    // Footage too short for its sentence holds its still frame instead.
-    const clipOk = a.kind === "clip" && a.clipDur - 0.5 >= dur;
+    // Footage too short for its sentence, or going dark inside its window, holds its still frame instead.
+    let clipOk = a.kind === "clip" && a.clipDur - 0.5 >= dur;
+    if (clipOk && a.still) {
+      const dark = darkestFrame(ff, a.abs, (a.clipStart || 0) + 0.5, dur);
+      if (dark != null && dark < DARK_CLIP) {
+        clipOk = false;
+        logFn(`Shorts: ${path.basename(a.abs)} bu pencerede kararıyor (${dark.toFixed(0)}), sabit karesi kullanılıyor`);
+      }
+    }
     return { abs: clipOk || a.kind !== "clip" ? a.abs : a.still || a.abs, kind: clipOk ? "clip" : "still", clipStart: (a.clipStart || 0) + 0.5, srcW: a.srcW, srcH: a.srcH, box: a.box || { x: 0, y: 0, w: 1, h: 1 }, dur, beat: k, what: a.what, rel: a.rel, generated: !!a.generated };
   });
   const total = +(voiceEnd + 0.45 + 2.6).toFixed(2);
   const slams = slamTimes(plan.beats, words);
-  // Figures: on the first spoken word of the number, held ~1.8 s (never into the next sentence).
+  // Figures: when the whole number has been said ("two hundred and FIVE dollars"), held ~1.8 s (never into the next sentence).
   const figures = [];
   let off = 0;
   plan.beats.forEach((b, k) => {
@@ -766,10 +800,12 @@ export async function makePictureTeaser({ jobDir, job = {}, settings = {}, usage
     off += b.say.length + 1;
     if (!b.figure) return;
     const bare = (w) => String(w || "").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
-    const said = words.find((w) => w.at >= from && w.at < off && bare(w.w) === bare(b.figureWord)) ?? words.find((w) => w.at >= from && /\d/.test(w.w));
-    if (!said) return;
+    let i = words.findIndex((w) => w.at >= from && w.at < off && bare(w.w) === bare(b.figureWord));
+    if (i < 0) i = words.findIndex((w) => w.at >= from && /\d/.test(w.w));
+    if (i < 0) return;
+    const said = words[numberEnd(words, i)];
     const end = k + 1 < plan.beats.length ? starts[k + 1] : voiceEnd;
-    figures.push({ text: b.figure.toUpperCase(), s: said.s, e: Math.min(end - 0.05, said.s + 1.8) });
+    figures.push({ text: b.figure.toUpperCase(), s: said.s, e: Math.max(said.s + 0.8, Math.min(end - 0.05, said.s + 1.8)) });
   });
   const assFile = path.join(dir, `short-${stamp}.ass`);
   fs.writeFileSync(assFile, buildTeaserAss({ words, hook: plan.hook, slams, figures, hookFor: 3.5, voiceEnd: voiceEnd + 0.45, total }), "utf8");
