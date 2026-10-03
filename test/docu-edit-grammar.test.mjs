@@ -73,3 +73,23 @@ test('grammar: an open story keeps its colour devices but still caps the gimmick
   assert.equal(scenes[0].transition, 'leak');
   assert.deepEqual(scenes.map((s) => s.fx), [['light-leak', 'dolly-zoom'], []]);
 });
+
+test('battle music only under a battle (Napoleon: war horns under the storm and the wait in Moscow)', async () => {
+  const A = await import('../docu-engine/lib/audio-director.mjs');
+  const tr = (tags) => ({ tags: { energy: 3, tempo: 'medium', ...tags } });
+  assert.equal(A.battleTrack(tr({ energy: 5, tempo: 'fast', description: 'War horns, choir and pounding percussion' })), true);
+  assert.equal(A.battleTrack(tr({ energy: 4, description: 'full battle, the final assault on the walls' })), true);
+  assert.equal(A.battleTrack(tr({ energy: 4, description: 'A brooding orchestral piece with a steady build of tension' })), false);
+  assert.equal(A.battleTrack(tr({ energy: 5, tempo: 'medium', description: 'swelling hymn' })), false);
+  // The real library: the planner no longer puts the battle track under Napoleon's non-battle stretches.
+  const root = 'C:/Users/erdem/Videos/Nova Studyo/data/audio-library';
+  const fs = await import('node:fs');
+  if (!fs.existsSync(`${root}/library.json`)) return;
+  const lib = A.loadLibrary(root);
+  const scenes = [
+    { type: 'photo', mood: 'dread', energy: 3, say: 'A violent storm. Ten thousand horses dead before a single battle. War, death, the army.', dur: 40 },
+    { type: 'photo', mood: 'tension', energy: 3, say: 'In burnt Moscow the army waited; the Tsar never wrote back. War and ruin.', dur: 60 },
+  ];
+  const plan = A.planScore({ script: { genre: 'history', scenes, era: '1812' }, sceneSeconds: scenes.map((s) => s.dur), lib, root, genre: 'history', seed: 't' });
+  for (const c of plan.cues.filter((c) => c.trackId)) assert.equal(A.battleTrack(lib.music.find((m) => m.id === c.trackId)), false, c.title);
+});

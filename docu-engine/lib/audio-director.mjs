@@ -1569,7 +1569,17 @@ function trackScore2(t, cue, ctx) {
     if (t.tags.register === 'grave') s += 0.14;
     if ((Number(t.tags.energy) || 3) >= 4) s -= 0.12;
   }
+  // Battle music is for the battle: war horns and pounding drums under a storm, dying horses or the
+  // wait in burnt Moscow (Napoleon, 4.5 min of "Clash Defiant") turn a grave story into a trailer.
+  if (ctx.gravity === 'grave' && battleTrack(t) && !(Number(cue.energy) >= 4.5)) s -= 0.3;
   return s;
+}
+
+/** A full-battle track: energy 5 and fast, or described as a battle / assault / war horns. */
+export function battleTrack(t) {
+  const g = t?.tags ?? {};
+  const said = `${g.description ?? ''} ${g.bestUse ?? ''}`;
+  return ((Number(g.energy) || 3) >= 5 && fold(g.tempo ?? '') === 'fast') || /\b(battle|assault|war horns|charge)\b/i.test(said);
 }
 
 function windowFit2(E, s, len, cue) {
