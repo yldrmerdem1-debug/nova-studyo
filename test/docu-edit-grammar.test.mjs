@@ -93,3 +93,57 @@ test('battle music only under a battle (Napoleon: war horns under the storm and 
   const plan = A.planScore({ script: { genre: 'history', scenes, era: '1812' }, sceneSeconds: scenes.map((s) => s.dur), lib, root, genre: 'history', seed: 't' });
   for (const c of plan.cues.filter((c) => c.trackId)) assert.equal(A.battleTrack(lib.music.find((m) => m.id === c.trackId)), false, c.title);
 });
+
+test('echo captions become key words; short dates and labels stay', async () => {
+  const G = await import('../docu-engine/lib/edit-grammar.mjs');
+  const echo = { type: 'words', say: '[serious] More than forty-seven French generals were killed or wounded.', text: 'More than forty-seven French generals were killed or wounded.' };
+  const date = { type: 'words', say: 'Midsummer, 1812. A river in Lithuania.', text: 'Midsummer, 1812' };
+  const own = { type: 'words', say: 'He waited for a reply that never came.', text: 'The letter that never came, waiting in the Kremlin for weeks' };
+  assert.equal(G.echoesLine(echo), true);
+  assert.equal(G.echoesLine(date), false, 'six words or fewer is a label, not an echo');
+  assert.equal(G.echoesLine(own), false, 'its own words, not the narration');
+  const script = { scenes: [echo, date, { ...own }] };
+  G.applyEditGrammar(script, { gravity: 'grave' });
+  assert.equal(echo.textMode, 'key');
+  assert.equal(date.textMode, undefined);
+});
+
+test('breath: a chapter end, a toll, a slam or a quiet line lands before the cut; asides do not', async () => {
+  const G = await import('../docu-engine/lib/edit-grammar.mjs');
+  const a = (o) => ({ type: 'photo', mood: 'tension', energy: 3, chapter: 0, dur: 3, voiceDur: 4, ...o });
+  const scenes = [a({}), a({ type: 'counter' }), a({ mood: 'sad' }), a({}), a({ chapter: 1 })];
+  assert.equal(G.breathAfter(scenes[0], scenes[1]), 0, 'a plain line keeps the old 0.4 s');
+  assert.equal(G.breathAfter(scenes[1], scenes[2]), 1.0);
+  assert.equal(G.breathAfter(scenes[2], scenes[3]), 0.9);
+  assert.equal(G.breathAfter(scenes[3], scenes[4]), 1.4, 'the last line of a chapter');
+  assert.equal(G.breathAfter(scenes[4], undefined), 0);
+  const r = G.applyBreath({ scenes });
+  assert.equal(r.scenes, 3);
+  assert.equal(scenes[1].dur, 5);
+  assert.equal(scenes[0].dur, 3, 'untouched');
+});
+
+test('cutaways: only climax picture lines, cut on spoken content words, never on a person or a held still', async () => {
+  const I = await import('../docu-engine/lib/inserts.mjs');
+  const wt = (text, step = 0.4) => text.split(' ').map((word, k) => ({ word, t: +(k * step).toFixed(2) }));
+  const guns = { type: 'photo', image: 'a.jpg', energy: 5, pace: 'rapid', mood: 'tension', say: 'Then the guns opened, and for fourteen hours they hardly stopped.', voiceDur: 4.6, wordTimes: wt('Then the guns opened, and for fourteen hours they hardly stopped.') };
+  const chart = { type: 'photo', image: 'b.jpg', energy: 4, pace: 'quick', mood: 'tension', say: 'At its far end, a thin black thread. What does it mean?', voiceDur: 4.6, wordTimes: wt('At its far end, a thin black thread. What does it mean?') };
+  const person = { ...guns, name: 'Bagration' };
+  const held = { ...guns, pace: 'hold' };
+  const card = { ...guns, type: 'words', textMode: 'key' };
+  const full = { ...guns, type: 'words' };
+  assert.equal(I.insertable(guns) && I.climaxLine(guns), true);
+  assert.equal(I.climaxLine(chart), false, 'a chart line is not action');
+  assert.equal(I.insertable(person), false, 'a name card would sit on someone else');
+  assert.equal(I.insertable(held), false, 'a deliberate hold stays one picture');
+  assert.equal(I.insertable(card), true, 'a key-word card keeps its word over the new picture');
+  assert.equal(I.insertable(full), false, 'never under a full sentence card');
+  const at = I.insertMoments(guns, 1);
+  assert.equal(at.length, 1);
+  const w = guns.wordTimes.find((x) => Math.abs(x.t - at[0] - 0.04) < 1e-6);
+  assert.ok(w && w.word.replace(/\W/g, '').length >= 4, `cuts on a content word (${w?.word})`);
+  assert.ok(at[0] >= 1.06 && at[0] <= guns.voiceDur - 1);
+  const plan = I.planInserts({ scenes: [chart, guns, person] });
+  assert.deepEqual(plan.map((p) => p.i), [1]);
+  assert.match(plan[0].prompts[0], /same moment/);
+});

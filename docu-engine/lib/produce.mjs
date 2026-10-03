@@ -41,7 +41,8 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, parse as parsePath, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ensureFoley, libraryRoot, loadLibrary, musicHistoryFor, pickSfxPools, planAmbience, planEvents, planScore, readMusicHistory, recordMusicHistory, renderScore, sceneYears, sfxMeta, storyGravity } from './audio-director.mjs';
-import { applyEditGrammar } from './edit-grammar.mjs';
+import { applyBreath, applyEditGrammar } from './edit-grammar.mjs';
+import { planInserts } from './inserts.mjs';
 import { VOICE_CHAIN_VERSION, applySpace, panVariant, processVoice, widenBed } from './sound-craft.mjs';
 import { placeTimeline } from '../src/timeline.js';
 import { openingEnd } from '../src/opening/plan.js';
@@ -1888,6 +1889,42 @@ export async function produce(scriptIn, o) {
   guard();
   if (levelled.length > 1) log(`anlatım seviyesi: ${levelled.length} satır ${Math.min(...levelled).toFixed(1)}…${Math.max(...levelled).toFixed(1)} LUFS → ${VOICE_LUFS} LUFS`);
 
+  /*
+   * Cutaways on the climax lines (lib/inserts.mjs): now that the words have times, a new
+   * full-frame picture of the same moment cuts in on a spoken word. AI pictures, cached by prompt
+   * like every other, so a re-render pays nothing; a picture that fails just leaves the line as it was.
+   */
+  if (o.inserts !== false) {
+    const plan = planInserts(script);
+    let made = 0;
+    await pool(plan, CONC, async (p) => {
+      const sc = script.scenes[p.i];
+      const ins = [];
+      for (let k = 0; k < p.at.length; k++) {
+        let file = null;
+        try {
+          file = await safeImage(p.prompts[k], [], p.i);
+        } catch (e) {
+          if (e?.cancelled) throw e;
+        }
+        if (!file) break;
+        const d = sizeOf(join(PUBLIC, file));
+        ins.push({ src: file, at: p.at[k], ...(d ? { imgW: d.w, imgH: d.h } : {}) });
+      }
+      if (ins.length) {
+        sc.inserts = ins;
+        made += ins.length;
+      }
+    });
+    guard();
+    if (made) log(`ara planlar: ${plan.length} doruk satırına ${made} yeni kare (anahtar kelimede kesme)`);
+  }
+  // A line that must land (a chapter's last, a toll, a slam, a grieving beat) keeps a breath after it.
+  {
+    const br = applyBreath(script);
+    if (br.scenes) log(`nefes: ${br.scenes} satırdan sonra ek sessizlik (+${br.added} sn)`);
+  }
+
   for (const sc of script.scenes) {
     if (sc.type === 'montage') sc.dur = Math.max(sc.dur, (sc.imagePrompts?.length ?? 0) * 0.42 + 1.2);
   }
@@ -2946,7 +2983,7 @@ const key16 = (s) => createHash('sha1').update(s).digest('hex').slice(0, 16);
 /* Scene fields only the sound uses: a new voice take or bed must not re-render the picture. */
 const SOUND_ONLY = new Set(['voice', 'ambience', 'take', 'sound', 'place', 'foley']);
 /* Scene fields only the picture uses: a new image must not re-render the sound. */
-const PICTURE_ONLY = new Set(['imgW', 'imgH', 'focus', 'crop', 'fit', 'borrowed','imagePrompt', 'cast', 'archived', 'search', 'credit', 'media', 'video', 'videoStart', 'videoDur', 'videoW', 'videoH', 'clips', 'icons', 'present']);
+const PICTURE_ONLY = new Set(['imgW', 'imgH', 'focus', 'crop', 'fit', 'borrowed','imagePrompt', 'cast', 'archived', 'search', 'credit', 'media', 'video', 'videoStart', 'videoDur', 'videoW', 'videoH', 'clips', 'icons', 'present', 'inserts']);
 
 /** What of a scene can change its pictures. */
 export function visualScene(sc) {
@@ -2968,7 +3005,7 @@ export function transitionContext(scenes) {
   return key16(JSON.stringify(scenes.map((s) => [s.type, s.mood ?? null, s.chapter ?? null, !!s.chapterCard, s.transition ?? null, !!(s.image || s.video || s.layers)])));
 }
 /* Every file a scene shows (the footage clip too: a clip replaced under the same name re-renders its chunk). */
-const sceneImages = (sc) => [sc.image, sc.video, ...(sc.images ?? []), ...(sc.clips ?? []).map((c) => c?.video), sc.layers?.fg, sc.layers?.bg].filter(Boolean);
+const sceneImages = (sc) => [sc.image, sc.video, ...(sc.images ?? []), ...(sc.inserts ?? []).map((x) => x.src), ...(sc.clips ?? []).map((c) => c?.video), sc.layers?.fg, sc.layers?.bg].filter(Boolean);
 
 /* ------------------------------------------------------- borrowed pictures */
 

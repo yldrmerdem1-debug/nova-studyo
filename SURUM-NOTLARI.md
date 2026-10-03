@@ -1,5 +1,14 @@
 # Nova Studyo — Sürüm Notları
 
+## 1.15.5 (3 Ekim 2026)
+
+Kurgu ince ayarı (Napolyon kare kare incelendi: Borodino doruğunda top resmi iki cümle boyunca ~9 sn ekrandaydı).
+
+- **Doruk anlarında ara planlar**: filmin en yoğun resim satırlarında (silah, ateş, hücum, kar fırtınası... ya da yönetmenin "rapid" dediği anlar) aynı anın yeni, tam kadraj bir karesi anlatıcının söylediği bir içerik kelimesinde sert kesmeyle girer (yakın, sonra geniş). Kişi sahneleri (isim kartı, altyazı), bilinçli durgun planlar, kolaj panoları ve tam cümle kartları hariç; anahtar kelime kartında kelime yeni resmin üstünde kalır. Napolyon'da 10 satır. Eski "hızlı tempo" aynı resmi yeniden kırpıyordu, göz bunu yeni plan saymıyor.
+- **Nefes**: her kesme son kelimeden 0,4 sn sonra geliyordu. Artık bölümün son cümlesi 1,4 sn, sayaç/istatistik 1 sn, slam ve sakin/yaslı satır 0,9 sn, ruh hali dönen ağır satır 0,8 sn oturur (Napolyon: 43 satır, toplam +21 sn).
+- **Yankı yazısı yok**: anlatıcının okuduğu cümleyi aynen basan yazı kartı (yedi kelime ve üstü) anahtar kelimeye döner ("MORE THAN FORTY-SEVEN FRENCH GENERALS WERE KILLED OR WOUNDED." kutusu gibi). Kısa tarih/etiketler kalır.
+- **Duran plan nefes alır**: "sabit" kamera bir planda %1,2 yakınlaşıyordu, kalite denetimi "donmuş görüntü" diyordu; artık %4 (sığdırılmış taramada %3).
+
 ## 1.15.4 (3 Ekim 2026)
 
 - **Her fotoğraf sahnesine kendi görseli**: AI görsel tavanı artık yalnızca yazı/slam/başlık sahnelerinden keser (bunlar önceki kareyi tutar); fotoğraf sahnesi arşivde bulunamazsa kendi AI görselini alır. Napolyon'da arşiv araması hız sınırına takılınca (HTTP 429) 40 sahne başka sahnelerin resmini ödünç almıştı, 24'ü ilgisiz uzak bir kareydi ("Moskova'nın altın kubbeleri" altında Smolensk surları, Berezina'da bir mektup). Tavan üstü pay 8 → 30; filmin ilk ve son karesi her zaman kendi görseli.

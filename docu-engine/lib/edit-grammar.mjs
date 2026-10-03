@@ -8,9 +8,60 @@
 //    accents: they land on an impact (energy 4-5, a slam, a reveal) or a chapter turn, a few times
 //    per film, never on a quiet, sad or grieving beat;
 //  - a quiet beat opens on a cut or a fade to black, and its camera holds, drifts or pushes slowly.
+//  - a text card never re-prints the sentence the narrator is reading (an echo caption): it
+//    prints its key word, big (Napoleon: "MORE THAN FORTY-SEVEN FRENCH GENERALS WERE KILLED OR
+//    WOUNDED." in a box under the voice).
 // User (1453): "ciddiyet var ... kamera, edit, geçiş, hepsine ince ayar".
 
-export const GRAMMAR_VERSION = 1;
+export const GRAMMAR_VERSION = 2;
+
+const norm = (t) => String(t ?? '').replace(/\[[^\]]*\]/g, ' ').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+
+/**
+ * Breath after a line that must land. Every scene ended 0.4 s after its last word (Napoleon: the
+ * median gap before every one of 173 cuts), so a chapter's last line, a death toll or a grieving
+ * beat was cut off as fast as an aside. An editor lets those sit: the end of a chapter longest,
+ * then a number or a slam, then a quiet or a turning line. Raises scene.dur (seconds) once the
+ * narration is known; returns { scenes, added } for the log.
+ */
+export function breathAfter(s, next) {
+  if (!next) return 0;
+  if (next.chapterCard || (next.chapter != null && s.chapter != null && next.chapter !== s.chapter)) return 1.4;
+  if (s.type === 'counter' || s.type === 'stat') return 1.0;
+  if (s.type === 'slam') return 0.9;
+  if (isQuiet(s)) return 0.9;
+  if (next.mood && s.mood && next.mood !== s.mood && ['sad', 'dread', 'reveal'].includes(s.mood)) return 0.8;
+  return 0;
+}
+
+export function applyBreath(script) {
+  const scenes = Array.isArray(script?.scenes) ? script.scenes : [];
+  let n = 0;
+  let added = 0;
+  scenes.forEach((s, i) => {
+    const b = breathAfter(s, scenes[i + 1]);
+    if (!b || !(s.voiceDur > 0)) return;
+    const want = +(s.voiceDur + b).toFixed(3);
+    if (want > (Number(s.dur) || 0)) {
+      added += want - Math.max(Number(s.dur) || 0, s.voiceDur + 0.4);
+      s.dur = want;
+      n++;
+    }
+  });
+  return { scenes: n, added: +added.toFixed(1) };
+}
+
+/** The card prints (nearly) the line being read aloud: more than six words, all of them from the spoken line. */
+export function echoesLine(s) {
+  const text = norm(s?.text);
+  const say = norm(s?.say);
+  if (!text || !say) return false;
+  const words = text.split(' ');
+  if (words.length <= 6) return false;
+  if (say.includes(text) || text.includes(say)) return true;
+  const spoken = new Set(say.split(' '));
+  return words.filter((w) => spoken.has(w)).length / words.length >= 0.85;
+}
 
 const T_BANNED_GRAVE = new Set(['leak', 'glitch', 'pixel', 'spin-blur', 'split-wipe']);
 const T_ACCENT = new Set(['zoom', 'whip', 'slide', 'flash', 'light-sweep', 'paper-tear']);
@@ -106,6 +157,12 @@ export function applyEditGrammar(script, { gravity = 'open' } = {}) {
       }
     }
 
+    // --- text: the key word, never the sentence the viewer is hearing
+    if (s.type === 'words' && s.textMode !== 'key' && s.textMode !== 'none' && echoesLine(s)) {
+      s.textMode = 'key';
+      log.text = (log.text ?? 0) + 1;
+    }
+
     // --- camera: a quiet beat holds or moves slowly; a handheld jolt belongs to action
     if (s.camera && quiet && !CAM_QUIET.has(s.camera)) {
       s.camera = s.camera === 'detail-punch' ? 'push-in' : 'drift';
@@ -123,6 +180,6 @@ export function applyEditGrammar(script, { gravity = 'open' } = {}) {
     if (Number.isFinite(script.fxDensity)) script.fxDensity = Math.min(script.fxDensity, 0.25);
   }
   script.editGrammar = { version: GRAMMAR_VERSION, gravity };
-  if (log.transitions || log.fx || log.camera) log.notes.push(`kurgu dili (${gravity}): ${log.transitions} geçiş, ${log.fx} efekt, ${log.camera} kamera düzeltildi`);
+  if (log.transitions || log.fx || log.camera || log.text) log.notes.push(`kurgu dili (${gravity}): ${log.transitions} geçiş, ${log.fx} efekt, ${log.camera} kamera, ${log.text ?? 0} yankı yazısı düzeltildi`);
   return log;
 }

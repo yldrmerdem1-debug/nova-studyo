@@ -288,10 +288,20 @@ export interface VideoRef {
   liftGamma?: number;
 }
 
+/** A cutaway on a climax line (lib/inserts.mjs): a new full-frame picture from `at` (seconds) to the next one or the end. */
+export interface InsertShot {
+  src: string;
+  at: number;
+  imgW?: number;
+  imgH?: number;
+}
+
 /** Everything in a script is in SECONDS; the engine converts to frames. */
 interface SceneBase {
   /** Minimum length. When the scene has voiceover it stretches to fit it. */
   dur: number;
+  /** Cutaways (photo and key-word scenes): the picture changes on these spoken words. */
+  inserts?: InsertShot[];
   mood?: Mood;
   /** Describe the picture instead of supplying a file; the pipeline generates it in the script's visual style. */
   imagePrompt?: string;

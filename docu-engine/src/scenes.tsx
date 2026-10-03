@@ -24,6 +24,7 @@ import type {
   Genre,
   Layers,
   MontageScene,
+  InsertShot,
   PhotoScene,
   Scene,
   SlamScene,
@@ -509,6 +510,8 @@ const cameraMoves = (scene: Scene) => !!scene.camera && scene.camera !== 'static
 
 /** The plan a scene component actually uses — sceneImpacts asks the same question, so a push never doubles a cut-in. */
 function planFor(scene: Scene, durFrames: number, fps: number, genre?: Genre): ReframePlan {
+  // Cutaways are the line's cuts: no re-crops of the first picture under them.
+  if (scene.inserts?.length) return NO_REFRAME;
   const annotated = scene.type === 'photo' && !!scene.annotate;
   /*
    * Pace (the art director's): hold = one continuous shot, quick = 1-2 and
@@ -1893,6 +1896,30 @@ export function collageLayout(
 }
 
 /**
+ * Cutaways on a climax line (lib/inserts.mjs): at each spoken word a new full-frame picture of the
+ * same moment hard-cuts in and holds, with its own slow push, until the next one or the end of the
+ * line. The scene's text (key word, slam) stays on top: only the picture under it changes.
+ */
+export const InsertShots: React.FC<{ scene: { inserts?: InsertShot[]; natural?: boolean }; durFrames: number; speed?: number; safeH?: number }> = ({ scene, durFrames, speed = 1, safeH }) => {
+  const { fps } = useVideoConfig();
+  const list = (scene.inserts ?? []).map((x) => ({ ...x, f: Math.round(x.at * fps) })).filter((x) => x.f > 0 && x.f < durFrames - 6).sort((a, b) => a.f - b.f);
+  return (
+    <>
+      {list.map((x, k) => {
+        const len = (list[k + 1]?.f ?? durFrames) - x.f;
+        return (
+          <Sequence key={x.src + k} from={x.f} durationInFrames={Math.max(1, len)} layout="none">
+            <AbsoluteFill>
+              <Photo src={x.src} durFrames={len} natural={scene.natural} push={0.14} speed={speed * 1.15} imgW={x.imgW} imgH={x.imgH} safeH={safeH} />
+            </AbsoluteFill>
+          </Sequence>
+        );
+      })}
+    </>
+  );
+};
+
+/**
  * A photo scene. With `annotate` the shot is wrapped in a freeze & mark
  * (src/devices/annotate.tsx), which is told where the main print sits on a
  * collage board so the mark lands on the picture wherever it is drawn.
@@ -2070,6 +2097,8 @@ const PhotoBody: React.FC<Common & { scene: PhotoScene }> = ({ scene, genre, dur
           {genre.id === 'finance' ? <EraHud genre={genre} /> : null}
         </>
       )}
+      {/* A climax cutaway is full frame: it cuts over a print or a plate too (never over a collage board). */}
+      {!collage ? <InsertShots scene={scene} durFrames={durFrames} speed={speed} safeH={genre.letterbox ? FRAME_H - 2 * barPx(genre) - 40 : undefined} /> : null}
 
       {scene.name ? <LowerThird genre={genre} name={scene.name} role={scene.role} durFrames={durFrames} lift={scene.caption ? 110 : 0} at={spokenFrameOf(scene.name, scene.wordTimes, fps)} /> : null}
 
@@ -2274,6 +2303,8 @@ export const Words: React.FC<Common & { scene: WordsScene }> = ({ scene, genre, 
           clip={clipOf(scene)}
           crop={scene.crop}
         />
+        <InsertShots scene={scene} durFrames={durFrames} speed={speed} />
+        {scene.inserts?.length ? <AbsoluteFill style={{ background: `rgba(0,0,0,${mode === 'none' ? 0.12 : 0.36})` }} /> : null}
         {mode === 'key' && since >= 0 && look.textStyle !== 'box' ? (
           <StyledSlam ctx={textCtx(look, genre, scene.kicker)} word={keyText} since={since} durFrames={durFrames} subAt={9999} weight={0.74} />
         ) : mode === 'key' && since >= 0 ? (

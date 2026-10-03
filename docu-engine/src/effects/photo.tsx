@@ -113,7 +113,8 @@ function coverCamera(
   const slackY = g.dh - H;
   switch (kind) {
     case 'static':
-      S = 1.015 + 0.012 * lin;
+      // A held shot still breathes: 1.2% over a shot read as a frozen frame (Napoleon QA "5 s frozen").
+      S = 1.02 + 0.04 * lin;
       break;
     case 'drift': {
       S = 1.055 + 0.015 * lin;
@@ -390,7 +391,7 @@ const Contained: React.FC<{
   const freeY = Math.max(0, (H - rh * room) / 2 - 24);
   switch (kind) {
     case 'static':
-      s = 1 + Math.min(room - 1, 0.01) * lin;
+      s = 1 + Math.min(room - 1, 0.03) * lin;
       break;
     case 'drift':
     case 'pan-left':
