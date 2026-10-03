@@ -401,6 +401,7 @@ export function rankingResearchLines(job, minutes) {
     `2) Bir SIRALAMA ÖLÇÜTÜ önerisi (ölçülebilir, savunulabilir) ve adayların bu ölçüte göre önerilen sırası, her biri için tek cümlelik gerekçe.`,
     `3) Yaygın yanlış bilinenler (her aday için varsa).`,
     `4) Ölçek rakamları (sayaç malzemesi): tek başına akılda kalan sayılar, birimiyle.`,
+    `Her aday KISA ve yoğun: en fazla ~120 kelime, madde işaretli. Önce yazmaya başla; uzun iç değerlendirme yapma.`,
   ];
 }
 
@@ -431,7 +432,9 @@ export async function runResearch(job, usage, logFn, opts = {}) {
     // ile araştırma isteği tavana çarpıyordu ve iş "token sınırına takıldı"
     // diyerek %2'de ölüyordu (ölçüldü, iki ayrı işte). Bütçe senaryo çağrısıyla
     // aynı seviyeye çekildi; ayrıca kesilse bile eldekiyle devam ediliyor.
-    maxTokens: 32000,
+    // A countdown's pool (16+ candidates, each with its own facts) thinks longer: the first ranking job
+    // spent all 32k on thinking and returned no text at all ("token sınırına takıldı" at 2%).
+    maxTokens: job.docuFormat === "ranking" ? 64000 : 32000,
     usage,
     logFn,
   });
