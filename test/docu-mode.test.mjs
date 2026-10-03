@@ -328,7 +328,7 @@ test('only engine-breaking problems are hard errors; a say-less scene is accepte
   assert.match(joined, /scenes\[0\]\.say boş/);
   assert.match(joined, /scenes\[1\]: counter için to/);
   assert.match(joined, /scenes\[2\]: chart için en az 3 nokta/);
-  assert.match(joined, /scenes\[3\]: words için imagePrompt/);
+  assert.doesNotMatch(joined, /scenes\[3\]: words için imagePrompt/, 'a missing imagePrompt is filled from a neighbour, not sent back to the model');
   assert.doesNotMatch(joined, /scenes\[4\]/, 'chapterCard:true needs no narration');
   assert.match(joined, /scenes\[5\]\.say boş/, 'only chapterCard === true is exempt');
   const card = { type: 'title', chapterCard: true, chapterNo: 2, kicker: 'BÖLÜM 2', title: 'B', dur: 2.8, chapter: 1 };

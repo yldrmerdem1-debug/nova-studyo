@@ -2697,7 +2697,10 @@ export function masterAudio({ raw, video, audio, out, ffmpeg = 'ffmpeg', log = (
     const TP = Number(sum.match(/Peak:\s+(-?[\d.]+) dBFS/)?.[1]);
     return { I: Number.isFinite(I) && I > -70 ? I : null, TP: Number.isFinite(TP) ? TP : null };
   };
-  const chainFor = (g) => `volume=${g.toFixed(2)}dB,aresample=192000,alimiter=limit=0.84:attack=1:release=50:level=false:latency=1,aresample=48000`;
+  // The AAC encode overshoots the limiter by ~1 dB (1453: -1.5 dB in, -0.2 dBTP out), so the limiter sits
+  // lower and the encode is measured and corrected once (target true peak -1.5 dBTP).
+  let ceiling = 0.75;
+  const chainFor = (g) => `volume=${g.toFixed(2)}dB,aresample=192000,alimiter=limit=${ceiling.toFixed(3)}:attack=1:release=50:level=false:latency=1,aresample=48000`;
   const sound = audio ?? raw;
   const input = measure(sound);
   let gain = input.I === null ? 0 : clamp(target - input.I, -20, 24);
@@ -2708,17 +2711,26 @@ export function masterAudio({ raw, video, audio, out, ffmpeg = 'ffmpeg', log = (
     ? [...(/\.(txt|ffconcat)$/i.test(video) ? ['-f', 'concat', '-safe', '0', '-i', video] : ['-i', video]), '-i', audio, '-map', '0:v:0', '-map', '1:a:0']
     : ['-i', raw];
   const tmp = `${out}.tmp.mp4`;
+  const encode = () => {
+    const r = spawnSync(ffmpeg, [
+      '-y', '-hide_banner', '-loglevel', 'error', ...inputs, '-af', chainFor(gain), '-ar', '48000',
+      '-c:v', 'copy', '-c:a', 'aac', '-b:a', '320k', '-movflags', '+faststart', '-f', 'mp4', tmp,
+    ], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, windowsHide: true });
+    if (r.status !== 0 || !fileOk(tmp)) {
+      rmSync(tmp, { force: true });
+      throw new Error(`mastering başarısız: ${String(r.stderr || r.error?.message || '').slice(-300)}`);
+    }
+    renameSync(tmp, out);
+    return measure(out);
+  };
   log('mastering: son kodlama');
-  const r = spawnSync(ffmpeg, [
-    '-y', '-hide_banner', '-loglevel', 'error', ...inputs, '-af', chainFor(gain), '-ar', '48000',
-    '-c:v', 'copy', '-c:a', 'aac', '-b:a', '320k', '-movflags', '+faststart', '-f', 'mp4', tmp,
-  ], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, windowsHide: true });
-  if (r.status !== 0 || !fileOk(tmp)) {
-    rmSync(tmp, { force: true });
-    throw new Error(`mastering başarısız: ${String(r.stderr || r.error?.message || '').slice(-300)}`);
+  let res = encode();
+  if (res.TP !== null && res.TP > -1.0) {
+    // Still hot after the encode: pull the ceiling down by the overshoot (and a little) and encode once more.
+    ceiling = Math.max(0.5, ceiling * Math.pow(10, -(res.TP + 1.5 + 0.2) / 20));
+    log(`mastering: tepe ${res.TP.toFixed(1)} dBTP, sınırlayıcı ${ceiling.toFixed(2)} ile yeniden kodlanıyor`);
+    res = encode();
   }
-  renameSync(tmp, out);
-  const res = measure(out);
   log(`mastering: ${input.I?.toFixed(1) ?? '?'} LUFS → ${res.I?.toFixed(1) ?? '?'} LUFS (kazanç ${gain >= 0 ? '+' : ''}${gain.toFixed(1)} dB), tepe ${res.TP?.toFixed(1) ?? '?'} dBTP, 48 kHz`);
   if (res.I !== null && Math.abs(res.I - target) > 1) log(`uyarı: master seviyesi hedeften ${Math.abs(res.I - target).toFixed(1)} dB uzakta`);
   return { inputI: input.I === null ? null : +input.I.toFixed(1), outputI: res.I === null ? null : +res.I.toFixed(1), outputTP: res.TP, gainDb: +gain.toFixed(2) };

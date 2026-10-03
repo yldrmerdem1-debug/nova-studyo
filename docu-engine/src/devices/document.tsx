@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { AbsoluteFill, Easing, Img, interpolate, useCurrentFrame, useVideoConfig } from 'remotion';
 import { Media } from '../fx';
 import { paperTexture, seededRng } from '../paper';
+import { labelIndex, spokenOf } from '../infographics/timing.js';
 import type { DocKind, DocumentScene, Genre } from '../types';
 import { DevProps, H, W, clamp, ease, isTr, resolveRef, safeBand, upper } from './common';
 import { stampFrame } from './timing';
@@ -410,7 +411,13 @@ export const DocumentScn: React.FC<DevProps & { scene: DocumentScene }> = ({ sce
   const hasHi = !scan && L.hiLine >= 0;
   const travelA = Math.round(Math.max(stampAt + 0.5 * fps, durFrames * 0.34));
   const travelB = Math.min(durFrames - Math.round(0.9 * fps), Math.round(Math.max(travelA + 1.0 * fps, durFrames * 0.62)));
-  const hiAt = travelB - 5;
+  // The marker sweeps the highlighted words when the narrator says them (never before), else as the camera arrives.
+  const hiSaid = (() => {
+    const sp = spokenOf(scene.wordTimes ?? []) as { t: number }[];
+    const k = scene.highlight ? labelIndex(String(scene.highlight), sp as never) : -1;
+    return k >= 0 ? Math.round(sp[k].t * fps) : null;
+  })();
+  const hiAt = hiSaid != null ? Math.max(travelB - 5, Math.min(hiSaid, durFrames - Math.round(0.6 * fps))) : travelB - 5;
 
   /* ---- camera ---- */
   const band = safeBand(genre, 20);

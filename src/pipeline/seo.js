@@ -150,6 +150,8 @@ export function renderSeoMarkdown(job, script, seo, sectionTimes, durationSec, m
     description.trim(),
     "```",
     ``,
+    // Publisher-only checks: never inside the copy-paste block above.
+    ...(mk.uyarilar?.length ? [`**Yayın öncesi kontrol (müzik):**`, ...mk.uyarilar.map((u) => `- ${u}`), ``] : []),
     `## Etiketler`,
     "```",
     (seo.tags || []).join(", "),

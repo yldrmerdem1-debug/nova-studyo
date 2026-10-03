@@ -500,7 +500,13 @@ const PathDiagram: React.FC<DiagramProps> = ({ P, steps, starts, kind, t }) => {
             {steps.map((_, i) => (f >= starts[i] ? <path key={i} d={`M ${pts[0][0]} ${pts[0][1] + 34 - i * 10} L ${pts[n - 1][0]} ${pts[n - 1][1] + 34 - i * 10}`} stroke={P.paper} strokeWidth={6} opacity={0.35 + 0.15 * i} /> : null))}
           </>
         ) : null}
-        {t.motif === 'siege' ? <path d="M 1620 300 V 820" stroke={P.ink} strokeWidth={10} strokeDasharray="22 14" opacity={0.6} /> : null}
+        {/* The walls being besieged: a crenellated wall silhouette (a thin dashed bar read as a template line). */}
+        {t.motif === 'siege' ? (
+          <g opacity={0.62}>
+            <rect x={1604} y={330} width={44} height={490} fill={P.ink} />
+            {Array.from({ length: 9 }, (_, k) => <rect key={k} x={1588} y={330 + k * 56} width={18} height={30} fill={P.ink} />)}
+          </g>
+        ) : null}
         {(cycle ? steps : steps.slice(1)).map((_, k) => {
           const i = cycle ? k : k + 1;
           const [a, b] = seg(i);
@@ -509,7 +515,6 @@ const PathDiagram: React.FC<DiagramProps> = ({ P, steps, starts, kind, t }) => {
           const d = `M ${a[0]} ${a[1]} Q ${mid[0]} ${mid[1]} ${b[0]} ${b[1]}`;
           return (
             <g key={i}>
-              <path d={d} fill="none" stroke={P.dim} strokeWidth={2} opacity={0.35} strokeDasharray="8 10" />
               <path d={d} fill="none" stroke={lineCol} strokeWidth={t.motif === 'siege' ? 7 : 4} pathLength={1} strokeDasharray={1} strokeDashoffset={1 - p} strokeLinecap="round" />
             </g>
           );

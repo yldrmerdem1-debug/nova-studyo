@@ -1283,6 +1283,9 @@ export const Slam: React.FC<Common & { scene: SlamScene }> = ({ scene, genre, du
   const { fps } = useVideoConfig();
   const hit = slamFrame(scene, fps);
   const since = f - hit;
+  // The line under the word waits for its own words when the narrator says them ("...the ship was sunk — in November").
+  const subSaid = spokenFrameOf(scene.sub, scene.wordTimes, fps);
+  const subAt = Math.max(Math.round(0.7 * fps), subSaid != null ? subSaid - hit : 0);
   // An opening treatment that sets the word itself (headlines) leaves the slam its picture and its flash.
   const opText = useOpening()?.hideText;
   const landed = since >= 0 && !opText;
@@ -1304,7 +1307,7 @@ export const Slam: React.FC<Common & { scene: SlamScene }> = ({ scene, genre, du
   const over = Math.max(1, Math.min(1.28, LAND_MAX_W / (wordW * layerK * 1.05)));
   const size = landed ? interpolate(since, [0, 4], [over, 1], { ...clamp, easing: Easing.out(Easing.quad) }) : 1;
   const underline = interpolate(since, [2, 20], [0, 1], { ...clamp, easing: Easing.out(Easing.quad) });
-  const sub = spring({ frame: since - Math.round(0.7 * fps), fps, config: { damping: 14, stiffness: 180 } });
+  const sub = spring({ frame: since - subAt, fps, config: { damping: 14, stiffness: 180 } });
   const drift = landed ? interpolate(since, [0, durFrames], [1, 1.06], clamp) : 1;
 
   const wordColor = genre.look === 'terminal' ? genre.ink : genre.accent;
@@ -1421,7 +1424,7 @@ export const Slam: React.FC<Common & { scene: SlamScene }> = ({ scene, genre, du
         crop={scene.crop}
       />
       {landed && look.textStyle !== 'box' ? (
-        <StyledSlam ctx={textCtx(look, genre)} word={word} sub={scene.sub} since={since} durFrames={durFrames} subAt={Math.round(0.7 * fps)} />
+        <StyledSlam ctx={textCtx(look, genre)} word={word} sub={scene.sub} since={since} durFrames={durFrames} subAt={subAt} />
       ) : landed ? (
         <AbsoluteFill style={{ justifyContent: 'center', alignItems: 'center' }}>
           <div style={{ position: 'relative', transform: `scale(${size * drift})` }}>

@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { AbsoluteFill, Easing, interpolate, useCurrentFrame, useVideoConfig } from 'remotion';
+import { labelIndex, spokenOf, valueIndex } from '../infographics/timing.js';
 import type { Genre, TimelineScene } from '../types';
 import { DevProps, GenreBg, H, TitleTag, W, clamp, ease, safeBand } from './common';
 import { DFONT, DevFont, fitLine, fitWrap, measure } from './type';
@@ -183,14 +184,29 @@ export const Chrono: React.FC<DevProps & { scene: TimelineScene }> = ({ scene, g
   const scr = (p: number) => (V ? (p - cam) * z + (top + bottom) / 2 : (p - cam) * z + W / 2);
   // When the camera reveals each event: the first frame it is inside the view.
   const edge = V ? bottom - 40 : W - 180;
-  const appear = L.events.map((e) => {
+  // An event the narration names (its year or its words) appears when it is said, never before.
+  const sp = spokenOf(scene.wordTimes ?? []) as { t: number }[];
+  const saidAt = (i: number): number | null => {
+    const ev = (scene.events ?? [])[i];
+    if (!ev || !sp.length) return null;
+    const y = Number(String(ev.year ?? '').replace(/[^\d]/g, ''));
+    let k = Number.isFinite(y) && y > 0 ? valueIndex(y, sp as never) : -1;
+    if (k < 0) k = labelIndex(String(ev.label ?? ''), sp as never);
+    return k >= 0 ? Math.round(sp[k].t * fps) : null;
+  };
+  const appear = L.events.map((e, i) => {
+    let base = arrive;
     for (let k = 0; k <= arrive; k += 2) {
       const mk = interpolate(k, [moveA, arrive], [0, 1], { ...clamp, easing: ease });
       const ck = c0 + (c1 - c0) * mk;
       const s = V ? (e.pos - ck) * z + (top + bottom) / 2 : (e.pos - ck) * z + W / 2;
-      if (s <= edge) return Math.max(Math.round(0.2 * fps), k) + (fitsAll ? Math.round(L.events.indexOf(e) * 0.28 * fps) : 0);
+      if (s <= edge) {
+        base = Math.max(Math.round(0.2 * fps), k) + (fitsAll ? Math.round(i * 0.28 * fps) : 0);
+        break;
+      }
     }
-    return arrive;
+    const said = saidAt(i);
+    return said != null ? Math.max(base, Math.min(said, durFrames - Math.round(0.6 * fps))) : base;
   });
   const settled = interpolate(f, [arrive - 4, arrive + 10], [0, 1], clamp);
 

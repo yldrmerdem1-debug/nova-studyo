@@ -80,7 +80,7 @@ export function kunyeUret(media, { dil = "tr", compact = false, mandatoryOnly = 
     if (licenseUrl) lines.push('  ' + (tr ? 'Lisans: ' : 'License: ') + licenseUrl);
     if (authorUrl) lines.push('  ' + (tr ? 'Eser sahibi: ' : 'Creator: ') + authorUrl);
     if (m.attribution) lines.push('  ' + m.attribution);
-    if (m.modifications) lines.push('  ' + (tr ? 'Düzenleme: ' : 'Changes: ') + m.modifications);
+    if (m.modifications) lines.push('  ' + (tr ? 'Düzenleme: ' : 'Changes: ') + (tr ? m.modifications : MODS_EN[m.modifications] ?? m.modifications));
     else lines.push('  ' + (tr ? 'Düzenleme kaydı bulunamadı; yayın öncesi kadraj/renk değişikliklerini belirtin.' : 'Changes not recorded; document crop/color edits before publication.'));
   }
   if (!lines.length) return {metin:'',zorunlu:0,toplam:records.length,warnings};
@@ -104,6 +104,11 @@ export function kunyeUret(media, { dil = "tr", compact = false, mandatoryOnly = 
 // Çift tire BİLEREK ayırıcı: tek tire hem başlıkta hem sanatçı adında geçiyor
 // ("i-need-you-dyalla" nerede bölünecek belli değil). Ayırıcı yoksa sanatçı
 // UYDURULMAZ — yalnızca parça adı yazılır. Yanlış atıf, eksik atıftan kötüdür.
+
+/** The archive's standard modification note (docu-archive.js DOCU_MODS, Turkish) as an English description prints it. */
+const MODS_EN = {
+  "Video düzeninde kadraj ve yeniden boyutlandırma; kamera hareketi, renk tonlama (duotone), film greni ve üst yazı eklendi.": "Cropped and resized for video; camera motion, colour toning (duotone), film grain and text overlay added.",
+};
 
 /** "a-dream-within-a-dream" → "A Dream Within A Dream" */
 function baslikYap(slug) {
@@ -135,6 +140,8 @@ export function muzikAdiCoz(dosya) {
  */
 export function muzikKunyesi(dosyalar, { dil = "tr" } = {}) {
   const tr = dil !== 'en', seen = new Set(), lines = [];
+  let library = 0;
+  const uyarilar = [];
   for (const item of dosyalar || []) {
     if (!item) continue;
     const info = typeof item === 'object' ? item : {file:item};
@@ -144,8 +151,16 @@ export function muzikKunyesi(dosyalar, { dil = "tr" } = {}) {
     const guessed = muzikAdiCoz(filename);
     const title = info.title || guessed.parca, author = info.artist || guessed.sanatci;
     if (!title) continue;
+    // YouTube Audio Library tracks need no attribution: summed up in one line, never listed with internal notes.
+    if (info.source === 'youtube-audio-library') { library++; continue; }
     const source = safeSourceUrl(info.sourceUrl), license = safeSourceUrl(info.licenseUrl);
-    lines.push('• "' + title + '"' + (author ? ' — ' + author : '') + (source ? '\n  ' + source : '\n  ' + (tr ? 'Kaynak/lisans doğrulanamadı; ad bilgisi dosya adından çıkarılmış olabilir.' : 'Origin/license not verified; names may be derived from filename.')) + (info.license ? '\n  ' + info.license : '') + (license ? '\n  ' + license : ''));
+    // An origin we cannot verify is the PUBLISHER's to check (uyarilar), never printed in the viewer's description.
+    if (!source && !info.license) uyarilar.push(`"${title}"${author ? ' — ' + author : ''}: ${tr ? 'kaynak/lisans doğrulanamadı; ad bilgisi dosya adından çıkarılmış olabilir' : 'origin/license not verified; names may be derived from filename'}`);
+    lines.push('• "' + title + '"' + (author ? ' — ' + author : '') + (source ? '\n  ' + source : '') + (info.license ? '\n  ' + info.license : '') + (license ? '\n  ' + license : ''));
   }
-  return {metin:lines.length ? (tr?'Müzik:':'Music:')+'\n'+lines.sort().join('\n') : '',sayi:lines.length};
+  lines.sort();
+  const head = tr ? 'Müzik:' : 'Music:';
+  if (!lines.length) return {metin: library ? head + ' ' + (tr ? 'YouTube Ses Kitaplığı' : 'YouTube Audio Library') : '', sayi: library ? 1 : 0, uyarilar};
+  if (library) lines.push(tr ? '• Diğer parçalar: YouTube Ses Kitaplığı' : '• Other tracks: YouTube Audio Library');
+  return {metin: head + '\n' + lines.join('\n'), sayi: lines.length, uyarilar};
 }

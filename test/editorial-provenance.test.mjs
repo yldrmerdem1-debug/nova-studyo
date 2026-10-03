@@ -49,5 +49,5 @@ test('YouTube description stays within 5000 characters while retaining required 
  assert.match(description,/Some scenes were generated with AI/);
 });
 test('music filenames never imply YouTube Audio Library origin',()=>{
- const result=muzikKunyesi(['yatak-ilham-sunrise--ada.mp3']);assert.doesNotMatch(result.metin,/YouTube Audio Library/);assert.match(result.metin,/doğrulanamadı/);
+ const result=muzikKunyesi(['yatak-ilham-sunrise--ada.mp3']);assert.doesNotMatch(result.metin,/YouTube Audio Library/);assert.doesNotMatch(result.metin,/doğrulanamadı/,'never in the description viewers see');assert.match(result.uyarilar.join(' '),/doğrulanamadı/,'the publisher is warned');
 });

@@ -770,3 +770,14 @@ test('forgetCachedPick: a rejected pick is dropped and its source (clip: file + 
   assert.deepEqual(cache['m-abc'].sets, {}, 'earlier positive verdicts are forgotten');
   assert.deepEqual(Object.keys(cache['m-v-abc'].bad).sort(), [media.photoKey(V.a), `sayfa:${media.photoKey('https://www.pexels.com/video/runway-111/')}`].sort());
 });
+
+test('pre-industrial story: stock sites only for timeless shots (sea, sky, fire); people, cities, ships, walls come from the archive or AI', async () => {
+  const A = await import('../src/pipeline/docu-archive.js');
+  const c = [{ provider: 'pexels' }, { provider: 'wikimedia' }, { provider: 'unsplash' }, { provider: 'mixkit' }, { provider: 'openverse' }];
+  const keep = (s, y) => A.sanayiOncesiAdaylar(c, s, y).map((x) => x.provider);
+  assert.deepEqual(keep({ search: 'Theodosian walls at dawn' }, 1453), ['wikimedia', 'openverse']);
+  assert.deepEqual(keep({ search: 'harbour with ships' }, 1453), ['wikimedia', 'openverse']);
+  assert.equal(keep({ search: 'stormy sea waves at night' }, 1453).length, 5, '"at" is not the Turkish word for horse');
+  assert.equal(keep({ search: 'candle flame in darkness' }, 1453).length, 5);
+  assert.equal(keep({ search: 'new york street' }, 1929).length, 5, 'after 1850 the rule does not apply');
+});

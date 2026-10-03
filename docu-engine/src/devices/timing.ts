@@ -1,5 +1,5 @@
 import type { Annotate, Scene } from '../types';
-import { infoImpacts, INFO_TYPES } from '../infographics/timing.js';
+import { infoImpacts, INFO_TYPES, labelIndex, spokenOf } from '../infographics/timing.js';
 
 /*
  * Timing facts about the edit devices that the rest of the engine needs
@@ -21,9 +21,23 @@ export function annotateFrame(a: Annotate, durFrames: number, fps: number): numb
 /** Frame the document stamp lands on. */
 export const stampFrame = (durFrames: number, fps: number) => Math.max(Math.round(0.9 * fps), Math.round(durFrames * 0.3));
 
-/** Frame the before/after wipe (or the versus divider) lands. */
-export const splitLand = (mode: string | undefined, durFrames: number, fps: number) =>
-  mode === 'before-after' ? Math.min(durFrames - Math.round(0.8 * fps), Math.round(Math.max(1.1 * fps, durFrames * 0.3)) + Math.round(0.55 * fps)) : Math.round(0.4 * fps);
+/**
+ * Frame the before/after wipe (or the versus divider) lands; never before the narrator names the
+ * second side (`said`: the frame its label is spoken, when it is).
+ */
+export const splitLand = (mode: string | undefined, durFrames: number, fps: number, said: number | null = null) => {
+  const base = mode === 'before-after' ? Math.min(durFrames - Math.round(0.8 * fps), Math.round(Math.max(1.1 * fps, durFrames * 0.3)) + Math.round(0.55 * fps)) : Math.round(0.4 * fps);
+  return said != null ? Math.max(base, Math.min(said, durFrames - Math.round(0.8 * fps))) : base;
+};
+
+/** The frame the split's second side (right label) is first spoken, or null. */
+export function splitSaid(scene: { right?: { label?: string }; wordTimes?: { word: string; t: number }[] }, fps: number): number | null {
+  const label = String(scene.right?.label ?? '').trim();
+  if (!label) return null;
+  const sp = spokenOf(scene.wordTimes ?? []) as { t: number }[];
+  const k = labelIndex(label, sp as never);
+  return k >= 0 ? Math.round(sp[k].t * fps) : null;
+}
 
 /**
  * Where the frame physically reacts inside a device scene (punch, shake,
@@ -32,7 +46,7 @@ export const splitLand = (mode: string | undefined, durFrames: number, fps: numb
  */
 export function deviceImpacts(scene: Scene, durFrames: number, fps: number): { f: number; strength: number }[] {
   if (scene.type === 'document' && scene.stamp) return [{ f: stampFrame(durFrames, fps), strength: 0.35 }];
-  if (scene.type === 'split') return [{ f: splitLand(scene.mode, durFrames, fps), strength: 0.2 }];
+  if (scene.type === 'split') return [{ f: splitLand(scene.mode, durFrames, fps, splitSaid(scene, fps)), strength: 0.2 }];
   if (scene.type === 'photo' && scene.annotate) return [{ f: annotateFrame(scene.annotate, durFrames, fps), strength: 0.18 }];
   // Infographics: a light nudge on each landing (src/infographics/timing.js).
   if ((INFO_TYPES as readonly string[]).includes(scene.type)) return infoImpacts(scene, durFrames, fps);

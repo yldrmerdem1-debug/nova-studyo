@@ -299,6 +299,25 @@ const STOK_SAGLAYICI = new Set(["pexels", "pixabay", "mixkit", "unsplash", "open
  * Eski dönem (1990 öncesi) hikâyede taşıt/uçak/şehir aramasında adaylar arşiv önce sıralanır —
  * stok sahnesi de olsa. Sıra içi korunur; hiç arşiv adayı yoksa liste aynen kalır.
  */
+/*
+ * SANAYİ ÖNCESİ STOK KURALI. 1453'te dönem denetimi stok sitelerinin karelerini bir bir reddetti
+ * (Pexels 15/33, Unsplash 6/8, Mixkit 5/15: modern İstanbul, restore surlar, canlandırmacılar,
+ * kruvaziyer, futbol taraftarı, Vietnam bayrağı); AI kareleri 0/29. 1850 öncesi bir hikâyede bugünün
+ * fotoğrafı yalnızca ZAMANSIZ bir şeyi gösterebilir (deniz, gök, ateş, hava, gece, sade doğa); insan,
+ * şehir, ordu, gemi, yapı için stok adayı hiç aranmaz/seçilmez — kurum arşivi (tablo, gravür) ya da AI.
+ */
+const ZAMANSIZ = /\b(sea|ocean|waves?|water|river|lake|sky|clouds?|storm|thunder|lightning|rain|snow|ice|frost|fog|mist|wind|fire|flames?|embers?|smoke|candles?|candlelight|moon|stars?|sunrise|sunset|dawn|dusk|night|forest|trees?|leaves|grass|field|mountains?|desert|sand|deniz|okyanus|dalga|nehir|gökyüzü|bulut|fırtına|şimşek|yağmur|kar|buz|sis|rüzgar|ateş|alev|kor|duman|mum|ay|yıldız|gün doğumu|gün batımı|şafak|gece|orman|ağaç|çimen|dağ|çöl|kum)\b/iu;
+const ZAMANLI = /\b(people|person|man|men|woman|women|child|soldiers?|army|troops|crowd|city|street|ships?|boats?|harbou?r|port|buildings?|walls?|castle|fortress|tower|town|village|market|cannons?|horses?|cart|church|mosque|palace|insan|adam|kadın|çocuk|asker|ordu|kalabalık|şehir|sokak|gemi|tekne|liman|bina|sur|kale|kule|köy|pazar|araba|kilise|cami|saray|süvari)\b/iu;
+export function zamansizKare(scene) {
+  const t = `${scene?.search || ""} ${scene?.imagePrompt || ""}`;
+  return ZAMANSIZ.test(t) && !ZAMANLI.test(t);
+}
+/** 1850 öncesi hikâyede zamansız olmayan sahne için stok sitesi adayları atılır (sadece kurum arşivi kalır). */
+export function sanayiOncesiAdaylar(liste, scene, yil) {
+  if (yil == null || yil >= SANAYI_ONCESI_SINIRI || zamansizKare(scene)) return liste;
+  return liste.filter((c) => !STOK_SAGLAYICI.has(c?.provider) || c?.provider === "openverse");
+}
+
 export function arsivOnce(liste, { eski = false, riskli = false } = {}) {
   if (!eski || !riskli) return liste;
   const arsiv = liste.filter((c) => !STOK_SAGLAYICI.has(c?.provider));
@@ -893,6 +912,7 @@ export async function resolveArchive(docu, { dir, publicDir, buildPrefix, settin
   const cache = readJson(cacheFile, {}) || {};
   const script = structuredClone(docu);
   const donem = hikayeDonemi(script);
+  const hikayeYili = donemYili(donem);
   // 1990 öncesi hikâye: taşıt/uçak/şehir aramasında arşiv adayları önce, stok seçiminde de ucuz model yok.
   const eski = (donemYili(donem) ?? 9999) < ESKI_DONEM_SINIRI;
   const credits = {};
@@ -1016,7 +1036,7 @@ export async function resolveArchive(docu, { dir, publicDir, buildPrefix, settin
           Promise.resolve(search(q, "video", source === "stock" ? "generic" : "event", false, true, hs)).catch(() => { hs.n++; return []; }),
           footageSearch ? Promise.resolve(footageSearch(q, hs)).catch(() => { hs.n++; return []; }) : [],
         ]);
-        const list = klipSirala([...(ek || []), ...(ana || [])].filter((c) => c?.type === "video"), source, { eski, riskli: modernRiskli(q) });
+        const list = klipSirala(sanayiOncesiAdaylar([...(ek || []), ...(ana || [])].filter((c) => c?.type === "video"), { search: q }, hikayeYili), source, { eski, riskli: modernRiskli(q) });
         return { list, n: hs.n };
       })();
       klipAramalari.set(k, p);
@@ -1405,7 +1425,8 @@ export async function resolveArchive(docu, { dir, publicDir, buildPrefix, settin
               if (n > 0) failed = true;
               const listede = new Set();
               // 1990 öncesi hikâyede uçak/araç/şehir karesi: kurum arşivi adayları stok sitelerinden önce.
-              const adaylar = arsivOnce(list, { eski, riskli: modernRiskli(q) })
+              // 1850 öncesi hikâyede zamansız olmayan kare: stok sitesi adayı yok (sanayiOncesiAdaylar).
+              const adaylar = arsivOnce(sanayiOncesiAdaylar(list, s, hikayeYili), { eski, riskli: modernRiskli(q) })
                 .filter((a) => a.type !== "video" && a.url && !ayrilan.has(photoKey(a.url)) && !reddedildi(a.url) && !reddedildi(a.sayfa))
                 // Aynı dosyanın iki adresi aynı listede: küçük resmi iki kez indirmeye gerek yok.
                 .filter((a) => { const k = photoKey(a.url); if (listede.has(k)) return false; listede.add(k); return true; })

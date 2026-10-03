@@ -801,6 +801,30 @@ export function normalizeScenes(scenes, { castKeys = [], archive = true, first =
     toPhoto(s);
   }
   mergeMoodRuns(scenes, { lang, locked: (s, i) => !!s.silence || (first && i === 0) });
+  fillImagePrompts(scenes);
+  return scenes;
+}
+
+/**
+ * A text or title scene the writer left without imagePrompt borrows its nearest neighbour's (its
+ * backdrop shows the same subject); with no neighbour, the line itself becomes the prompt. Without
+ * this every chapter of a long video paid for a repair round trip (Napoleon: 8 of 8 chapters,
+ * "words için imagePrompt gerekli").
+ */
+export function fillImagePrompts(scenes) {
+  const needs = (s) => ["title", "words", "photo", "slam"].includes(s?.type) && !(s.type === "title" && s.chapterCard === true) && !String(s.imagePrompt || "").trim();
+  scenes.forEach((s, i) => {
+    if (!needs(s)) return;
+    for (let d = 1; d < scenes.length; d++) {
+      const n = [scenes[i - d], scenes[i + d]].find((x) => x && String(x.imagePrompt || "").trim() && x.type !== "montage");
+      if (n) {
+        s.imagePrompt = n.imagePrompt;
+        return;
+      }
+    }
+    const line = stripTags(s.say || s.text || s.title || "").trim();
+    if (line) s.imagePrompt = `${line} — cinematic, era-accurate, no text`;
+  });
   return scenes;
 }
 

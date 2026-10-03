@@ -3,7 +3,7 @@ import { AbsoluteFill, Easing, interpolate, useCurrentFrame, useVideoConfig } fr
 import { Media } from '../fx';
 import type { Genre, SplitScene, SplitSide } from '../types';
 import { DevProps, H, W, clamp, isTr, resolveRef, safeBand, upper } from './common';
-import { splitLand } from './timing';
+import { splitLand, splitSaid } from './timing';
 import { DFONT, fitLine } from './type';
 
 /*
@@ -96,7 +96,7 @@ export const Split: React.FC<DevProps & { scene: SplitScene }> = ({ scene, genre
   const { fps } = useVideoConfig();
   const band = safeBand(genre, 26);
   const mode = scene.mode === 'before-after' ? 'before-after' : 'versus';
-  const land = splitLand(mode, durFrames, fps);
+  const land = splitLand(mode, durFrames, fps, splitSaid(scene, fps));
   const look = genre.look;
   const accent = look === 'label' ? genre.labelBg : genre.accent;
   const tr = isTr(locale);

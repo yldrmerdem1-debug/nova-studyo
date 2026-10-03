@@ -211,9 +211,9 @@ function textureSvg(t: TopicCtx, ink: string): React.ReactNode {
       // Engraving: hatched shading bands, a double ruled border and a campaign arrow.
       for (let i = -40; i < 80; i++) els.push(<line key={`h${i}`} x1={i * 28} y1={0} x2={i * 28 + 700} y2={H} stroke={ink} strokeWidth={1} opacity={0.35} />);
       els.push(<rect key="b1" x={60} y={60} width={W - 120} height={H - 120} fill="none" stroke={ink} strokeWidth={3} />);
-      els.push(<rect key="b2" x={78} y={78} width={W - 156} height={H - 156} fill="none" stroke={ink} strokeWidth={1.2} />);
-      els.push(<path key="ar" d={`M 300 ${H - 260} C 700 ${H - 520}, 1200 ${H - 160}, 1700 ${H - 480}`} fill="none" stroke={ink} strokeWidth={5} strokeDasharray="26 14" />);
-      els.push(<path key="ah" d={`M 1700 ${H - 480} l -46 4 l 22 -40 z`} fill={ink} />);
+      // A campaign arrow as old war maps draw it: one broad stroke and a broad head (no thin dashed line).
+      els.push(<path key="ar" d={`M 300 ${H - 260} C 700 ${H - 520}, 1200 ${H - 160}, 1660 ${H - 462}`} fill="none" stroke={ink} strokeWidth={16} strokeLinecap="round" />);
+      els.push(<path key="ah" d={`M 1730 ${H - 500} l -110 4 l 46 -78 z`} fill={ink} />);
       break;
     }
   }
@@ -368,7 +368,18 @@ const WipeFace: React.FC<{ t: TopicCtx; P: MotifPalette; lead: 'left' | 'right' 
         break;
       }
       case 'siege': {
-        for (let i = -30; i < 60; i++) els.push(<line key={i} x1={i * 30} y1={0} x2={i * 30 + 500} y2={1200} stroke={P.paperInk} strokeWidth={1} opacity={0.18} />);
+        // Never an empty sheet sweeping the screen (1453 at 14:01): the besieged walls in silhouette along
+        // the bottom, towers at intervals, and the story's own word set large across the parchment.
+        const ink = P.paperInk;
+        els.push(<rect key="wall" x={0} y={880} width={2000} height={320} fill={ink} opacity={0.78} />);
+        for (let x = 0; x < 2000; x += 64) els.push(<rect key={`m${x}`} x={x} y={846} width={36} height={40} fill={ink} opacity={0.78} />);
+        for (let k = 0; k < 6; k++) {
+          const tx = 120 + k * 360;
+          els.push(<rect key={`t${k}`} x={tx} y={700} width={150} height={200} fill={ink} opacity={0.82} />);
+          for (let m = 0; m < 4; m++) els.push(<rect key={`tm${k}${m}`} x={tx + m * 40} y={666} width={26} height={38} fill={ink} opacity={0.82} />);
+        }
+        const word = String(tokens[0] ?? '').toUpperCase();
+        if (word) els.push(<text key="w" x={1000} y={520} textAnchor="middle" fill={ink} opacity={0.82} fontFamily={FONT.playfair} fontWeight={700} fontSize={Math.min(300, Math.floor(1700 / Math.max(3, word.length * 0.62)))} letterSpacing={6}>{word}</text>);
         break;
       }
     }

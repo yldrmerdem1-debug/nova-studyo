@@ -102,7 +102,7 @@ kontrol("boş girdi çökertmiyor", !yerTutucuMu("") && !yerTutucuMu(null));
     "üretilmiş drone'u eser gibi anmak izleyiciyi yanıltır");
   kontrol("tekrar tek satır", (k.metin.match(/The Soundlings/g) || []).length === 1);
   kontrol("satır sayısı doğru", k.sayi === 2, String(k.sayi));
-  kontrol("dosya adından platform kaynağı uydurulmuyor", !/YouTube Audio Library/.test(k.metin) && /not verified/.test(k.metin));
+  kontrol("dosya adından platform kaynağı uydurulmuyor", !/YouTube Audio Library/.test(k.metin) && !/not verified/.test(k.metin) && /not verified/.test((k.uyarilar || []).join(" ")));
   kontrol("Türkçe başlık", /^Müzik:/.test(muzikKunyesi(["yatak-notr-x--y.mp3"], {}).metin));
   kontrol("sadece yer tutucu varsa blok hiç yazılmıyor",
     muzikKunyesi(["yatak-notr.mp3", "yatak-derin.mp3"], {}).metin === "");
