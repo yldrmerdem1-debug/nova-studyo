@@ -915,6 +915,10 @@ export async function resolveArchive(docu, { dir, publicDir, buildPrefix, settin
   const hikayeYili = donemYili(donem);
   // 1990 öncesi hikâye: taşıt/uçak/şehir aramasında arşiv adayları önce, stok seçiminde de ucuz model yok.
   const eski = (donemYili(donem) ?? 9999) < ESKI_DONEM_SINIRI;
+  // Bir geri sayımın maddeleri farklı dönemlerden: her maddenin sahneleri kendi dönemini taşır (scene.era, docu.js).
+  const donemOf = (sc) => (sc?.era ? String(sc.era) : donem);
+  const yilOf = (sc) => (sc?.era ? donemYili(String(sc.era)) : hikayeYili);
+  const eskiOf = (sc) => (yilOf(sc) ?? 9999) < ESKI_DONEM_SINIRI;
   const credits = {};
   // Seçici hafızası (yukarıda açıklama): sahne + tür başına reddedilen adaylar ve küme kararları.
   const simdi = Date.now();
@@ -1026,8 +1030,8 @@ export async function resolveArchive(docu, { dir, publicDir, buildPrefix, settin
 
   // Görüntü araması: Nova'nın araması (video istenerek) + ek kaynaklar; yalnızca video adaylar.
   const klipAramalari = new Map();
-  const araKlip = (q, source) => {
-    const k = `${source}|${q.trim().toLowerCase().replace(/\s+/g, " ")}`;
+  const araKlip = (q, source, sc = null) => {
+    const k = `${source}|${sc?.era ? `${sc.era}|` : ""}${q.trim().toLowerCase().replace(/\s+/g, " ")}`;
     if (!klipAramalari.has(k)) {
       const p = (async () => {
         const hs = { n: 0 };
@@ -1036,7 +1040,7 @@ export async function resolveArchive(docu, { dir, publicDir, buildPrefix, settin
           Promise.resolve(search(q, "video", source === "stock" ? "generic" : "event", false, true, hs)).catch(() => { hs.n++; return []; }),
           footageSearch ? Promise.resolve(footageSearch(q, hs)).catch(() => { hs.n++; return []; }) : [],
         ]);
-        const list = klipSirala(sanayiOncesiAdaylar([...(ek || []), ...(ana || [])].filter((c) => c?.type === "video"), { search: q }, hikayeYili), source, { eski, riskli: modernRiskli(q) });
+        const list = klipSirala(sanayiOncesiAdaylar([...(ek || []), ...(ana || [])].filter((c) => c?.type === "video"), { search: q }, yilOf(sc)), source, { eski: eskiOf(sc), riskli: modernRiskli(q) });
         return { list, n: hs.n };
       })();
       klipAramalari.set(k, p);
@@ -1132,7 +1136,7 @@ export async function resolveArchive(docu, { dir, publicDir, buildPrefix, settin
       const sorgular = [s.search, simplerQuery(s.search)].filter(Boolean);
       for (let qi = 0, yarisTekrari = 0; qi < sorgular.length; qi++) {
         if (isCancelled()) throw new Error("cancelled");
-        const { list, n } = await araKlip(sorgular[qi], s.source);
+        const { list, n } = await araKlip(sorgular[qi], s.source, s);
         if (n > 0) failed = true;
         const listede = new Set();
         const adaylar = list
@@ -1186,7 +1190,7 @@ export async function resolveArchive(docu, { dir, publicDir, buildPrefix, settin
         if (!ok.length && indirilemedi) failed = true;
         if (!ok.length) continue;
         // Stok KLİPTE de Sonnet: araç, kokpit, kıyafet gibi dönem hatalarını Haiku kaçırıyordu (Cooper: modern jetler).
-        const secimAyari = { ...settings, _donem: donem };
+        const secimAyari = { ...settings, _donem: donemOf(s) };
         karar = await hafizaliSecim(`v-${key}`, VIDEO_PICK_VERSION, ok, true, () => pick(s, onizler.map((o) => o.buf), {
           settings: secimAyari, usage, logFn,
           titles: ok.map((a) => a.eser || a.metin || ""),
@@ -1426,7 +1430,7 @@ export async function resolveArchive(docu, { dir, publicDir, buildPrefix, settin
               const listede = new Set();
               // 1990 öncesi hikâyede uçak/araç/şehir karesi: kurum arşivi adayları stok sitelerinden önce.
               // 1850 öncesi hikâyede zamansız olmayan kare: stok sitesi adayı yok (sanayiOncesiAdaylar).
-              const adaylar = arsivOnce(sanayiOncesiAdaylar(list, s, hikayeYili), { eski, riskli: modernRiskli(q) })
+              const adaylar = arsivOnce(sanayiOncesiAdaylar(list, s, yilOf(s)), { eski: eskiOf(s), riskli: modernRiskli(q) })
                 .filter((a) => a.type !== "video" && a.url && !ayrilan.has(photoKey(a.url)) && !reddedildi(a.url) && !reddedildi(a.sayfa))
                 // Aynı dosyanın iki adresi aynı listede: küçük resmi iki kez indirmeye gerek yok.
                 .filter((a) => { const k = photoKey(a.url); if (listede.has(k)) return false; listede.add(k); return true; })
@@ -1468,7 +1472,7 @@ export async function resolveArchive(docu, { dir, publicDir, buildPrefix, settin
               // Stok (genel atmosfer) sahnesinde kimlik riski yok: ucuz model yeter — ama 1990 öncesi
               // hikâyede değil: Haiku Ryanair logolu jeti 1971'e koymuştu (Cooper QA). Orada tam model.
               // Gerçek kişi/olay (archive) sahnesinde gpt-4.1 kalır — mini yanlış görevi seçmişti.
-              const secimAyari = s.source === "stock" && !eski ? { ...settings, _donem: donem, openaiVisionModel: settings.openaiStockVisionModel || "gpt-6-luna", claudeVisionModel: settings.claudeStockVisionModel || "claude-haiku-4-5-20251001" } : { ...settings, _donem: donem };
+              const secimAyari = s.source === "stock" && !eskiOf(s) ? { ...settings, _donem: donemOf(s), openaiVisionModel: settings.openaiStockVisionModel || "gpt-6-luna", claudeVisionModel: settings.claudeStockVisionModel || "claude-haiku-4-5-20251001" } : { ...settings, _donem: donemOf(s) };
               karar = await hafizaliSecim(key, PICK_VERSION, ok, false, () => pick(s, thumbs.map((t) => t.buf), {
                 settings: secimAyari, usage, logFn,
                 titles: ok.map((a) => a.eser || a.metin || ""),

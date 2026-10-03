@@ -753,7 +753,11 @@ function renderForm(main) {
     ["inspire", "Biyografi / İlham", "sıcak ışık, piyano ve yaylılar"],
     ["finance", "Finans", "yeşil-siyah veri gerilimi"],
     ["horror", "Korku", "karanlık, kan kırmızısı"],
+    // Bir format: geri sayım (N'den 1'e), sıra kartları; görsel/ses dilini konuya göre Claude seçer.
+    ["ranking", "Sıralama", "geri sayım: 10'dan 1'e maddeler, dev sıra kartları; görsel dili konuya göre seçilir"],
   ];
+  /** The ranking chip is a format, the others a style: one or the other is lit. */
+  const stilSecili = (k) => (k === "ranking" ? f.docuFormat === "ranking" : f.docuFormat !== "ranking" && (f.docuGenre || "") === k);
   /** Yüklü hazır senaryo varsa tahminler onun sahnelerinden yapılır, süre ayarından değil. */
   const docuHazir = () => (f.docuScript?.scenes?.length ? f.docuScript.scenes : null);
   /** Sinematik Belgesel: ~9 kelime/sahne, 120 kelime/dk (docu-script.js DOCU_WPM ile aynı). */
@@ -871,7 +875,7 @@ function renderForm(main) {
       ${seg("Görseller", `
         <button type="button" class="seg-btn ${(f.docuSource || "archive") === "archive" ? "sel" : ""}" data-kaynak="archive"><b>Arşiv ağırlıklı</b><small>gerçek fotoğraf, eksikler AI</small></button>
         <button type="button" class="seg-btn ${f.docuSource === "ai" ? "sel" : ""}" data-kaynak="ai"><b>Sadece AI</b><small>efsane, fotoğraf öncesi dönem</small></button>`)}
-      <div class="opt-row"><span class="opt-label">Stil</span><div class="style-grid">${DOCU_STILLER.map(([k, ad, alt]) => `<button type="button" class="style-chip ${(f.docuGenre || "") === k ? "sel" : ""}" data-stil="${k}" title="${esc(alt)}"><span class="sw sw-${k || "auto"}"></span>${ad.replace(/^✨ /, "")}</button>`).join("")}</div></div>
+      <div class="opt-row"><span class="opt-label">Stil</span><div class="style-grid">${DOCU_STILLER.map(([k, ad, alt]) => `<button type="button" class="style-chip ${stilSecili(k) ? "sel" : ""}" data-stil="${k}" title="${esc(alt)}"><span class="sw sw-${k || "auto"}"></span>${ad.replace(/^✨ /, "")}</button>`).join("")}</div></div>
       <p class="docu-foot">Görseller önce arşivden, eksikler GPT Image ile · anlatım ElevenLabs v3 · ${(state.settings.docuMusicSource || "library") === "eleven" ? "müzik ElevenLabs bestesi" : "müzik ve efektler lisanslı ses kütüphanesinden"}${state.settings.audioLibrary && !state.settings.audioLibrary.ready ? ' <b style="color:var(--warn)">(kütüphane bulunamadı — ElevenLabs\'e düşer)</b>' : ""} · 16:9 video + .srt altyazı</p>
     </div>`;
     kutu.innerHTML = `
@@ -886,7 +890,11 @@ function renderForm(main) {
       refresh();
     }));
     kutu.querySelectorAll("[data-stil]").forEach((b) => b.addEventListener("click", () => {
-      if (b.dataset.stil) state.form.docuGenre = b.dataset.stil; else delete state.form.docuGenre;
+      if (b.dataset.stil === "ranking") { state.form.docuFormat = "ranking"; delete state.form.docuGenre; }
+      else {
+        delete state.form.docuFormat;
+        if (b.dataset.stil) state.form.docuGenre = b.dataset.stil; else delete state.form.docuGenre;
+      }
       refresh();
     }));
     kutu.querySelectorAll("[data-docu]").forEach((b) => b.addEventListener("click", async () => {

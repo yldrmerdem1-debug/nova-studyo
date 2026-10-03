@@ -1,5 +1,17 @@
 # Nova Studyo — Sürüm Notları
 
+## 1.16.0 (4 Ekim 2026)
+
+### Yeni kategori: Sıralama (geri sayım)
+Sinematik Belgesel'in stil satırında **Sıralama**: aynı belgesel motoru (aynı kurgu, ses, dönem denetimi, ara planlar, kapaklar), senaryo bir geri sayım. Görsel ve ses dilini (Gizem, Epik, Finans...) Claude konuya göre seçer.
+- **Yapı**: 1. bölüm giriş (30-45 sn: listenin ortasından bir maddenin en ürpertici anıyla soğuk açılış, sıralamanın ölçütü tek cümle, 1 numaranın vaadi — asla açıklanmaz), sonra N'den 1'e maddeler (5 dk'ya kadar 5, 10 dk'ya kadar 7, üstü 10). Her madde bir mini hikâye: ilk cümle en çarpıcı olgusu, neden bu sırada (bir kez), son sahne bir sonrakine köprü; her 2-3 maddede 1 numaraya gönderme. Yoğunluk sırayla yükselir; 1 numara 1,5 kat uzun ve kendi dönüşüyle.
+- **Araştırma**: tek hikâye değil, listeden %60 fazla aday; her biri için yer, kesin tarih, doğrulanmış olgular, izleyiciyi durduracak tek ayrıntı, kaynaklar ve önerilen sıra/ölçüt.
+- **Sıra kartı**: her maddenin başında maddenin kendi resmi (net, yavaş yaklaşan), dev sıra rakamı vuruş sesiyle iner, sonra adı kelime kelime, yer · yıl, altta 10'dan 1'e geri sayım çubuğu (geçilenler soluk, mevcut altın etiket). 1 numara daha büyük, altın parıltılı ve daha uzun.
+- **Sıra rozeti**: madde boyunca sol üstte küçük "#7 · MADDE ADI" etiketi.
+- **Madde başına dönem**: her maddenin sahneleri kendi yılını taşır; arşiv araması, stok kuralı ve dönem denetimi maddeye göre (1912'deki madde 1990'ın kurallarıyla, 1990'daki 1912'nin kurallarıyla yargılanmaz). Görsel dil dönemsiz; dönemi her görsel tarifi kendisi söyler.
+- **Paket**: başlıkların çoğunda sayı başta ("10 …"), 1 numara başlıkta asla açıklanmaz; kapak 1 numarayı adını vermeden satar (en şok edici karesi + dev "#1").
+- YouTube bölümleri "#7 Madde adı" olarak yazılır.
+
 ## 1.15.5 (3 Ekim 2026)
 
 Kurgu ince ayarı (Napolyon kare kare incelendi: Borodino doruğunda top resmi iki cümle boyunca ~9 sn ekrandaydı).

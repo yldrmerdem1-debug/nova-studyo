@@ -412,6 +412,25 @@ export interface TitleScene extends SceneBase {
   chapterCard?: boolean;
   /** 1-based chapter number shown on a chapter card. */
   chapterNo?: number;
+  /** A countdown item's card (src/ranking/RankCard.tsx) instead of a chapter card. */
+  rankCard?: RankCardData;
+}
+
+/** One countdown item as its card shows it. */
+export interface RankCardData {
+  rank: number;
+  total: number;
+  item: string;
+  place?: string;
+  /** The item's year (negative = BC), or null. */
+  year?: number | null;
+}
+
+/** A countdown script (script.format 'ranking'): the criterion and every item's chapter. */
+export interface RankingInfo {
+  criterion?: string;
+  total: number;
+  items: (RankCardData & { chapter: number })[];
 }
 
 export interface SlamScene extends SceneBase {
@@ -910,6 +929,9 @@ export interface Script {
   title?: string;
   /** Chapter titles, for YouTube chapter marks. */
   chapters?: string[];
+  /** 'ranking': a countdown (chapter 0 the intro, then one chapter per item from N to 1). */
+  format?: 'ranking';
+  ranking?: RankingInfo;
   /** Seed source for image generation and SFX flavour; defaults to `id`. Keeps a copied script looking the same. */
   seedKey?: string;
   /** Benchmark only: effects to switch off (grain, dust, vignette, grade, ca, flicker). */

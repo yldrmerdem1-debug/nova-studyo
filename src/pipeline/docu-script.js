@@ -181,17 +181,72 @@ export function docuPlan(job) {
   const chapters = minutes <= 1.5 ? 1 : Math.max(2, Math.min(16, Math.round(minutes / 1.6)));
   // Sahne başına ~9 kelime ≈ 4-5 sn: referans kurgularda "her saniye bir şey olur" temposu.
   const scenes = Math.max(8, Math.round((minutes * wpm) / 9));
+  if (job.docuFormat === "ranking") return rankingPlan({ minutes, words, scenes });
   const scenesPerChapter = Math.round(scenes / chapters);
+  const range = [Math.max(4, Math.round(scenesPerChapter * 0.85)), Math.max(6, Math.round(scenesPerChapter * 1.15))];
   return {
     minutes, words, chapters, scenes,
     wordsPerChapter: Math.round(words / chapters),
     scenesPerChapter,
-    scenesRange: [Math.max(4, Math.round(scenesPerChapter * 0.85)), Math.max(6, Math.round(scenesPerChapter * 1.15))],
+    scenesRange: range,
     secondsPerChapter: Math.round((minutes * 60) / chapters),
+    chapterWords: Array.from({ length: chapters }, () => Math.round(words / chapters)),
+    chapterScenes: Array.from({ length: chapters }, () => range),
+  };
+}
+
+/**
+ * RANKING (countdown) plan: chapter 1 is the intro (cold open, the ranking's criterion, the promise
+ * of number one), then one chapter per item from N down to 1. Number one is the longest (x1.5), the
+ * intro the shortest (~9% of the words). 5 items up to 6 min, 7 up to 10, then 10.
+ */
+export function rankingItems(minutes) {
+  return minutes <= 6 ? 5 : minutes <= 10 ? 7 : 10;
+}
+
+function rankingPlan({ minutes, words, scenes }) {
+  const items = rankingItems(minutes);
+  const chapters = items + 1;
+  // A countdown's intro is 30-45 s: the cold open, the criterion, the promise of number one.
+  const intro = Math.max(60, Math.min(110, Math.round(words * 0.05)));
+  const unit = (words - intro) / (items - 1 + 1.5);
+  const chapterWords = [intro, ...Array.from({ length: items }, (_, k) => Math.round(k === items - 1 ? unit * 1.5 : unit))];
+  const perWord = scenes / words;
+  const chapterScenes = chapterWords.map((w) => {
+    const s = w * perWord;
+    return [Math.max(3, Math.round(s * 0.85)), Math.max(4, Math.round(s * 1.15))];
+  });
+  return {
+    minutes, words, chapters, scenes, items, ranking: true,
+    wordsPerChapter: Math.round(unit),
+    scenesPerChapter: Math.round(unit * perWord),
+    scenesRange: chapterScenes[1],
+    secondsPerChapter: Math.round((minutes * 60) / chapters),
+    chapterWords,
+    chapterScenes,
   };
 }
 
 function bibleSchema(plan) {
+  const base = docuBibleSchema(plan);
+  if (!plan.ranking) return base;
+  // Countdown: chapter 1 is the intro (rank 0), then ranks N..1; every item names where and when it happened.
+  const ch = base.properties.chapters.items;
+  ch.properties = {
+    ...ch.properties,
+    rank: { type: "integer", description: `Maddenin sırası: bölüm 1 GİRİŞ (0), sonra ${plan.items}'dan 1'e azalan (${plan.items}, ${plan.items - 1}, … 1)` },
+    item: { type: "string", description: "Maddenin kısa adı, sıra kartında büyük yazılır (video dilinde, 2-6 kelime). Giriş için videonun konusu." },
+    place: { type: "string", description: "Nerede (video dilinde, kısa: 'Ural Dağları, SSCB'). Giriş için boş." },
+    year: { type: "integer", description: "Maddenin ana yılı (MÖ ise negatif). Giriş için 0." },
+    whyHere: { type: "string", description: "Neden bu sırada: ölçüte göre bir üstünden neden daha az, bir altından neden daha çok (1 cümle). Giriş için ölçütün kendisi." },
+  };
+  ch.required = [...ch.required, "rank", "item", "place", "year", "whyHere"];
+  base.properties.criterion = { type: "string", description: "Sıralamanın ölçütü, ölçülebilir ve savunulabilir (video dilinde, 1 cümle): 'bugün hâlâ ne kadar az şey bildiğimize göre'" };
+  base.required = [...base.required, "criterion"];
+  return base;
+}
+
+function docuBibleSchema(plan) {
   const long = plan.minutes >= 8;
   return {
     type: "object",
@@ -1248,6 +1303,60 @@ async function runPool(items, conc, fn, isCancelled) {
 
 /* ============================================================== senaryo yazımı */
 
+/**
+ * The countdown's structure, as the top channels of the format cut it: a cold open on a chilling
+ * moment that is NOT number one, the criterion in one line, number one promised and withheld;
+ * every item a mini-story that opens on its single most arresting fact, says once why it sits
+ * where it sits, and hands over to the next with a bigger promise; each item bigger than the last.
+ */
+export function rankingBibleRules(plan) {
+  const N = plan.items;
+  return [
+    `GERİ SAYIM VİDEOSU: TAM ${N} madde + giriş. Bölüm 1 = GİRİŞ (rank 0). Bölüm 2…${N + 1} = maddeler, sırası ${N}'dan 1'e (rank ${N}, ${N - 1}, … 1). Bölüm 2 = #${N}, son bölüm = #1.`,
+    "- criterion: sıralamanın ölçütü, ölçülebilir ve savunulabilir. Sıra bu ölçüte göre; izleyici 'neden bu sırada' diye itiraz edemesin.",
+    "- MADDELER: araştırmadaki en şaşırtıcı, doğrulanabilir ve görsel olarak en zengin olaylar. İki madde aynı hikâye olmasın; yer ve dönem çeşitlensin. Her maddenin item (kısa ad), place, year, whyHere alanları dolu.",
+    "- TIRMANIŞ: her madde bir öncekinden büyük; intensity sırayla yükselir (giriş 3, #N 2-3, … #1 5). #1 tartışmasız en güçlüsü ve kendi içinde ek bir dönüşü var.",
+    `- GİRİŞ (rank 0, ~${plan.chapterWords[0]} kelime, 30-45 sn): listenin ORTASINDAN bir maddenin en ürpertici anıyla soğuk açılış (asla #1 değil), sonra ölçüt tek cümleyle, sonra #1'in vaadi ('ve bir numara... hâlâ'): #1 ASLA açıklanmaz. Kısa ve vurucu.`,
+    "- HER MADDE bir mini hikâye: hookIn = maddenin en çarpıcı tek olgusu (ilk cümle); goal = mekân → ne oldu → kimsenin beklemediği ayrıntı → neden bu sırada (whyHere bir kez söylenir); turn = o ayrıntı; cliffhanger = bir sonraki maddeye köprü (daha büyüğünün vaadi). Her 2-3 maddede bir #1'e gönderme ('ama hiçbiri bir numarayla kıyaslanamaz').",
+    "- openLoops: giriş #1'in sorusunu kurar (payoffChapter = son bölüm); 1-2 döngü de maddeler arası kurulur.",
+    "- visualStyle: maddeler farklı dönemlerden; ortak dil DÖNEMSİZ olsun (ışık, renk derecelendirmesi, lens, doku), belirli bir film stoğu ya da yıl YAZMA. Dönemi her sahnenin kendi imagePrompt'u söyler.",
+    "- midpoint: ortadaki bir madde (sıralamanın ortası) beklenmedik bir yön değişikliği getirir.",
+    `- title: listenin başlığı, sayı başlıkta ('${N} … That …' / '${N} … ki …'), merak uyandıran. chapters[].title = maddenin adı (YouTube bölüm işareti '#sıra ad' olarak yazılır); giriş için kısa bir başlık.`,
+  ];
+}
+
+/** The countdown's per-chapter rules (intro, an item, number one). */
+export function rankingChapterRules({ i, n, ch, bible }) {
+  const next = bible.chapters[i + 1];
+  if (i === 0) {
+    return [
+      "GİRİŞ (GERİ SAYIM): soğuk açılış listenin ORTASINDAN bir maddenin en ürpertici anıyla (asla #1). Sonra sıralamanın ölçütü tek cümleyle:",
+      `  "${bible.criterion}"`,
+      "Sonra #1'in vaadi: ne olduğunu ASLA söyleme, yalnızca neden en üstte olduğunu sezdir. Bu bölüm kısa ve vurucu; maddelerin olgularını burada harcama (açılış anı dışında).",
+    ];
+  }
+  const rules = [
+    `Neden bu sırada (bölümün son üçte birinde, BİR kez, doğal bir cümleyle): ${ch.whyHere}`,
+    "Yalnızca bu maddeyi anlat: başka maddelerin olaylarını anlatma (köprü cümlesi hariç).",
+    `Her imagePrompt ve archive search bu maddenin YILINI ve YERİNİ açıkça taşır (${[ch.year ? (ch.year < 0 ? `${-ch.year} BC` : ch.year) : "", ch.place].filter(Boolean).join(", ") || "maddenin dönemi"}): görseller maddeden maddeye dönem değiştirir.`,
+  ];
+  if (i < n - 1) {
+    rules.push(`Son sahne KÖPRÜ: sıradaki madde (#${next?.rank}) bundan da büyük; adını ya da olayını verme, merak bırak.${(n - 1 - i) % 3 === 0 ? " Bu köprüde #1'e de gönderme yap ('ama hiçbiri bir numarayla kıyaslanamaz' gibi, kendi cümlenle)." : ""}`);
+  } else {
+    rules.push("BİR NUMARA: listenin tartışmasız en güçlü maddesi; kendi içinde ek bir dönüş taşır. Sonunda girişteki açılış anına ve ölçüte dön, listeyi tek cümleyle bağla; son satır kısa ve sakin.");
+  }
+  return rules;
+}
+
+/** Ranks in order: the intro 0, then N..1 — the model's numbering is not trusted. */
+export function fixRanking(b, plan) {
+  if (!plan?.ranking) return;
+  (b.chapters || []).forEach((c, i) => {
+    c.rank = i === 0 ? 0 : plan.items - i + 1;
+    if (i === 0) c.year = 0;
+  });
+}
+
 function fixBible(b, n) {
   const seen = new Set();
   b.cast = (b.cast || []).map((c) => ({ ...c, key: String(c.key || "").toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "") }))
@@ -1272,7 +1381,7 @@ function fixBible(b, n) {
 function storyBlock({ job, bible, research }) {
   const loops = (bible.openLoops || []).map((l) => `- "${l.text}" (kur: bölüm ${l.setupChapter}, cevapla: bölüm ${l.payoffChapter})`).join("\n");
   const outline = bible.chapters.map((c, i) => [
-    `${i + 1}. ${c.title}${c.midpoint ? " [ORTA NOKTA]" : ""} — yoğunluk ${c.intensity}/5`,
+    `${i + 1}. ${Number.isInteger(c.rank) ? (c.rank ? `#${c.rank} ${c.item} (${[c.place, c.year || ""].filter(Boolean).join(", ")}) · ` : "GİRİŞ · ") : ""}${c.title}${c.midpoint ? " [ORTA NOKTA]" : ""} — yoğunluk ${c.intensity}/5${c.whyHere ? ` · neden bu sırada: ${c.whyHere}` : ""}`,
     `   hedef: ${c.goal}`,
     `   olgular: ${c.covers.join("; ")}`,
     `   giriş kancası: ${c.hookIn} · dönüm: ${c.turn} · bölüm sonu: ${c.cliffhanger}`,
@@ -1285,6 +1394,7 @@ function storyBlock({ job, bible, research }) {
     "",
     `BAŞLIK: "${bible.title}" · TÜR: ${bible.genre}`,
     `GÖRSEL DİL: ${bible.visualStyle}`,
+    bible.criterion ? `GERİ SAYIM — SIRALAMA ÖLÇÜTÜ: ${bible.criterion}` : "",
     `MERKEZ SORU: ${bible.centralQuestion}`,
     `RİSK: ${bible.stakes}`,
     `VAAT (ilk 30 sn): ${bible.promise}`,
@@ -1302,8 +1412,8 @@ function chapterPrompt({ i, bible, plan, written, lang }) {
   const ch = bible.chapters[i];
   const first = i === 0, last = i === n - 1;
   const g = genreOf(bible.genre);
-  const [lo, hi] = plan.scenesRange;
-  const target = plan.wordsPerChapter;
+  const [lo, hi] = plan.chapterScenes?.[i] ?? plan.scenesRange;
+  const target = plan.chapterWords?.[i] ?? plan.wordsPerChapter;
   const min = Math.round(target * MIN_CHAPTER_RATIO);
   const loops = bible.openLoops || [];
   const setup = loops.filter((l) => l.setupChapter === i + 1).map((l) => l.text);
@@ -1334,7 +1444,10 @@ function chapterPrompt({ i, bible, plan, written, lang }) {
     `UZUNLUK (ZORUNLU): toplam ${target} kelime anlatım (etiketler hariç, en az ${min}); ${lo}-${hi} sahne. Kelime hedefi sahne sayısından önemlidir: sahneler az kalırsa satırları uzat.`,
     first
       ? `AÇILIŞ (ilk 30 sn): ilk sahne ${g.write.openers.join(" veya ")} — ${g.write.coldOpen} Kanca ("${bible.hookWord}") ilk ~8 sn içinde düşsün. İlk 4 sahneden biri title: videonun adı "${bible.title}" (~20 sn içinde). Vaadi ("${bible.promise}") ilk ~30 sn içinde, yani anlatımın ilk ~55 kelimesinde söyle; merkez soruyu sezdir: "${bible.centralQuestion}".`
-      : `Bölüm kartını ("BÖLÜM ${i + 1} — ${ch.title}") motor koyar: anlatıcı bölüm başlığını söylemez, title sahnesi yazma. İlk satır giriş kancasını yapar.`,
+      : plan.ranking
+        ? `MADDE #${ch.rank}: ${ch.item}${ch.place ? ` — ${ch.place}` : ""}${ch.year ? `, ${ch.year < 0 ? `MÖ ${-ch.year}` : ch.year}` : ""}. Sıra kartını (dev #${ch.rank}, maddenin adı, yer ve yıl) motor koyar: anlatıcı sıra numarasını ve maddenin başlığını SÖYLEMEZ, title sahnesi yazma. İlk satır doğrudan maddenin en çarpıcı olgusu.`
+        : `Bölüm kartını ("BÖLÜM ${i + 1} — ${ch.title}") motor koyar: anlatıcı bölüm başlığını söylemez, title sahnesi yazma. İlk satır giriş kancasını yapar.`,
+    ...(plan.ranking ? rankingChapterRules({ i, n, ch, bible }) : []),
     last
       ? `SON BÖLÜM: merkez soruyu ("${bible.centralQuestion}") açıkça cevapla, açık döngüleri kapat ve soğuk açılışa geri dön (kanca: "${bible.hookWord}"${opener ? `; açılış satırı: "${stripTags(opener.say)}"` : ""}). Son sahne sakin bir kapanış: photo veya words, dur 12-15, 3-8 kelimelik kısa bir satır; müzik onun altında çözülür. silence en fazla 1 kez, en ağır duygu anında.`
       : "Bu bölümde silence YOK; slam en fazla 1.",
@@ -1358,6 +1471,8 @@ export async function runDocuScript(job, research, usage, logFn, opts = {}) {
   // chapterModel: bölümleri yazan model (Sonnet 5.5). Hikâye planı (bible) ayarlardaki modelle (Opus 5.5) — ruh planda.
   const { dir = null, isCancelled = () => false, llm = callJSON, eleven = {}, chapterModel = null } = opts;
   const plan = docuPlan(job);
+  /** This chapter's word target (the ranking's intro is short and its number one long). */
+  const cw = (i) => plan.chapterWords?.[i] ?? plan.wordsPerChapter;
   const lang = langOf(job);
   const archive = (job.docuSource || "archive") === "archive";
   const fullResearch = researchForWriters(research);
@@ -1365,7 +1480,7 @@ export async function runDocuScript(job, research, usage, logFn, opts = {}) {
   const warnings = [];
   logFn(`Sinematik senaryo planı: ${plan.chapters} bölüm, ${plan.scenesRange[0] * plan.chapters}-${plan.scenesRange[1] * plan.chapters} sahne, ${plan.words} kelime (hedef ${plan.minutes} dk + %${Math.round((DOCU_HEADROOM - 1) * 100)} pay)`);
 
-  const key = sha1([DOCU_PROMPT_VERSION, job.topic, job.guidance || "", job.durationPreset, job.docuGenre || "", job.docuSource || "archive", lang, job.tone || "", sha1(fullResearch)]);
+  const key = sha1([DOCU_PROMPT_VERSION, job.topic, job.guidance || "", job.durationPreset, job.docuGenre || "", job.docuSource || "archive", job.docuFormat || "", lang, job.tone || "", sha1(fullResearch)]);
   const store = scriptStore(dir, key);
 
   // 1) KUTSAL KİTAP
@@ -1383,6 +1498,8 @@ export async function runDocuScript(job, research, usage, logFn, opts = {}) {
         "",
         `Bu belgeselin "kutsal kitabını" çıkar: başlık, tür (genre), görsel dil (visualStyle), tekrar görünen karakterler (cast) ve TAM ${n} bölüm.`,
         `SÜRE: ${plan.minutes} dk; bölüm başı ~${plan.secondsPerChapter} sn (~${plan.wordsPerChapter} kelime anlatım).`,
+        ...(plan.ranking ? rankingBibleRules(plan) : []),
+        plan.ranking ? "Aşağıdaki uzun form kuralları her MADDENİN içinde de geçerli:" : "",
         "UZUN FORM YAPISI (MagnatesMedia / Netflix belgesel kurgusu):",
         "- centralQuestion: videonun taşıdığı tek büyük soru; izleyici cevabı için sonuna kadar kalır, SON bölüm cevaplar.",
         "- stakes: ne kaybedilebilirdi, neden önemli. promise: ilk 30 sn içinde söylenecek vaat. hookWord: soğuk açılışın kancası; son bölüm ona geri döner.",
@@ -1406,6 +1523,7 @@ export async function runDocuScript(job, research, usage, logFn, opts = {}) {
         if (b.chapters?.length !== n) errors.push(`tam ${n} bölüm gerekli, ${b.chapters?.length} geldi`);
         if (job.docuGenre && b.genre !== job.docuGenre) errors.push(`genre "${job.docuGenre}" olmalı`);
         if (!errors.length) {
+          fixRanking(b, plan);
           fixBible(b, n);
           if (n >= 3 && b.openLoops.length < 2) errors.push("openLoops: en az 2 geçerli açık döngü gerekli (1 ≤ setupChapter < payoffChapter ≤ bölüm sayısı)");
         }
@@ -1457,7 +1575,7 @@ export async function runDocuScript(job, research, usage, logFn, opts = {}) {
       logFn(`Bölüm ${i + 1}/${n} kurgulanıyor: ${bible.chapters[i].title}`);
       ch = await callChapter({
         i, user: chapterPrompt({ i, bible, plan, written, lang }),
-        target: plan.wordsPerChapter, min: Math.round(plan.wordsPerChapter * MIN_CHAPTER_RATIO), label: `Bölüm ${i + 1}`,
+        target: cw(i), min: Math.round(cw(i) * MIN_CHAPTER_RATIO), label: `Bölüm ${i + 1}`,
       });
       store.putChapter(i, bibleKey, ch);
     }
@@ -1475,8 +1593,8 @@ export async function runDocuScript(job, research, usage, logFn, opts = {}) {
     for (const i of order) {
       if (deficit <= 0) break;
       // En kısa bölüm önce; bir bölüme en fazla yarım bölüm eklenir (şişirme değil, tamamlama).
-      const want = Math.max(plan.wordsPerChapter - words[i], Math.ceil(plan.wordsPerChapter * 0.12), Math.ceil(deficit / Math.max(1, order.length - jobs.length)));
-      const add = Math.min(want, Math.ceil(plan.wordsPerChapter * 0.6));
+      const want = Math.max(cw(i) - words[i], Math.ceil(cw(i) * 0.12), Math.ceil(deficit / Math.max(1, order.length - jobs.length)));
+      const add = Math.min(want, Math.ceil(cw(i) * 0.6));
       jobs.push({ i, add });
       deficit -= add;
     }
@@ -1510,8 +1628,8 @@ export async function runDocuScript(job, research, usage, logFn, opts = {}) {
   const scenes = written.flatMap((sc, c) => sc.map((s, k) => globalizeRefs(cleanScene(s, c, { maxDur: c === n - 1 && k === sc.length - 1 ? 20 : 12 }), offsets[c], k)));
   const notes = finalizeScenes(scenes, { job, plan, castKeys, intensity: bible.chapters.map((c) => c.intensity) });
   if (notes.length) logFn(`Son düzenleme: ${notes.join("; ")}`);
-  const short = written.map((sc, i) => [i, sceneWords(sc)]).filter(([, w]) => w < plan.wordsPerChapter * 0.75);
-  for (const [i, w] of short) warnings.push(`Bölüm ${i + 1} kısa kaldı (${w}/${plan.wordsPerChapter} kelime)`);
+  const short = written.map((sc, i) => [i, sceneWords(sc)]).filter(([i, w]) => w < cw(i) * 0.75);
+  for (const [i, w] of short) warnings.push(`Bölüm ${i + 1} kısa kaldı (${w}/${cw(i)} kelime)`);
   const repeats = crossChapterRepeats(scenes);
   if (repeats.length) warnings.push(`Bölümler arası tekrar eden ifadeler: ${repeats.slice(0, 4).map((g) => `"${g}"`).join(", ")}`);
   const unverified = unverifiedNumbers(scenes, fullResearch);
@@ -1527,8 +1645,19 @@ export async function runDocuScript(job, research, usage, logFn, opts = {}) {
     locale: lang === "en" ? "en-US" : "tr-TR",
     visualStyle: bible.visualStyle,
     cast: Object.fromEntries(bible.cast.map((c) => [c.key, c.description])),
-    chapters: bible.chapters.map((c) => c.title),
+    // A countdown's chapters read "#7 The Dyatlov Pass" in YouTube's chapter list; the rank card draws them from `ranking`.
+    chapters: bible.chapters.map((c) => (plan.ranking && c.rank ? `#${c.rank} ${c.item || c.title}` : c.title)),
     story: { centralQuestion: bible.centralQuestion, stakes: bible.stakes, promise: bible.promise, hookWord: bible.hookWord, openLoops: bible.openLoops },
+    ...(plan.ranking
+      ? {
+          format: "ranking",
+          ranking: {
+            criterion: bible.criterion,
+            total: plan.items,
+            items: bible.chapters.map((c, i) => ({ chapter: i, rank: c.rank, item: c.item || c.title, place: c.place || "", year: c.year || null })).filter((x) => x.rank > 0),
+          },
+        }
+      : {}),
     scenes,
   };
   const st = docuScriptStats(script, job);

@@ -142,7 +142,11 @@ export function eraItems(script, credits = {}, { publicDir, propsFile } = {}) {
       }
     });
   });
-  return items.map((x) => ({ ...x, label: labelOf(x.id), tiles: x.times ? x.times.length : 1 }));
+  // A countdown's item carries its own era (scene.era): its pictures are judged against it, not the list's.
+  return items.map((x) => {
+    const own = script.scenes[x.scene]?.era;
+    return { ...x, label: labelOf(x.id), tiles: x.times ? x.times.length : 1, ...(own ? { era: String(own) } : {}) };
+  });
 }
 
 /** Bütçe: önce stok + AI, sonra karışık, en son kurum arşivi; sahne sırası korunur. */
@@ -262,10 +266,12 @@ const ERA_SCHEMA = {
 
 const KAYNAK_TR = (x) => (x.kind === "ai" ? "AI görseli" : `${STOCK_PROVIDERS.has(x.provider) ? "stok" : "arşiv"} ${x.video ? "klibi" : "fotoğrafı"} · ${x.provider}`);
 
-export function eraPrompt({ title, era, year, lines }) {
+export function eraPrompt({ title, era, year, lines, mixed = false }) {
   return [
     `Bir YouTube belgeselinin görsellerini render'dan ÖNCE dönem doğruluğu için denetliyorsun${title ? ` ("${title}")` : ""}.`,
-    `HİKÂYENİN DÖNEMİ: ${era} (ana yıl ${year}).`,
+    mixed
+      ? `Bu bir GERİ SAYIM videosu: maddeler farklı dönemlerden. Her kareyi satırındaki [dönem …] yılına göre denetle (o maddenin anından SONRA var olan şey). Dönemi yazılmamış kare için: ${era}.`
+      : `HİKÂYENİN DÖNEMİ: ${era} (ana yıl ${year}).`,
     `Görseller kontak sayfaları: her sayfada en çok 9 kare (3x3). Her karenin sol üstünde etiketi yazar: "12" = sahne 12, "12m3" = sahne 12'nin 3. montaj karesi; hareketli klipten 3 kare alındıysa etiketin yanında a/b/c (baş/orta/son). Aşağıda her etiketin kaynağı ve o sahnede söylenen anlatım var.`,
     ``,
     `YALNIZCA AÇIK KANIT varsa işaretle: karede, hikâyenin o anından SONRA var olan ve gözle açıkça seçilen insan yapımı bir şey:`,
@@ -276,7 +282,7 @@ export function eraPrompt({ title, era, year, lines }) {
     `- cam cepheli gökdelen, bugünün şehir silueti`,
     `- dönem nesnesi olması gereken şeyin bugünkü parlak, dijital renkli ürün fotoğrafı (yeni basılmış külçe altın, bugünün banknotları/bozuk paraları)`,
     `- dönemden SONRA yapılmış bilinen yapı ya da heykel (ör. Wall Street'teki "Charging Bull" boğa heykeli 1989'da kondu)`,
-    ...(year < SANAYI_ONCESI_SINIRI ? [``, ...sanayiOncesiSatirlari(year)] : []),
+    ...(!mixed && year < SANAYI_ONCESI_SINIRI ? [``, ...sanayiOncesiSatirlari(year)] : []),
     ``,
     `SERBEST (işaretleme): doğa, gökyüzü, deniz, buz, yağmur, ateş, uzay ve gezegen görüntüleri; el/kâğıt/mum/saat yakın çekimleri; eski taş binalar; ${year < SANAYI_ONCESI_SINIRI ? "tablolar, gravürler, minyatürler, mozaikler ve müze eserleri (bu hikâyede FOTOĞRAF dönem fotoğrafı değildir);" : "siyah-beyaz ya da sepya dönem fotoğrafları;"} tablolar, gravürler; dönem kostümlü canlandırmalar; renkli olması TEK BAŞINA sorun değildir. Görüntüdeki şeyin modern olduğundan emin değilsen İŞARETLEME.`,
     `Anlatım açıkça bugünü ya da dönemden sonraki bir yılı anlatıyorsa (ör. "bugün", "1985'te enkaz bulundu", "2023") o sahnedeki modern görüntü doğrudur: işaretleme.`,
@@ -289,7 +295,7 @@ export function eraPrompt({ title, era, year, lines }) {
 
 function itemLine(x) {
   const say = x.say.length > 110 ? `${x.say.slice(0, 107)}…` : x.say;
-  return `${x.label}${x.video && x.times?.length > 1 ? " (a/b/c)" : ""} [${KAYNAK_TR(x)}]${say ? ` — "${say}"` : ""}`;
+  return `${x.label}${x.video && x.times?.length > 1 ? " (a/b/c)" : ""} [${KAYNAK_TR(x)}]${x.era ? ` [dönem ${x.era}]` : ""}${say ? ` — "${say}"` : ""}`;
 }
 
 /* ================================================================ yakından onay */
@@ -371,7 +377,10 @@ const tokensOf = (u) => ({ input: Number(u?.inputTokens) || 0, output: Number(u?
 export async function auditEra({ script, credits = {}, dir, settings = {}, usage, logFn = () => {}, llm = callVisionJSON, ffmpeg, publicDir, propsFile, keyScript, docKey = null, apply = true, debugDir = null, isCancelled = () => false, model, maxTiles = MAX_TILES, lowRisk = true } = {}) {
   const ff = ffmpeg || settings.ffmpegPath || "ffmpeg";
   const era = hikayeDonemi(script);
-  const year = donemYili(era);
+  // A countdown: the audit runs when ANY item is old enough, each picture judged against its item's era.
+  const itemYears = (script.scenes || []).map((s) => (s?.era ? donemYili(String(s.era)) : null)).filter((y) => Number.isFinite(y));
+  const mixed = itemYears.length > 0;
+  const year = mixed ? Math.min(...itemYears) : donemYili(era);
   const empty = (skipped, extra = {}) => ({ flagged: [], doubts: [], audited: 0, cached: 0, calls: 0, skipped, applied: null, era, summary: "", ...extra });
   if (!year || year >= ERA_AUDIT_BEFORE) return empty("era");
   const pf = propsFile || (publicDir && script.id != null ? path.join(path.dirname(publicDir), `${script.id}.props.json`) : null);
@@ -426,7 +435,7 @@ export async function auditEra({ script, credits = {}, dir, settings = {}, usage
         try {
           res = await llm({
             system: "Sen titiz bir tarih belgeseli görsel editörüsün. Yalnızca istenen JSON'u döndür.",
-            user: eraPrompt({ title: script.title, era, year, lines: inPart.map(itemLine) }),
+            user: eraPrompt({ title: script.title, era, year, lines: inPart.map(itemLine), mixed }),
             schema: ERA_SCHEMA,
             images: part.map((sh) => ({ etiket: `Kontak sayfası ${path.basename(sh.file, ".jpg").replace("sheet_", "")}: ${sh.tiles.map((t) => `${t.item.label}${t.frame}`).join(", ")}`, data: fs.readFileSync(sh.file).toString("base64"), mediaType: "image/jpeg" })),
             model: model || settings.docuEraModel || ERA_MODEL,

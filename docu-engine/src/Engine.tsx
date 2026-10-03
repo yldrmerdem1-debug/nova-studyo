@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import { RankBadges } from './ranking/RankBadge';
 import { AbsoluteFill, Audio, Freeze, Sequence, interpolate, random, staticFile, useCurrentFrame, useVideoConfig } from 'remotion';
 import {
   ChromaticDefs,
@@ -819,6 +820,8 @@ export const Engine: React.FC<{ script: Script }> = ({ script }) => {
       {off.has('vignette') ? null : <Vignette strength={genre.vignette} />}
       {/* One constant pair of bars for the whole film; per-scene bars pumped in and out on every cut. */}
       {genre.letterbox && !off.has('letterbox') ? <Letterbox animate={false} /> : null}
+      {/* A countdown's corner label: which item is running (src/ranking/RankBadge.tsx). */}
+      {script.format === 'ranking' ? <RankBadges placed={placed} ranking={script.ranking} genre={genre} /> : null}
       {off.has('grain') ? null : <Grain strength={genre.grain} />}
 
       {script.music ? <Audio src={staticFile(script.music)} volume={musicVolume} /> : null}

@@ -13,6 +13,7 @@ import { StyledCaption, StyledMontageWord, StyledSlam, StyledTitle, type TextCtx
 import { StyledCounter } from './counterStyles';
 import { useTopic } from './topic/context';
 import { MotifChapterCard } from './topic/cards';
+import { RankCard } from './ranking/RankCard';
 import { PresentedPhoto } from './topic/presentation';
 import { MotifCaption } from './topic/caption';
 import { useOpening } from './opening/context';
@@ -380,7 +381,8 @@ function coreImpacts(scene: Scene, durFrames: number, fps: number, genre?: Genre
   if (scene.type === 'photo' && scene.images?.length && (!genre || collageOn(genre, scene))) {
     scene.images.forEach((_, i) => out.push({ f: extraEnter(i, fps) + 7, strength: 0.25 }));
   }
-  if (scene.type === 'title' && scene.chapterCard) out.push({ f: Math.round(CHAPTER_LAND * fps), strength: 0.35 });
+  // A rank card's number is a hit (the countdown's beat); a chapter card only settles.
+  if (scene.type === 'title' && scene.chapterCard) out.push({ f: Math.round(CHAPTER_LAND * fps), strength: scene.rankCard ? (scene.rankCard.rank === 1 ? 1 : 0.8) : 0.35 });
   // The newspaper's last headline letter hits the page; a map's route arrives.
   if (scene.type === 'headline') out.push({ f: headlineLand(scene, fps), strength: 0.3 });
   if (scene.type === 'map') out.push(...mapImpacts(scene, durFrames, fps));
@@ -811,7 +813,13 @@ function balanceLines(text: string, over = 14): string[] {
 
 /** A title scene: the video's name, or — with `chapterCard` — a chapter card the pipeline inserted. */
 export const Title: React.FC<Common & { scene: TitleScene }> = (props) =>
-  props.scene.chapterCard ? <TopicChapterCard {...props} /> : <PlainTitle {...props} />;
+  props.scene.rankCard ? <RankTitle {...props} /> : props.scene.chapterCard ? <TopicChapterCard {...props} /> : <PlainTitle {...props} />;
+
+/** A countdown item's card (src/ranking/RankCard.tsx): the number lands on CHAPTER_LAND, where the hit sound is. */
+const RankTitle: React.FC<Common & { scene: TitleScene }> = ({ scene, genre, durFrames, locale }) => {
+  const { fps } = useVideoConfig();
+  return <RankCard scene={scene} genre={genre} durFrames={durFrames} locale={locale} land={Math.round(CHAPTER_LAND * fps)} />;
+};
 
 /** A chapter card in the topic's motif (src/topic/cards.tsx) when the script has one; the look's own otherwise. */
 const TopicChapterCard: React.FC<Common & { scene: TitleScene }> = (props) => {

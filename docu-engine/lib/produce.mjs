@@ -362,10 +362,18 @@ export function insertChapterCards(script) {
         // The introduced scene's picture; a counter or chart has none, so the chapter's next one.
         let image = sc.image;
         for (let j = i + 1; !image && j < src.length && (src[j].chapter ?? c) === c; j++) image = src[j].image;
-        out.push({
-          type: 'title', chapterCard: true, chapterNo: c + 1, kicker: `${en ? 'CHAPTER' : 'BÖLÜM'} ${c + 1}`, title,
-          dur: 2.8, chapter: c, riser: true, mood: sc.mood ?? 'curious', ...(image ? { image } : {}),
-        });
+        // A countdown's item opens on its rank card (src/ranking): the big number lands, then the name, where and when.
+        const item = (script.ranking?.items ?? []).find((x) => x.chapter === c);
+        out.push(item
+          ? {
+              type: 'title', chapterCard: true, chapterNo: c + 1, kicker: `#${item.rank}`, title: item.item,
+              rankCard: { rank: item.rank, total: script.ranking.total ?? script.ranking.items.length, item: item.item, place: item.place || '', year: item.year ?? null },
+              dur: item.rank === 1 ? 4.2 : 3.4, chapter: c, riser: true, mood: sc.mood ?? 'curious', ...(image ? { image } : {}),
+            }
+          : {
+              type: 'title', chapterCard: true, chapterNo: c + 1, kicker: `${en ? 'CHAPTER' : 'BÖLÜM'} ${c + 1}`, title,
+              dur: 2.8, chapter: c, riser: true, mood: sc.mood ?? 'curious', ...(image ? { image } : {}),
+            });
         n++;
       }
     }

@@ -359,6 +359,7 @@ function baseSystem(job) {
  */
 export function docuResearchLines(job) {
   const minutes = DURATIONS[job.durationPreset]?.minutes || 8;
+  if (job.docuFormat === "ranking") return rankingResearchLines(job, minutes);
   const { chapters } = docuPlan(job);
   const facts = Math.max(15, chapters * 4);
   const hooks = Math.max(5, chapters);
@@ -375,6 +376,31 @@ export function docuResearchLines(job) {
     `5) Kilit kişiler: ad, rol, olaylar sırasındaki yaşı ve görünüşü; fotoğrafı bilinen kişiler için fotoğrafın yaklaşık yılı`,
     `6) ${dataHeavy ? "2-4" : "Varsa 1-3"} GERÇEK veri serisi (yıl → değer, birimiyle ve kaynağıyla, en az 4 nokta): grafiğe dönüşecek. Tahmini ya da uydurma seri yazma; yoksa "seri yok" de.`,
     `7) Ölçek rakamları (sayaç malzemesi): tek başına akılda kalan sayılar, birimiyle`,
+  ];
+}
+
+/**
+ * A countdown needs a POOL, not one story: more candidates than places (the writer keeps the
+ * strongest), each with its own where/when, hard facts, the one detail that stops a viewer, and a
+ * measure for the ranking's criterion — so the order can be defended.
+ */
+export function rankingResearchLines(job, minutes) {
+  const { items } = docuPlan(job);
+  const pool = Math.ceil(items * 1.6);
+  return [
+    `Video formatı: GERİ SAYIM (sıralama) belgeseli, hedef süre ~${minutes} dakika, ${items} madde (${items}'dan 1'e).`,
+    ``,
+    `Şunları çıkar:`,
+    `1) Konuya uyan EN AZ ${pool} aday madde (yazar en güçlü ${items}'unu seçecek). Birbirinden ayrı olaylar; yer ve dönem çeşitli olsun. Her aday için:`,
+    `   - ad, YER, KESİN TARİH (gün/ay/yıl, biliniyorsa)`,
+    `   - ne oldu: 4-6 doğrulanmış somut olgu (tarih/sayı ile)`,
+    `   - izleyiciyi durduracak TEK ayrıntı (az bilinen, sahnelenebilir)`,
+    `   - kilit kişiler (ad, rol, yaş) ve fotoğrafı/arşiv görüntüsü bilinenler`,
+    `   - bugün hâlâ bilinmeyen / tartışılan ne`,
+    `   - kaynaklar`,
+    `2) Bir SIRALAMA ÖLÇÜTÜ önerisi (ölçülebilir, savunulabilir) ve adayların bu ölçüte göre önerilen sırası, her biri için tek cümlelik gerekçe.`,
+    `3) Yaygın yanlış bilinenler (her aday için varsa).`,
+    `4) Ölçek rakamları (sayaç malzemesi): tek başına akılda kalan sayılar, birimiyle.`,
   ];
 }
 

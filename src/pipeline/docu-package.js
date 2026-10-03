@@ -392,6 +392,7 @@ async function planPackage(cands, { llm, model, usage, logFn, script, docu, seo,
     `3) recommended = index of the thumbnail you would publish first.`,
     `Rules for the thumbnails: one focal subject, huge contrast, ≤ 4 words readable at 320x180, a clear emotion, consistent channel branding (same fonts/colours come from the look automatically) but each thumbnail visibly different.`,
     `What wins clicks on this channel (the owner's taste): the punch style — 2-4 words in two short lines, the second line the payoff ("70 SHIPS. / ONE HILL."), one giant number when the story has one ("21" beside the face of the man who was 21), and the most IMPOSSIBLE or shocking picture in the video (a ship on top of a hill, a face at the moment of ruin) rather than a calm portrait. A real face, big, beats a crowd. Use circle only when the ringed detail is unmistakable; never ring a person the words are not about.`,
+    ...((docu?.format ?? script?.format) === "ranking" ? rankingPackageLines(docu?.ranking ? docu : script) : []),
   ].join("\n");
   return llm({
     system: `You are the packaging lead (titles + thumbnails) of a top English-language documentary YouTube channel. You maximise honest click-through rate. Output ${lang} text. Return only the requested JSON.`,
@@ -404,6 +405,21 @@ async function planPackage(cands, { llm, model, usage, logFn, script, docu, seo,
     logFn,
     isCancelled,
   });
+}
+
+/**
+ * A countdown packages differently: the count is in the title, the thumbnail sells number one
+ * without naming it (its most shocking picture, "#1" huge), never the whole list.
+ */
+export function rankingPackageLines(script) {
+  const n = script.ranking?.total || script.ranking?.items?.length || 10;
+  const one = (script.ranking?.items || []).find((x) => x.rank === 1);
+  return [
+    ``,
+    `THIS VIDEO IS A COUNTDOWN (${n} items, number ${n} to number 1; criterion: ${script.ranking?.criterion || "see the story"}).`,
+    `- Titles: at least 3 of the 5 carry the count as a numeral at the start ("${n} …", e.g. "${n} Disappearances Nobody Can Explain"); the others may tease number one. Never reveal number one in a title.`,
+    `- Thumbnails: sell NUMBER ONE without naming it: its most shocking picture${one ? ` (number one is "${one.item}")` : ""} with "#1" as the giant number (number template, number "#1", words that add dread/curiosity), or a ringed detail from it. One thumbnail may show "${n}" huge with the strongest picture of the list. Never a collage of many items, never all the ranks.`,
+  ];
 }
 
 /* ================================================================ plan → kapak spesifikasyonu */

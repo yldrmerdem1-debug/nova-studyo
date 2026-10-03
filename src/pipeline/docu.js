@@ -449,6 +449,14 @@ export async function runDocuJob({ jobId, job, dir, usage, saveUsage, isCancelle
     docu = { ...docu, genre: genreIds.includes(job.docuGenre) ? job.docuGenre : "documentary" };
     writeJson(docuFile, docu);
   }
+  // Geri sayım: her maddenin sahneleri kendi dönemini taşır (arşivin dönem kuralları ve dönem denetimi maddeye göre).
+  if (docu.format === "ranking" && docu.ranking?.items?.length) {
+    const yearOf = new Map(docu.ranking.items.map((x) => [x.chapter, x.year]));
+    docu = { ...docu, scenes: docu.scenes.map((s) => {
+      const y = yearOf.get(s.chapter);
+      return Number.isFinite(y) && y !== 0 ? { ...s, era: y < 0 ? `${-y} BC` : String(y) } : s;
+    }) };
+  }
   for (const w of docu.stats?.warnings || []) quality.push(w);
   const script = novaView(docu);
   // Senaryo sonradan düzenlenmiş olabilir: Nova görünümü her çalıştırmada ona eşitlenir.
