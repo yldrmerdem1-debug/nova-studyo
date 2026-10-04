@@ -223,6 +223,8 @@ export async function makeStandaloneShort({
       } catch (e) {
         const msg = String(e?.message || e);
         logFn(`Shorts: görsel üretilemedi (${msg.slice(0, 100)})`);
+        // An empty balance answers 429 too: no point waiting, the Short stops and says so.
+        if (/quota|credit|billing/i.test(msg) || e?.quota) throw Object.assign(new Error("OpenAI kredisi bitti — görsel üretilemiyor"), { quota: true });
         if (!/429|rate/i.test(msg)) break;
         await new Promise((r) => setTimeout(r, 20000 * (attempt + 1)));
       }

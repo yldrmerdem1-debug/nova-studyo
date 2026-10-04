@@ -28,7 +28,13 @@ async function referenceBlob(reference, transport, signal) {
 }
 
 async function resultDataUrl(response) {
-  if (!response.ok) throw new Error(`OpenAI Images HTTP ${response.status}`);
+  if (!response.ok) {
+    // An empty balance answers 429 like a rate limit: tell them apart (quota stops the caller, a rate limit waits).
+    let code = '';
+    try { const j = await response.json(); code = j?.error?.code || j?.error?.type || ''; } catch {}
+    const quota = /quota|credit|billing/i.test(code);
+    throw Object.assign(new Error(`OpenAI Images HTTP ${response.status}${code ? ` (${code})` : ''}${quota ? ' — OpenAI kredisi bitti' : ''}`), { status: response.status, ...(quota ? { quota: true } : {}) });
+  }
   let body;
   try { body = await response.json(); } catch { throw new Error('OpenAI Images geçersiz yanıt'); }
   const encoded = body?.data?.[0]?.b64_json;
