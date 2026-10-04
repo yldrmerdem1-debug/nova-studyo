@@ -1697,10 +1697,10 @@ async function openShorts(id) {
  * bırakılırsa kanal tekdüzeleşmesin diye sırayla döner.
  */
 async function openStandaloneShorts() {
-  const OPEN = [["", "Otomatik (sırayla)"], ["triple", "Üç kelime"], ["question", "Soru"], ["number", "Şok sayı"], ["quote", "Alıntı"], ["statement", "Tek cümle tespit"]];
-  const FORMAT = [["", "Otomatik"], ["story", "Hikâye"], ["facts", "Gerçekler listesi"]];
-  const TITLE = [["", "Otomatik (sırayla)"], ["who", "…Who … (kim)"], ["nobody", "Nobody Knows Why"], ["why", "Why …?"], ["secret", "… Hid a Secret"], ["true", "… And It Was True"], ["then", "… Then …"], ["facts", "N Facts About …"]];
-  const LOOK = [["", "Otomatik (konuya göre)"], ["punch", "Punch"], ["dossier", "Dosya"], ["empire", "İmparatorluk"], ["ledger", "Defter"], ["noir", "Noir"], ["clean", "Temiz"], ["editorial", "Editoryal"], ["tabloid", "Tabloid"]];
+  const OPEN = [["", "Açılış: otomatik (sırayla)"], ["triple", "Üç kelime"], ["question", "Soru"], ["number", "Şok sayı"], ["quote", "Alıntı"], ["statement", "Tek cümle tespit"]];
+  const FORMAT = [["", "Format: otomatik"], ["story", "Hikâye"], ["facts", "Gerçekler listesi"]];
+  const TITLE = [["", "Başlık kalıbı: otomatik (sırayla)"], ["who", "…Who … (kim)"], ["nobody", "Nobody Knows Why"], ["why", "Why …?"], ["secret", "… Hid a Secret"], ["true", "… And It Was True"], ["then", "… Then …"], ["facts", "N Facts About …"]];
+  const LOOK = [["", "Görünüm: otomatik (konuya göre)"], ["punch", "Punch"], ["dossier", "Dosya"], ["empire", "İmparatorluk"], ["ledger", "Defter"], ["noir", "Noir"], ["clean", "Temiz"], ["editorial", "Editoryal"], ["tabloid", "Tabloid"]];
   const sel = (id, opts) => `<select id="${id}">${opts.map(([v, l]) => `<option value="${v}">${esc(l)}</option>`).join("")}</select>`;
   let timer = null;
   const card = (s) => `
