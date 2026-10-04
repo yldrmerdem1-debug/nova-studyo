@@ -98,6 +98,25 @@ export function darkestFrame(ffmpeg, file, start, dur, n = 6) {
 /** Footage this dark at any moment of its window reads as a black screen on a phone. */
 export const DARK_CLIP = 32;
 
+/** Mean brightness (0-255) of a still, or null. */
+export function meanLuma(ffmpeg, file) {
+  const r = spawnSync(ffmpeg, ["-hide_banner", "-loglevel", "error", "-i", file, "-frames:v", "1", "-vf", "scale=32:18,format=gray", "-f", "rawvideo", "pipe:1"], { maxBuffer: 1 << 20 });
+  const b = r.stdout;
+  if (r.status !== 0 || !b || b.length < 576) return null;
+  let s = 0;
+  for (let i = 0; i < 576; i++) s += b[i];
+  return s / 576;
+}
+
+/**
+ * A gamma lift for a dark still, before the look's grade: a dark AI picture under Noir's contrast and
+ * vignette went black on a phone (the Dancing Plague Short's "red shoes"). Null when it is bright enough.
+ */
+export function darkLift(luma, floor = 72) {
+  if (luma == null || luma >= floor) return null;
+  return `eq=gamma=${Math.min(1.7, 1 + (floor - luma) / 80).toFixed(2)}`;
+}
+
 const DESC_SCHEMA = {
   type: "object",
   properties: {
@@ -348,7 +367,8 @@ export function renderPictureTeaser({ segments, voiceFile, musicFile, thumbFile,
     const frames = Math.max(2, Math.round(g.dur * 30));
     const c = verticalCrop(g.srcW, g.srcH, g.box);
     const push = i % 2 ? `${(1 + pz).toFixed(3)}-${pz}*on/${frames}` : `1+${pz}*on/${frames}`;
-    const look = lookId ? pictureFilter(lookId) : "eq=contrast=1.05:saturation=0.93,noise=alls=6:allf=t,vignette=angle=PI/5";
+    const lift = g.kind === "clip" ? null : darkLift(meanLuma(ffmpeg, g.abs));
+    const look = `${lift ? `${lift},` : ""}${lookId ? pictureFilter(lookId) : "eq=contrast=1.05:saturation=0.93,noise=alls=6:allf=t,vignette=angle=PI/5"}`;
     if (g.kind === "clip") {
       args.push("-ss", g.clipStart.toFixed(2), "-t", (g.dur + 0.1).toFixed(2), "-i", g.abs);
       parts.push(`[${i}:v]crop=${c.w}:${c.h}:${c.x}:${c.y},scale=${W}:${H}:flags=lanczos,fps=30,setsar=1,${look},trim=0:${g.dur.toFixed(3)},setpts=PTS-STARTPTS,setsar=1[s${i}]`);
