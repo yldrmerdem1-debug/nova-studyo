@@ -371,7 +371,8 @@ export function renderPictureTeaser({ segments, voiceFile, musicFile, thumbFile,
     const look = `${lift ? `${lift},` : ""}${lookId ? pictureFilter(lookId) : "eq=contrast=1.05:saturation=0.93,noise=alls=6:allf=t,vignette=angle=PI/5"}`;
     if (g.kind === "clip") {
       args.push("-ss", g.clipStart.toFixed(2), "-t", (g.dur + 0.1).toFixed(2), "-i", g.abs);
-      parts.push(`[${i}:v]crop=${c.w}:${c.h}:${c.x}:${c.y},scale=${W}:${H}:flags=lanczos,fps=30,setsar=1,${look},trim=0:${g.dur.toFixed(3)},setpts=PTS-STARTPTS,setsar=1[s${i}]`);
+      // A clip shorter than its sentence (an AI clip is 5 or 10 s) holds its last frame.
+      parts.push(`[${i}:v]crop=${c.w}:${c.h}:${c.x}:${c.y},scale=${W}:${H}:flags=lanczos,fps=30,setsar=1,${look},tpad=stop_mode=clone:stop_duration=${g.dur.toFixed(3)},trim=0:${g.dur.toFixed(3)},setpts=PTS-STARTPTS,setsar=1[s${i}]`);
     } else {
       args.push("-loop", "1", "-framerate", "30", "-t", (g.dur + 0.1).toFixed(2), "-i", g.abs);
       parts.push(`[${i}:v]crop=${c.w}:${c.h}:${c.x}:${c.y},scale=${Math.round(W * 1.1)}:${Math.round(H * 1.1)}:flags=lanczos,setsar=1,zoompan=z='${push}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${W}x${H}:fps=30,${look},trim=0:${g.dur.toFixed(3)},setpts=PTS-STARTPTS,setsar=1[s${i}]`);

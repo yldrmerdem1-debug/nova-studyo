@@ -59,6 +59,9 @@ try {
     renderConcurrency: spec.renderConcurrency,
     imageProvider: spec.imageProvider,
     openaiImageModel: spec.openaiImageModel,
+    // Opening motion clips (Replicate) and the optional paid 2.5D depth layers (Nova settings).
+    videoModel: spec.videoModel || undefined,
+    depthLayers: typeof spec.depthLayers === 'boolean' ? spec.depthLayers : undefined,
     // Seslendirmeden sonra ölçülen süre bunun altındaysa müzik/render'a geçilmez.
     minSeconds: Number(spec.minSeconds) || 0,
     // Nova hazırlık modu: render hariç her şey; sıradaki video render olurken hazırlanır.

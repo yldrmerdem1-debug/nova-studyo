@@ -40,6 +40,16 @@ export const DEFAULT_SETTINGS = {
   elevenKey: "",
   // Sinematik Belgesel modu: görseller (flux, tutarlı karakter, derinlik katmanları) Replicate'ten.
   replicateKey: "",
+  // Shorts hareketi: resimden videoya (Replicate). Açılış cümleleri her zaman, sonra uygun
+  // (AI ya da kişisiz arşiv) cümleler tavana kadar canlanır; gerçek kişi fotoğrafı ve belge
+  // asla (yüz bozulur, belge sahtelenir). Klip başına ~5 sn.
+  shortsMotion: true,
+  shortsMotionMax: 4,
+  // Uzun video: açılışta gerçek klibi olmayan en çok 2 hareketli AI sahnesi resimden videoya.
+  docuOpeningMotion: true,
+  // Uzun video 2.5D derinlik katmanları (kişi kesme + silme): sahne başına ücretli Replicate çağrısı.
+  docuDepthLayers: false,
+  replicateVideoModel: "kwaivgi/kling-v2.5-turbo-pro",
   // Sinematik Belgesel ses kütüphanesi (library.json: lisanslı müzik + efekt/ortam
   // sesleri). Boş = <veri klasörü>/audio-library. Makineye özel bir yol olduğu için
   // işin ayar kopyasına girmez (SNAPSHOT_KEYS).

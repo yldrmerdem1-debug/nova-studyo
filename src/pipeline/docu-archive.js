@@ -883,6 +883,78 @@ const alan = (a) => (a.width || 0) * (a.height || 0);
 /** Bildirilen boyutu tam ekran metin sahnesi için fazla küçük mü? (Boyut bilinmiyorsa hayır.) */
 const tamEkranaKucuk = (a) => a.kucuk === true || (a.width > 0 && a.height > 0 && Math.min(a.width, a.height) < TAM_EKRAN_EN_AZ);
 
+/*
+ * ATMOSFER KLİBİ (uzun video). Kullanıcı: "videolara hareketli bir şeyler koymak lazım ... uzun
+ * videolarda stok videolardan koyarsın". Senaryonun AI'a bıraktığı atmosfer sahneleri (deniz, sis,
+ * gökyüzü, orman, ateş, mum...) önce gerçek stok/arşiv KLİBİ arar (Pexels, Pixabay, Archive.org,
+ * Commons; seçici yine görüntüye bakıp dönemi yargılar). Klip yoksa sahne AI resmi olarak kalır —
+ * stok FOTOĞRAFINA düşmez (modern bir fotoğraf AI resminden kötüdür).
+ * 1950 öncesi hikâyede yalnızca insansız doğa: modern sokak, kıyafet ve araç dönem hatasıdır.
+ */
+const DOGA = ["sea", "ocean", "waves", "wave", "surf", "storm", "fog", "mist", "rain", "snow", "sky", "clouds", "cloud", "sunset", "sunrise", "dusk", "dawn", "stars", "forest", "jungle", "trees", "desert", "dunes", "river", "lake", "mountains", "mountain", "fire", "flames", "smoke", "embers", "candle", "candlelight", "lantern", "wind", "grass", "field", "horizon", "ice", "glacier", "waterfall", "lightning", "moon", "night"];
+const MODERN = ["city", "street", "traffic", "airport", "runway", "aircraft", "airplane", "plane", "highway", "skyline", "office", "crowd", "harbour", "harbor", "port"];
+/** Time-of-day words colour a query but are never the subject ("a city street at night" is not night footage). */
+const ZAMAN = new Set(["night", "dusk", "dawn", "sunset", "sunrise", "moon"]);
+const INSAN = /\b(man|men|woman|women|people|person|crowd|soldiers?|sailors?|figures?|keepers?|pilots?|child(ren)?|boy|girl|face|portrait|hands?|crew|officers?|explorers?|riders?|silhouette)\b/i;
+const ATMOS_TIPLER = new Set(["photo", "words"]);
+
+/** Senaryonun atmosfer sahnelerini klip denemesine çevirir (yerinde); kaç sahne çevrildiğini döndürür. */
+export function atmosphereFootage(script, { max = 30, year = null } = {}) {
+  const y = Number.isFinite(+year) && year ? +year : script?.era ? donemYili(String(script.era)) : null;
+  const eski = !y || y < 1950;
+  const sozluk = eski ? DOGA : [...DOGA, ...MODERN];
+  let n = 0;
+  for (const s of script?.scenes || []) {
+    if (n >= max) break;
+    if (!ATMOS_TIPLER.has(s.type) || s.media === "video" || s.video || s.image || !s.imagePrompt) continue;
+    if (s.cast?.length || s.name || s.annotate || s.imagePrompts?.length || s.images?.length || s.bg || s.layers || s.depth) continue;
+    const p = String(s.imagePrompt).toLowerCase();
+    if (eski && INSAN.test(p)) continue;
+    // The SUBJECT must be the nature (the first words after the shot type): "a cockpit panel ... over the ocean" is not sea footage.
+    const ozne = p.replace(/^(extreme |medium |wide |tight |high angle |low angle |aerial |overhead |slow )*(close-up|shot|view|angle|over|of|on|an?|the|empty|place:|\s)*/g, "").split(/[,.;:]/)[0].split(/\s+/).slice(0, 7);
+    if (eski && ozne.some((w) => MODERN.includes(w))) continue;
+    const kelimeler = [...new Set(ozne)].filter((w) => sozluk.includes(w));
+    if (!kelimeler.some((w) => !ZAMAN.has(w))) continue;
+    // An archive/stock scene keeps its normal photo fallback: it only tries footage first.
+    if (s.source === "archive" || s.source === "stock") {
+      s.media = "video";
+      n++;
+      continue;
+    }
+    if (s.source && s.source !== "ai") continue;
+    s._atmos = { source: s.source || "ai", search: s.search || "" };
+    s.source = "stock";
+    s.media = "video";
+    s.videoOnly = true;
+    s.search = kelimeler.slice(0, 4).join(" ");
+    n++;
+  }
+  return n;
+}
+
+/*
+ * AÇILIŞ HAREKETİ (uzun video). Kullanıcı: "uzun videoda açılışta olabilir, tüm açılışlarda değil
+ * ama uyumluysa ... hem stok hem çok gerekirse buradan üretilebilir". Önce gerçek klip (arşiv/stok);
+ * açılışın ilk sahnelerinden gerçek klibi OLMAYAN, hareket eden bir şeyi (deniz, ateş, kalabalık,
+ * buhar...) gösteren AI resmi en çok iki tane motor tarafından resimden videoya çevrilir
+ * (produce.mjs openingMotion). Kişi, belge, yazı kartı asla.
+ */
+const HAREKET = /\b(sea|ocean|waves?|surf|storm|fire|flames?|smoke|fog|mist|rain|snow|blizzard|crowds?|march(?:ing)?|charg(?:e|ing)|battle|train|locomotive|steam|ships?|sails?|river|waterfall|clouds?|horses?|cavalry|banners?|flags?|candles?|lanterns?|explosions?|dust|wind|torrent)\b/i;
+export function openingMotionTargets(script, { max = 2, within = 6 } = {}) {
+  let n = 0;
+  const scenes = script?.scenes || [];
+  for (let i = 0; i < Math.min(within, scenes.length) && n < max; i++) {
+    const s = scenes[i];
+    if ((s.chapter ?? 0) !== 0) break;
+    if (!["photo", "words"].includes(s.type) || s.video || s.archived || !s.imagePrompt) continue;
+    if (s.cast?.length || s.name || s.bg || s.images?.length || s.imagePrompts?.length || s.annotate) continue;
+    if (!HAREKET.test(s.imagePrompt)) continue;
+    s.aiMotion = true;
+    n++;
+  }
+  return n;
+}
+
 /**
  * @param deps yalnızca testler için: {search, pick, download, downloadVideo, footageSearch,
  *        input} — ağ ve ücretli görme çağrısı yerine sahte uygulamalar. footageSearch(q)
@@ -1376,6 +1448,18 @@ export async function resolveArchive(docu, { dir, publicDir, buildPrefix, settin
             ilerle();
             continue;
           }
+        }
+        // Atmosfer denemesi (atmosphereFootage): klip yoksa stok fotoğrafa değil, eski AI resmine döner.
+        if (s.videoOnly) {
+          const o = s._atmos || { source: "ai", search: "" };
+          s.source = o.source;
+          if (o.search) s.search = o.search;
+          else delete s.search;
+          delete s.media;
+          delete s.videoOnly;
+          delete s._atmos;
+          ilerle();
+          continue;
         }
         // Klibi önbellekten ayrılan ama klibi artık kullanılamayan sahne: fotoğrafı şimdi ayrılır.
         if (t.fotoAyrilmadi) {

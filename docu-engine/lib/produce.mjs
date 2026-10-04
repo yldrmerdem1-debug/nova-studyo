@@ -1178,6 +1178,36 @@ export async function produce(scriptIn, o) {
     return [x0 / W, y0 / H, (x1 + 1) / W, (y1 + 1) / H].map((v) => +v.toFixed(3));
   }
 
+  /*
+   * OPENING MOTION (Nova marks at most two opening scenes `aiMotion`: an AI still of something that
+   * moves — sea, fire, crowds, steam — that found no real footage). The still becomes a 5 s image-to-
+   * video clip (Replicate, Kling 2.5 Turbo Pro by default) and the scene plays it as footage; the
+   * settled part is used (the first ~0.6 s barely moves). Paid once per picture + prompt + model.
+   */
+  const VIDEO_MODEL = o.videoModel || 'kwaivgi/kling-v2.5-turbo-pro';
+  async function openingMotion(scene) {
+    const what = String(scene.motion || scene.imagePrompt || '').trim().replace(/\.$/, '');
+    const prompt = `${what}; natural movement in the scene (water, smoke, fire, cloth, crowds, light). One slow, deliberate cinematic camera push. Realistic physics, photographic, period-accurate, same lighting and grade as the first frame, no new objects or people appear, faces stay stable.`;
+    const key = hash(`i2v|${VIDEO_MODEL}|${scene.image}|${prompt}`);
+    const rel = `${BUILD}/i2v-${key}.mp4`;
+    const abs = join(PUBLIC, rel);
+    if (!fileOk(abs)) {
+      log(`açılış hareketi: ${basename(scene.image)} → ${VIDEO_MODEL.split('/').pop()}`);
+      const uri = 'data:image/jpeg;base64,' + readFileSync(join(PUBLIC, scene.image)).toString('base64');
+      const input = /kling/.test(VIDEO_MODEL)
+        ? { start_image: uri, prompt, duration: 5, negative_prompt: 'text, captions, watermark, morphing, warping faces, distorted hands, flicker, fast camera shake, cartoon, modern objects' }
+        : { image: uri, prompt };
+      writeAtomic(abs, await replicate(VIDEO_MODEL, input));
+    }
+    const info = String(spawnSync(FFMPEG, ['-hide_banner', '-i', abs], { encoding: 'utf8', windowsHide: true }).stderr || '');
+    const d = /Duration: (\d+):(\d+):([\d.]+)/.exec(info);
+    const z = /, (\d{2,5})x(\d{2,5})[, ]/.exec(info);
+    const dur = d ? +d[1] * 3600 + +d[2] * 60 + +d[3] : 0;
+    if (!dur || !z) throw new Error('açılış klibi okunamadı');
+    const start = Math.min(0.6, Math.max(0, dur - 2));
+    return { video: rel, videoStart: start, videoDur: +(dur - start).toFixed(2), videoW: +z[1], videoH: +z[2], aiVideo: true };
+  }
+
   async function depthLayers(image) {
     const key = hash(`layers|${image}`);
     const fg = `${BUILD}/fg-${key}.png`;
@@ -1427,8 +1457,16 @@ export async function produce(scriptIn, o) {
     if (failed) warnings.fallbackImages.push(i);
     // A collage board shows photos as paper cards and never draws depth layers: no paid cutout for them.
     const onBoard = scene.type === 'photo' && GENRE_LOOK.collage && !scene.natural && !scene.fullBleed;
-    // Footage moves by itself: no paid cutout of its still.
-    if (scene.depth && scene.image && RP_KEY && !onBoard && !scene.video) {
+    if (scene.aiMotion && scene.image && RP_KEY && !scene.video) {
+      try {
+        Object.assign(scene, await openingMotion(scene));
+      } catch (e) {
+        if (e.cancelled) throw e;
+        log(`açılış hareketi yapılamadı, durağan resimle devam: ${String(e.message).slice(0, 120)}`);
+      }
+    }
+    // Footage moves by itself: no paid cutout of its still. Depth layers are optional (o.depthLayers: Nova's setting, paid per scene).
+    if (scene.depth && scene.image && RP_KEY && o.depthLayers !== false && !onBoard && !scene.video) {
       try {
         scene.layers = await depthLayers(scene.image);
       } catch (e) {

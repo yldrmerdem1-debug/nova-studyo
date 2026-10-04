@@ -24,7 +24,7 @@ import { runResearch } from "./script.js";
 import { runDocuScript, novaView, DOCU_GENRES, docuScriptStats, docuElevenNeed, dedupeNameCards, stripChapterCards, LENGTH_GATE } from "./docu-script.js";
 import { checkpoint, renderRevision, publishRevision, validScript, readCheckpoint, invalidateCheckpoints } from "./checkpoints.js";
 import { renderSeoMarkdown } from "./seo.js";
-import { resolveArchive } from "./docu-archive.js";
+import { atmosphereFootage, openingMotionTargets, resolveArchive } from "./docu-archive.js";
 import { directEdit, sanitizeDevices, placeAnnotations } from "./docu-edit-director.js";
 import { artDirect, applyArtPlan } from "./docu-art-director.js";
 import { topicBible, applyTopicPlan } from "./docu-topic-bible.js";
@@ -135,6 +135,9 @@ export function runDocuEngine({ scriptPath, workDir, output, srt, thumbnail, voi
     scriptPath, workDir, output, srt, thumbnail, voiceId,
     imageProvider: docuImageProvider(settings),
     openaiImageModel: settings.openaiImageModel || "gpt-image-2",
+    // Açılış hareketi modeli; 2.5D derinlik katmanları sahne başına ücretli Replicate çağrısı — yalnızca ayar açıksa.
+    videoModel: settings.replicateVideoModel || undefined,
+    depthLayers: settings.docuDepthLayers === true,
     cacheDir: path.join(DATA_DIR, "docu-cache"),
     ffmpeg: settings.ffmpegPath || "ffmpeg",
     concurrency: 4,
@@ -568,7 +571,11 @@ export async function runDocuJob({ jobId, job, dir, usage, saveUsage, isCancelle
         ({ script: ed, credits } = prev);
         log2(`Arşiv: önceki tamamlanmış geçiş kullanılıyor (${Object.keys(credits).length} gerçek fotoğraf)`);
       } else {
-        ({ script: ed, credits } = await resolveArchive(directed, {
+        // Atmosfer sahneleri (deniz, sis, gökyüzü, ateş...) önce gerçek stok klibi dener; yoksa AI resmi kalır.
+        const withAtmos = structuredClone(directed);
+        const atmos = atmosphereFootage(withAtmos, { max: Math.min(30, Math.round((withAtmos.scenes?.length || 0) * 0.25)) });
+        if (atmos) log2(`Arşiv: ${atmos} atmosfer sahnesi önce stok video (Pexels, Pixabay, arşiv) arayacak`);
+        ({ script: ed, credits } = await resolveArchive(withAtmos, {
           dir, publicDir, buildPrefix: `build/${docu.id}`,
           settings, usage, logFn: log2, isCancelled,
           rejected: eraRejectedUrls(readEraFixes(dir), era),
@@ -702,6 +709,11 @@ export async function runDocuJob({ jobId, job, dir, usage, saveUsage, isCancelle
       }
     }
     log2(`Sahne düzeltmeleri uygulandı: ${hit} sahne`);
+  }
+  // Açılış hareketi: gerçek klibi olmayan en çok iki açılış sahnesi resimden videoya (Replicate) — uyuyorsa.
+  if (settings.docuOpeningMotion !== false && settings.replicateKey) {
+    const moving = openingMotionTargets(engineDocu);
+    if (moving) log2(`Açılış: ${moving} sahne resimden videoya çevrilecek (gerçek klibi yok)`);
   }
   const engineFile = path.join(workDir, "engine-script.json");
   writeJson(engineFile, engineDocu);

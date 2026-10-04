@@ -1691,11 +1691,76 @@ async function openShorts(id) {
   draw(r.shorts || [], r.busy);
 }
 
+/**
+ * Bağımsız Shorts: konu yaz → araştırma, plan, gerçek görseller ya da AI, açılış ve uygun cümleler
+ * hareketli (Replicate), kütüphaneden müzik. Açılış türü, format, başlık kalıbı ve görünüm boş
+ * bırakılırsa kanal tekdüzeleşmesin diye sırayla döner.
+ */
+async function openStandaloneShorts() {
+  const OPEN = [["", "Otomatik (sırayla)"], ["triple", "Üç kelime"], ["question", "Soru"], ["number", "Şok sayı"], ["quote", "Alıntı"], ["statement", "Tek cümle tespit"]];
+  const FORMAT = [["", "Otomatik"], ["story", "Hikâye"], ["facts", "Gerçekler listesi"]];
+  const TITLE = [["", "Otomatik (sırayla)"], ["who", "…Who … (kim)"], ["nobody", "Nobody Knows Why"], ["why", "Why …?"], ["secret", "… Hid a Secret"], ["true", "… And It Was True"], ["then", "… Then …"], ["facts", "N Facts About …"]];
+  const LOOK = [["", "Otomatik (konuya göre)"], ["punch", "Punch"], ["dossier", "Dosya"], ["empire", "İmparatorluk"], ["ledger", "Defter"], ["noir", "Noir"], ["clean", "Temiz"], ["editorial", "Editoryal"], ["tabloid", "Tabloid"]];
+  const sel = (id, opts) => `<select id="${id}">${opts.map(([v, l]) => `<option value="${v}">${esc(l)}</option>`).join("")}</select>`;
+  let timer = null;
+  const card = (s) => `
+    <div style="background:var(--bg2); border:1px solid var(--border); border-radius:12px; overflow:hidden; display:flex; flex-direction:column">
+      <video controls preload="metadata" src="/api/shorts/${esc(s.slug)}/video?v=${Math.round(s.at || 0)}" style="width:100%; aspect-ratio:9/16; max-height:480px; background:#000"></video>
+      <div style="padding:10px; display:grid; gap:6px; font-size:12.5px">
+        <div><b>${esc(s.title || s.topic)}</b></div>
+        ${(s.titles || []).filter((t) => t !== s.title).map((t) => `<div class="muted">• ${esc(t)}</div>`).join("")}
+        <div class="muted">${esc(s.look || "")} · ${esc(s.opening || "")} · ${s.motionClips ? `${s.motionClips} hareketli sahne` : "durağan"}</div>
+        <div class="row" style="gap:6px">
+          <button class="btn" style="padding:5px 9px;font-size:11.5px" data-copystandalone="${esc(s.slug)}">Başlık + açıklama + künye</button>
+          <a class="btn" style="padding:5px 9px;font-size:11.5px" href="/api/shorts/${esc(s.slug)}/video?dl=1">⬇ MP4</a>
+        </div>
+      </div>
+    </div>`;
+  const draw = (r) => {
+    const shorts = r.shorts || [];
+    const busy = r.busy || [];
+    modal(`<h3>Bağımsız Shorts</h3>
+      <p class="muted" style="font-size:12.5px">Kendi konusunda dikey Shorts. Claude konuyu araştırır, merak boşluklu başlık ve döngülü metin yazar; gerçek kişi/yer/belge Commons ve arşivden, olmayanı AI; açılış ve uygun sahneler Replicate ile gerçek harekete döner (Ayarlar: Replicate anahtarı). Gerçek kişi fotoğrafı ve belge asla canlandırılmaz.</p>
+      <div class="card" style="display:grid; gap:8px; padding:12px">
+        <input id="ssTopic" placeholder="Konu (ör. The Great Molasses Flood, Boston 1919)"/>
+        <input id="ssAngle" placeholder="Açı (isteğe bağlı): neyin anlatılacağı, vurgulanacak gerçekler"/>
+        <div class="row" style="gap:8px; flex-wrap:wrap">${sel("ssOpening", OPEN)} ${sel("ssFormat", FORMAT)} ${sel("ssTitle", TITLE)} ${sel("ssLook", LOOK)}
+          <button class="btn primary" id="ssGo">Üret</button></div>
+      </div>
+      ${busy.map((b) => `<div class="card" style="padding:10px; margin-top:8px"><b>Hazırlanıyor:</b> ${esc(b.topic)}<div class="muted" style="font-size:11.5px; white-space:pre-wrap">${esc(b.log.join("\n"))}</div></div>`).join("")}
+      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:14px; margin-top:12px">
+        ${shorts.length ? shorts.map(card).join("") : '<div class="muted">Henüz bağımsız Shorts yok.</div>'}
+      </div>`);
+    $$("#modalBox [data-copystandalone]").forEach((x) => x.addEventListener("click", () => {
+      const s = shorts.find((k) => k.slug === x.dataset.copystandalone);
+      navigator.clipboard.writeText([s.title, "", s.description, "", s.credits || ""].join("\n").trim());
+      toast("Kopyalandı");
+    }));
+    $("#ssGo")?.addEventListener("click", async () => {
+      const topic = $("#ssTopic").value.trim();
+      if (topic.length < 4) return toast("Konu yazın");
+      try {
+        const g = await api("/api/shorts", { method: "POST", body: { topic, angle: $("#ssAngle").value.trim(), opening: $("#ssOpening").value, format: $("#ssFormat").value, titlePattern: $("#ssTitle").value, look: $("#ssLook").value } });
+        toast(`Başladı: açılış ${g.opening}, başlık ${g.titlePattern}, görünüm ${g.look}`);
+      } catch (e) {
+        toast(`Başlatılamadı: ${e.message || e}`);
+      }
+      refresh();
+    });
+    clearTimeout(timer);
+    // While something is being made the panel follows it (until the modal is closed).
+    if (busy.length) timer = setTimeout(() => { if ($("#modalBox #ssTopic")) refresh(); }, 6000);
+  };
+  const refresh = async () => draw(await api("/api/shorts"));
+  refresh();
+}
+
 function renderLibrary(main) {
   const jobs = [...state.jobs.values()].filter((j) => ["done", "error", "cancelled", "interrupted", "needs_review"].includes(j.status));
   main.innerHTML = `
     <div class="page-title">Kütüphane</div>
-    <div class="page-sub">Tüm renderlar data/jobs klasörüne kaydedilir. Videoya tıklayıp izleyebilir veya MP4'ü indirebilirsin.</div>
+    <div class="page-sub">Tüm renderlar data/jobs klasörüne kaydedilir. Videoya tıklayıp izleyebilir veya MP4'ü indirebilirsin.
+      <button class="btn primary" id="standaloneShorts" style="float:right" title="Uzun videoya bağlı olmayan, kendi konusunda dikey Shorts: araştırma, merak boşluklu başlık, gerçek görseller, açılışı hareketli (Replicate).">📱 Bağımsız Shorts</button></div>
     <div class="lib-grid">
       ${jobs.length ? jobs.map((j) => {
         const done = !!j.outputs?.video;
@@ -1730,6 +1795,7 @@ function renderLibrary(main) {
       }).join("") : '<div class="muted">Henüz tamamlanan video yok.</div>'}
     </div>`;
 
+  $("#standaloneShorts", main)?.addEventListener("click", () => openStandaloneShorts());
   $$("[data-play]", main).forEach((b) => b.addEventListener("click", () => {
     modal(`<h3>${esc(state.jobs.get(b.dataset.play)?.meta?.title || "")}</h3>
       <video controls autoplay src="/api/jobs/${b.dataset.play}/file/output.mp4"></video>`);
@@ -1865,7 +1931,18 @@ function renderSettings(main) {
           hint: "Premium seslendirme. Test kalan kotanı da gösterir." })}</div>
         <div>${keyRow({ id: "sReplicate", which: "replicate", label: "REPLICATE API",
           has: s.hasReplicateKey, placeholder: "replicate.com/account/api-tokens",
-          hint: "İsteğe bağlı. Sinematik Belgesel: 2.5D derinlik katmanları (yazı kişinin arkasına geçer); OpenAI anahtarı yoksa FLUX ile görsel üretimi." })}</div>
+          hint: "Shorts hareketi (resimden video), Sinematik Belgesel 2.5D derinlik katmanları (yazı kişinin arkasına geçer); OpenAI anahtarı yoksa FLUX ile görsel üretimi." })}</div>
+        <div>
+          <label class="field-label">SHORTS HAREKETİ (REPLICATE)</label>
+          <label class="row" style="gap:8px; font-size:13px"><input type="checkbox" id="sShortsMotion" ${s.shortsMotion !== false ? "checked" : ""}/> Açılış ve uygun sahneler gerçek harekete dönsün</label>
+          <div class="row" style="gap:8px; margin-top:6px">
+            <input id="sShortsMotionMax" type="number" min="0" max="20" value="${Number.isFinite(+s.shortsMotionMax) ? +s.shortsMotionMax : 4}" style="width:80px" title="Shorts başına en çok hareketli sahne"/>
+            <input id="sRepVid" value="${esc(s.replicateVideoModel || "kwaivgi/kling-v2.5-turbo-pro")}" placeholder="kwaivgi/kling-v2.5-turbo-pro"/>
+          </div>
+          <label class="row" style="gap:8px; font-size:13px; margin-top:6px"><input type="checkbox" id="sDocuOpenMotion" ${s.docuOpeningMotion !== false ? "checked" : ""}/> Uzun video açılışı: gerçek klibi yoksa en çok 2 sahne hareketli</label>
+          <label class="row" style="gap:8px; font-size:13px"><input type="checkbox" id="sDocuDepth" ${s.docuDepthLayers === true ? "checked" : ""}/> Uzun video 2.5D derinlik katmanları (sahne başına ücretli)</label>
+          <div class="hint">Shorts başına en çok sahne ve Replicate modeli (Kling 2.5 Turbo Pro önerilir; seedance-1-pro, hailuo-02, veo-3-fast da olur). Klip başına ~5 sn; gerçek kişi fotoğrafı ve belge asla canlandırılmaz.</div>
+        </div>
         <div class="full" style="border-top:1px solid var(--border); padding-top:14px; margin-top:4px">
           <b style="font-size:13px">🎥 Sinematik Belgesel — müzik ve ses</b>
           <div class="hint">Anlatım her zaman ElevenLabs v3 ile. Müzik ve efektler lisanslı ses kütüphanesinden kurgulanırsa ElevenLabs kredisi yalnızca anlatıma gider.</div>
@@ -2046,6 +2123,11 @@ function renderSettings(main) {
       higgsImageModel: $("#sHiggsImg").value.trim(),
       docuMusicSource: docuMusicSel,
       audioLibraryDir: $("#sAudioLib").value.trim(),
+      shortsMotion: $("#sShortsMotion").checked,
+      docuOpeningMotion: $("#sDocuOpenMotion").checked,
+      docuDepthLayers: $("#sDocuDepth").checked,
+      shortsMotionMax: Number($("#sShortsMotionMax").value) || 0,
+      replicateVideoModel: $("#sRepVid").value.trim(),
     };
     for (const [id, key] of [["sOpenai", "openaiKey"], ["sAnthropic", "anthropicKey"], ["sPexels", "pexelsKey"], ["sPixabay", "pixabayKey"], ["sUnsplash", "unsplashKey"], ["sEuropeana", "europeanaKey"], ["sEleven", "elevenKey"], ["sReplicate", "replicateKey"], ["sFal", "falKey"], ["sKie", "kieKey"], ["sHiggs", "higgsKey"]]) {
       const v = $("#" + id).value.trim();

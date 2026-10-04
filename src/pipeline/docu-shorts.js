@@ -13,6 +13,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { callJSON } from "../llm.js";
+import { animateSegments, motionDir } from "./docu-shorts-motion.js";
 import { SHORT_LOOKS, inkTag, keyTag, lookStyles, pickLook, slamTags } from "./docu-shorts-looks.js";
 import { DARK_CLIP, darkestFrame, describePictures, newVerticalPicture, periodFit, pictureAssets, planPictureTeaser, renderPictureTeaser, sizeOf, storyYear } from "./docu-shorts-pictures.js";
 
@@ -845,7 +846,9 @@ export async function makePictureTeaser({ jobDir, job = {}, settings = {}, usage
         logFn(`Shorts: ${path.basename(a.abs)} bu pencerede kararıyor (${dark.toFixed(0)}), sabit karesi kullanılıyor`);
       }
     }
-    return { abs: clipOk || a.kind !== "clip" ? a.abs : a.still || a.abs, kind: clipOk ? "clip" : "still", clipStart: (a.clipStart || 0) + 0.5, srcW: a.srcW, srcH: a.srcH, box: a.box || { x: 0, y: 0, w: 1, h: 1 }, dur, beat: k, what: a.what, rel: a.rel, generated: !!a.generated };
+    // A film's own AI still (img-…) or a new vertical picture may move (docu-shorts-motion.js); archive photos never.
+    const aiStill = !!a.generated || String(a.rel || "").includes("/img-");
+    return { abs: clipOk || a.kind !== "clip" ? a.abs : a.still || a.abs, kind: clipOk ? "clip" : "still", clipStart: (a.clipStart || 0) + 0.5, srcW: a.srcW, srcH: a.srcH, box: a.box || { x: 0, y: 0, w: 1, h: 1 }, dur, beat: k, what: a.what, rel: a.rel, generated: aiStill, picturePrompt: a.prompt || a.what || "", say: b.say };
   });
   const total = +(voiceEnd + 0.45 + 2.6).toFixed(2);
   const slams = slamTimes(plan.beats, words);
@@ -886,8 +889,10 @@ export async function makePictureTeaser({ jobDir, job = {}, settings = {}, usage
   thumbFile ||= [path.join(jobDir, "thumbnail.jpg"), path.join(path.dirname(last.v), "thumbnail.jpg")].find((f) => fs.existsSync(f));
   if (!thumbFile) throw new Error("kapak bulunamadı");
   const out = path.join(dir, `short-${stamp}.mp4`);
-  logFn(`Shorts: ${segments.length} dikey görsel, ${total.toFixed(1)} sn render ediliyor...`);
-  renderPictureTeaser({ segments, voiceFile, musicFile, thumbFile, assFile, out, total, sfx, slamAt: slams.map((m) => m.s), ffmpeg: ff, look });
+  // Motion: the opening fragments first, then the eligible rest (Replicate image-to-video).
+  const moving = await animateSegments(segments, { opening: 3, settings, dir: motionDir(dir), ffmpeg: ff, logFn });
+  logFn(`Shorts: ${segments.length} dikey görsel (${moving.filter((g) => g.animated).length} hareketli), ${total.toFixed(1)} sn render ediliyor...`);
+  renderPictureTeaser({ segments: moving, voiceFile, musicFile, thumbFile, assFile, out, total, sfx, slamAt: slams.map((m) => m.s), ffmpeg: ff, look });
   const meta = { file: out, mode: "pictures", hook: plan.hook, slams, figures, title: plan.title, description: plan.description, narration: text, beats: plan.beats.map((b) => ({ say: b.say, slam: b.slam, figure: b.figure, picture: b.asset?.rel || (b.asset?.generated ? "new" : null), what: b.asset?.what })), segments, start: 0, end: total, source: last.v };
   fs.writeFileSync(path.join(dir, `short-${stamp}.json`), JSON.stringify(meta, null, 2), "utf8");
   logFn(`Shorts hazır: ${out}`);

@@ -6,8 +6,8 @@ import { safeJobFileName } from './src/job-files.js';
 import path from "node:path";
 import fs from "node:fs";
 import { spawn } from "node:child_process";
-import { ROOT, HOME, PREVIEW_DIR, readJson, writeJson } from "./src/util.js";
-import { getSettings, saveSettings, publicSettings, THEMES, TONES, DURATIONS, VOICES, VISUAL_STYLES, audioLibraryInfo } from "./src/config.js";
+import { ROOT, HOME, DATA_DIR, PREVIEW_DIR, readJson, writeJson } from "./src/util.js";
+import { getSettings, saveSettings, publicSettings, THEMES, TONES, DURATIONS, VOICES, VISUAL_STYLES, audioLibraryInfo, audioLibraryDir } from "./src/config.js";
 import { RATIOS } from "./src/pipeline/canvas.js";
 import { sseHandler } from "./src/bus.js";
 import { loadAllJobs, getJob, publicJob, deleteJob, jobDir } from "./src/store.js";
@@ -203,6 +203,67 @@ app.get("/api/jobs/:id/short/:name", (req, res) => {
   const file = path.join(jobDir(id), "shorts", name);
   if (!fs.existsSync(file)) return res.status(404).end();
   if (req.query.dl) res.setHeader("Content-Disposition", `attachment; filename="${id}-${name}"`);
+  res.sendFile(file);
+});
+
+// BAĞIMSIZ SHORTS — uzun videoya bağlı olmayan, kendi konusunda dikey Shorts
+// (src/pipeline/docu-short-standalone.js): araştırma, plan, gerçek görseller (Commons/arşiv) ya da
+// AI, açılış ve seçilen cümleler Replicate ile hareketli, kütüphaneden müzik. data/shorts/<konu>/.
+const STANDALONE_DIR = path.join(DATA_DIR, "shorts");
+const standaloneBusy = new Map(); // slug -> {topic, log: [], startedAt}
+const slugOf = (t) => String(t || "").toLowerCase().normalize("NFKD").replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "short";
+const standaloneMetas = () => {
+  try {
+    return fs.readdirSync(STANDALONE_DIR).map((slug) => {
+      const m = readJson(path.join(STANDALONE_DIR, slug, "short.json"), null);
+      return m && fs.existsSync(path.join(STANDALONE_DIR, slug, "short.mp4")) ? { ...m, slug, at: fs.statSync(path.join(STANDALONE_DIR, slug, "short.mp4")).mtimeMs } : null;
+    }).filter(Boolean).sort((a, b) => b.at - a.at);
+  } catch { return []; }
+};
+app.get("/api/shorts", (req, res) => {
+  res.json({
+    busy: [...standaloneBusy.entries()].map(([slug, b]) => ({ slug, topic: b.topic, log: b.log.slice(-6), startedAt: b.startedAt })),
+    shorts: standaloneMetas().map(({ file, ...m }) => m),
+  });
+});
+app.post("/api/shorts", async (req, res) => {
+  const topic = String(req.body?.topic || "").trim().slice(0, 200);
+  if (topic.length < 4) return res.status(400).json({ error: "Konu yazın." });
+  const slug = slugOf(req.body?.slug || topic);
+  if (standaloneBusy.has(slug)) return res.status(409).json({ error: "Bu konu zaten hazırlanıyor." });
+  const { makeStandaloneShort, TITLE_PATTERNS, SHORT_FORMATS } = await import("./src/pipeline/docu-short-standalone.js");
+  const { OPENINGS, SHORT_LOOKS } = await import("./src/pipeline/docu-shorts-looks.js");
+  const prev = standaloneMetas();
+  // Not chosen: rotated so the channel never falls into one opening, one title formula or one look.
+  const rot = (keys, used) => keys.find((k) => !used.slice(0, Math.max(1, keys.length - 1)).includes(k)) || keys[prev.length % keys.length];
+  const pick = (v, keys, used) => (keys.includes(v) ? v : rot(keys, used));
+  const opening = pick(req.body?.opening, Object.keys(OPENINGS), prev.map((m) => m.opening));
+  const format = pick(req.body?.format, Object.keys(SHORT_FORMATS), []);
+  const titlePattern = pick(req.body?.titlePattern, Object.keys(TITLE_PATTERNS), prev.map((m) => m.titlePattern));
+  const look = SHORT_LOOKS[req.body?.look] ? req.body.look : null;
+  const entry = { topic, log: [], startedAt: Date.now() };
+  standaloneBusy.set(slug, entry);
+  res.status(202).json({ ok: true, slug, opening, format, titlePattern, look: look || "otomatik" });
+  try {
+    const settings = getSettings();
+    await makeStandaloneShort({
+      topic, angle: String(req.body?.angle || "").slice(0, 500), opening, format, titlePattern, look, recentLooks: prev.slice(0, 2).map((m) => m.look),
+      dir: path.join(STANDALONE_DIR, slug), settings, usage: { input: 0, output: 0 },
+      logFn: (m) => { entry.log.push(String(m)); if (entry.log.length > 200) entry.log.shift(); },
+      ffmpeg: settings.ffmpegPath || "ffmpeg", libraryRoot: audioLibraryDir(settings),
+    });
+  } catch (e) {
+    entry.log.push(`HATA: ${String(e?.message || e).slice(0, 300)}`);
+    writeJson(path.join(STANDALONE_DIR, slug, "error.json"), { at: new Date().toISOString(), error: String(e?.message || e).slice(0, 500), log: entry.log.slice(-20) });
+  } finally {
+    standaloneBusy.delete(slug);
+  }
+});
+app.get("/api/shorts/:slug/video", (req, res) => {
+  const slug = slugOf(req.params.slug);
+  const file = path.join(STANDALONE_DIR, slug, "short.mp4");
+  if (!fs.existsSync(file)) return res.status(404).end();
+  if (req.query.dl) res.setHeader("Content-Disposition", `attachment; filename="${slug}.mp4"`);
   res.sendFile(file);
 });
 
