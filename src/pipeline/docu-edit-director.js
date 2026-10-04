@@ -504,6 +504,16 @@ export function buildDevice(p, i, ctx, final = (k) => ctx.scenes[k]) {
     const left = side(p.left), right = side(p.right);
     if (!left || !right) return bad("bölünmüş ekranın bir tarafı geçersiz (etiket senaryoda yok ya da fromScene yanlış)");
     if (isInt(left.fromScene) && left.fromScene === right.fromScene) return bad("iki taraf aynı sahne");
+    // Her tarafın bir resmi olmalı: fromScene'i olmayan taraf sahnenin KENDİ resmini gösterir (own) —
+    // yalnızca biri, ve sahnenin gerçekten bir resim kaynağı varsa. Yoksa panel simsiyah kalırdı
+    // (sıralama testi: "Paris: he was not on it" ve "Darling Downs / Swan River").
+    const bare = [left, right].filter((x) => !isInt(x.fromScene));
+    if (bare.length > 1) return bad("bölünmüş ekranın iki tarafında da resim yok (fromScene)");
+    if (bare.length === 1) {
+      if (!(s.image || s.imagePrompt || s.search || s.images?.length)) return bad("bölünmüş ekranın bir tarafında resim yok, sahnenin kendi resmi de yok");
+      bare[0].own = true;
+      keepPicture = true;
+    }
     Object.assign(f, { left, right, mode: SPLIT_MODES.includes(p.mode) ? p.mode : "versus" });
   } else if (INFO_TYPES.includes(device)) {
     const r = buildInfo(p, i, ctx);
@@ -932,7 +942,7 @@ function planPrompt(script) {
     "",
     "CİHAZLAR:",
     "- board: dedektif panosu — şüpheliler/kişiler/ipuçları birbirine bağlanır. items[{fromScene?, label, note?}], links[[a,b]] (öğe indeksleri). Şüpheliler, olası açıklamalar, bir ağ anlatılırken.",
-    "- split: iki şey karşı karşıya ya da önce/sonra. left/right{fromScene?, label}, mode versus|before-after.",
+    "- split: iki şey karşı karşıya ya da önce/sonra. left/right{fromScene?, label}, mode versus|before-after. Her taraf bir RESİM göstermeli: en az bir tarafta fromScene (o şeyi gösteren önceki sahne) şart; fromScene'siz tek taraf bu sahnenin kendi resmini gösterir — o yüzden o taraf sahnenin imagePrompt'unun gösterdiği şey olmalı.",
     "- document: kilit belge/ifade/telgraf/rapor ekranda. doc{kind: fbi-teletype|letter|report|telegram|ledger, heading?, lines[]} — satırlar anlatımdaki olgulardan, belge diliyle kısa; highlight = satırlardan birinde AYNEN geçen ifade; redact = karartılacak ifadeler (satırlarda aynen); stamp kısa damga. Sahnenin kendi arşiv sorgusu gerçek bir belge taramasıysa doc yerine useImage:true.",
     "- timeline: yıllara yayılan olaylar. events[{year, label}] 3-7 olay; yıllar senaryoda GEÇMELİ.",
     "- quote: gerçek bir alıntı kartı. quote = sahnenin say satırında AYNEN geçen sözler (kelimesi kelimesine, aynı sırayla), who = söyleyen (senaryoda geçen kişi), when? kısa. Anlatımda alıntı yoksa quote KOYMA; alıntı uydurma.",

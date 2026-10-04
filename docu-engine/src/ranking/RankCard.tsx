@@ -68,6 +68,8 @@ export const RankCard: React.FC<{ scene: TitleScene; genre: Genre; durFrames: nu
   const nameSize = Math.min(top ? 132 : 116, fitFont(name, genre.headline, { maxW: colW * 1.8, cap: top ? 132 : 116, upper: true }));
   const nameStart = land + Math.round(0.25 * fps);
   const meta = [r.place, yearLabel(r.year, locale)].filter(Boolean).join('  ·  ');
+  // Sized to fit the column whole (ranking test: "LE BOURGET, FRANCE – NORTH ATL…" was cut at the frame edge).
+  const metaSize = meta ? Math.max(22, Math.min(40, fitFont(meta, genre.body, { maxW: colW, cap: 40, upper: true, trackEm: 0.22 }))) : 0;
   const metaIn = interpolate(f, [land + Math.round(0.65 * fps), land + Math.round(0.95 * fps)], [0, 1], { ...clamp, easing: outCubic });
 
   // --- the rail: every rank, the passed ones spent, this one a printed label
@@ -127,7 +129,7 @@ export const RankCard: React.FC<{ scene: TitleScene; genre: Genre; durFrames: nu
             style={{
               fontFamily: FONT[genre.body],
               fontWeight: 700,
-              fontSize: 40,
+              fontSize: metaSize,
               letterSpacing: '0.22em',
               textTransform: 'uppercase',
               color: mix(ink, hot, 0.35),

@@ -700,6 +700,8 @@ export interface TimelineScene extends SceneBase {
 
 export interface SplitSide extends DeviceRef {
   label?: string;
+  /** No `fromScene`: this side shows the split scene's OWN picture (`image`). At most one side. */
+  own?: boolean;
   /** Focal point of the picture, 0..1. */
   focus?: [number, number];
 }

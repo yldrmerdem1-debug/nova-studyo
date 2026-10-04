@@ -2,7 +2,7 @@ import React from 'react';
 import { AbsoluteFill, Sequence, interpolate, useCurrentFrame, useVideoConfig } from 'remotion';
 import { Photo, clipOf } from '../fx';
 import { keyRange, montageWords, slamFrame, textWords, wordFrames } from '../scenes';
-import type { FoleyKind, Genre, Scene, SfxKind, TransitionKind } from '../types';
+import type { Backdrop, FoleyKind, Genre, Scene, SfxKind, TransitionKind } from '../types';
 import { resolveOpening, type HookStyle, type Opening, type Stamp } from './plan.js';
 import { LookContext, useLook } from '../looks/context';
 import type { OpeningSceneCtx } from './context';
@@ -324,6 +324,8 @@ export function spokenDelayed(scenes: Scene[], index: number, durFrames: number,
   return <DelayedBody wait={wait} held={held} durFrames={durFrames} body={body(durFrames - wait)} />;
 }
 
+const HELD_GROUND: Backdrop = { kind: 'related', tone: 'dark', color: '#141414' };
+
 /** The related picture moves under the whole beat; the counter lands on it (its own ground is the picture, darkened). */
 const DelayedBody: React.FC<{ wait: number; held: Held; durFrames: number; body: React.ReactNode }> = ({ wait, held, durFrames, body }) => {
   const { fps } = useVideoConfig();
@@ -339,7 +341,8 @@ const DelayedBody: React.FC<{ wait: number; held: Held; durFrames: number; body:
       <AbsoluteFill style={{ background: `radial-gradient(ellipse at center, rgba(0,0,0,${scrim * 0.85}) 35%, rgba(0,0,0,${Math.min(0.9, scrim + 0.3)}) 100%)` }} />
       <SequenceFrom from={wait} dur={Math.max(1, durFrames - wait)}>
         <AbsoluteFill style={{ filter: 'drop-shadow(0 0 14px rgba(0,0,0,0.8)) drop-shadow(0 2px 3px rgba(0,0,0,0.9))' }}>
-          <LookContext.Provider value={{ ...look, ground, backdrop: undefined }}>{body}</LookContext.Provider>
+          {/* The counter's ground is this held picture, darkened: it sets light type (a light look's paper ink vanished on it — ranking test "120,000"). */}
+          <LookContext.Provider value={{ ...look, ground, backdrop: HELD_GROUND }}>{body}</LookContext.Provider>
         </AbsoluteFill>
       </SequenceFrom>
       {wait > 0 ? <CutFlash at={wait} fps={fps} /> : null}

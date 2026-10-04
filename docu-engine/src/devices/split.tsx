@@ -2,7 +2,7 @@ import React from 'react';
 import { AbsoluteFill, Easing, interpolate, useCurrentFrame, useVideoConfig } from 'remotion';
 import { Media } from '../fx';
 import type { Genre, SplitScene, SplitSide } from '../types';
-import { DevProps, H, W, clamp, isTr, resolveRef, safeBand, upper } from './common';
+import { DevProps, H, W, Pic, clamp, earlierPicture, isTr, resolveRef, safeBand, upper } from './common';
 import { splitLand, splitSaid } from './timing';
 import { DFONT, fitLine } from './type';
 
@@ -63,9 +63,38 @@ const Label: React.FC<{ genre: Genre; locale: string; text: string; side: 'left'
   );
 };
 
-const Panel: React.FC<{ side: SplitSide; durFrames: number; dir: number; speed: number }> = ({ side, durFrames, dir, speed }) => {
+/**
+ * The picture of each side: its own reference; a side marked `own` (or one
+ * left without a picture) shows the split scene's own image; a side that
+ * still has nothing shows the OTHER side's picture as a blurred, darkened
+ * ghost (absence) — never an empty black panel (ranking test: "Paris: he
+ * was not on it" and "Darling Downs / Swan River" were black).
+ */
+function sidePics(scene: SplitScene): [Pic & { ghost?: boolean }, Pic & { ghost?: boolean }] {
+  const sc = scene as SplitScene & { image?: string; imgW?: number; imgH?: number };
+  const self: Pic = sc.image ? { src: sc.image, w: sc.imgW, h: sc.imgH } : {};
+  let ownUsed = false;
+  const pick = (side?: SplitSide): Pic => {
+    const p = resolveRef(side);
+    if (p.src) return p;
+    if (self.src && !ownUsed && (side?.own || side?.fromScene == null)) {
+      ownUsed = true;
+      return self;
+    }
+    return {};
+  };
+  // The `own` side claims the scene's picture first.
+  const order = scene.right?.own && !scene.left?.own ? ['right', 'left'] : ['left', 'right'];
+  const got: Record<string, Pic> = {};
+  for (const k of order) got[k] = pick(scene[k as 'left' | 'right']);
+  let L = got.left, R = got.right;
+  // Nothing on either side: the nearest earlier picture (a broken split must still show a frame).
+  if (!L.src && !R.src) L = earlierPicture(scene);
+  return [L.src ? L : R.src ? { ...R, ghost: true } : L, R.src ? R : L.src ? { ...L, ghost: true } : R];
+}
+
+const Panel: React.FC<{ side: SplitSide; pic: Pic & { ghost?: boolean }; durFrames: number; dir: number; speed: number }> = ({ side, pic, durFrames, dir, speed }) => {
   const f = useCurrentFrame();
-  const pic = resolveRef(side);
   const fc = side.focus ?? [0.5, 0.35];
   const t = interpolate(f, [0, durFrames], [0, 1], clamp);
   const s = 1.06 + 0.07 * speed * t;
@@ -83,7 +112,8 @@ const Panel: React.FC<{ side: SplitSide; durFrames: number; dir: number; speed: 
             objectPosition: `${fc[0] * 100}% ${fc[1] * 100}%`,
             transform: `translateX(${x}px) scale(${s})`,
             transformOrigin: `${fc[0] * 100}% ${fc[1] * 100}%`,
-            filter: 'url(#duo)',
+            // A ghost is the other side's picture lifted into a soft fog (a darkened one read as a black panel).
+            filter: pic.ghost ? 'url(#duo) blur(12px) contrast(0.7) brightness(1.15)' : 'url(#duo)',
           }}
         />
       ) : null}
@@ -100,6 +130,7 @@ export const Split: React.FC<DevProps & { scene: SplitScene }> = ({ scene, genre
   const look = genre.look;
   const accent = look === 'label' ? genre.labelBg : genre.accent;
   const tr = isTr(locale);
+  const [picL, picR] = sidePics(scene);
 
   if (mode === 'before-after') {
     const wipeA = land - Math.round(0.55 * fps);
@@ -113,9 +144,9 @@ export const Split: React.FC<DevProps & { scene: SplitScene }> = ({ scene, genre
     const handle = interpolate(f, [land - 6, land + 4], [0, 1], clamp);
     return (
       <AbsoluteFill style={{ background: genre.bg, overflow: 'hidden' }}>
-        <Panel side={scene.left} durFrames={durFrames} dir={-1} speed={speed} />
+        <Panel side={scene.left} pic={picL} durFrames={durFrames} dir={-1} speed={speed} />
         <AbsoluteFill style={{ clipPath: `inset(0 0 0 ${x}px)` }}>
-          <Panel side={scene.right} durFrames={durFrames} dir={1} speed={speed} />
+          <Panel side={scene.right} pic={picR} durFrames={durFrames} dir={1} speed={speed} />
         </AbsoluteFill>
         {w > 0 ? (
           <>
@@ -163,12 +194,12 @@ export const Split: React.FC<DevProps & { scene: SplitScene }> = ({ scene, genre
     <AbsoluteFill style={{ background: genre.bg, overflow: 'hidden' }}>
       <AbsoluteFill style={{ clipPath: leftClip, transform: `translateX(${(1 - inL) * -W * 0.6}px)` }}>
         <AbsoluteFill style={{ transform: 'translateX(-25%)' }}>
-          <Panel side={scene.left} durFrames={durFrames} dir={1} speed={speed} />
+          <Panel side={scene.left} pic={picL} durFrames={durFrames} dir={1} speed={speed} />
         </AbsoluteFill>
       </AbsoluteFill>
       <AbsoluteFill style={{ clipPath: rightClip, transform: `translateX(${(1 - inR) * W * 0.6}px)` }}>
         <AbsoluteFill style={{ transform: 'translateX(25%)' }}>
-          <Panel side={scene.right} durFrames={durFrames} dir={-1} speed={speed} />
+          <Panel side={scene.right} pic={picR} durFrames={durFrames} dir={-1} speed={speed} />
         </AbsoluteFill>
       </AbsoluteFill>
       {/* Each side darkens toward its outer label edge for legibility. */}

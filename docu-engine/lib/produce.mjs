@@ -330,7 +330,9 @@ const BED_SECONDS = 12;
 export function noOwnPicture(sc) {
   if (!sc) return false;
   // The topic's signature devices (src/topic) draw their own ground: never a picture to fetch or generate.
-  if (['board', 'split', 'timeline', 'map', 'explainer', 'ui-card'].includes(sc.type)) return true;
+  // A split side without `fromScene` shows the scene's OWN picture (`own`): that one is fetched/generated as usual.
+  if (sc.type === 'split') return !(sc.left?.own || sc.right?.own);
+  if (['board', 'timeline', 'map', 'explainer', 'ui-card'].includes(sc.type)) return true;
   if (sc.type === 'document') return !!sc.doc?.lines?.length;
   if (sc.type === 'quote') return Number.isInteger(sc.fromScene);
   return false;

@@ -19,7 +19,7 @@ const DOC_KINDS = ['fbi-teletype', 'letter', 'report', 'telegram', 'ledger'];
 const ARROWS = ['left', 'right', 'up', 'down'];
 /** Kurgu aygıtları kendi görselini çizer (pano, bölünmüş ekran, zaman çizelgesi, yazılı belge, önceki sahnenin portresiyle alıntı). */
 const noOwnPicture = (sc) =>
-  ['board', 'split', 'timeline', 'map', ...INFO].includes(sc.type) || (sc.type === 'document' && !!sc.doc?.lines?.length) || (sc.type === 'quote' && Number.isInteger(sc.fromScene));
+  ['board', 'timeline', 'map', ...INFO].includes(sc.type) || (sc.type === 'split' && !(sc.left?.own || sc.right?.own)) || (sc.type === 'document' && !!sc.doc?.lines?.length) || (sc.type === 'quote' && Number.isInteger(sc.fromScene));
 
 const s = JSON.parse(readFileSync(file, 'utf8').replace(/^﻿/, ''));
 const errors = [];
@@ -163,9 +163,11 @@ s.scenes.forEach((sc, i) => {
     case 'split':
       for (const side of ['left', 'right']) {
         const p = sc[side];
-        if (!p || (p.fromScene == null && !p.image)) errors.push(`${at}: split.${side} fromScene ya da image ister`);
+        if (!p || (p.fromScene == null && !p.image && !p.own)) errors.push(`${at}: split.${side} fromScene, image ya da own ister`);
+        else if (p.own && !(sc.image || sc.imagePrompt || sc.search)) errors.push(`${at}: split.${side} own — sahnenin kendi resmi yok`);
         else refCheck(at, `split.${side}`, p, i);
       }
+      if (sc.left?.own && sc.right?.own) errors.push(`${at}: split'te yalnızca bir taraf own olabilir`);
       if (sc.mode && !['versus', 'before-after'].includes(sc.mode)) errors.push(`${at}: mode versus|before-after olmalı`);
       break;
     case 'quote':

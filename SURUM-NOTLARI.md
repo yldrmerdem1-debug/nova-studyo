@@ -1,5 +1,15 @@
 # Nova Studyo — Sürüm Notları
 
+## 1.16.2 (4 Ekim 2026)
+
+İlk sıralama videosu ("10 kayboluş") kare kare incelendi; kalite denetiminin bulduklarıyla birlikte düzeltildi.
+
+- **Bölünmüş ekran asla boş değil**: kurgu yönetmeni bir sahneyi bölünmüş ekrana çevirirken sahnenin kendi resmini atıyor, resimsiz tarafı simsiyah bırakıyordu ("Paris: he was not on it"; "Darling Downs / Swan River" ikisi de boş). Artık her taraf bir resim göstermeli: önceki sahneden (fromScene) ya da — tek bir taraf için — sahnenin kendi resmi (boş kompartıman gibi; getirilir/üretilir). İki tarafı da resimsiz öneri reddedilir. Motor da yedekli: resmi çözülemeyen taraf öbür tarafın sisli hayaletini, ikisi de boşsa önceki resmi gösterir.
+- **Sıra rozeti sol altta ve yalnızca resim sahnelerinde**: sol üstteki "#7 · MADDE" etiketi harita etiketlerinin, belge başlıklarının ve teletype kartlarının üstüne biniyordu. Artık sol altta; harita, belge, pano, kart ve infografik sahnelerinde çekilir.
+- **Geç söylenen sayaç okunuyor**: sayı söylenene kadar tutulan önceki resmin üstüne inen sayaç, açık görünümlü filmde (gazete kâğıdı) kâğıdın koyu mürekkebini alıyordu — karanlık uçak kabininde "120,000" kayboldu. Artık o zemin koyu sayılır, rakam açık basılır.
+- **Sıra kartında yer satırı sığar**: "LE BOURGET, FRANCE – NORTH ATL…" kenarda kesiliyordu; satır sütuna sığacak boyda dizilir.
+- Bağımsız Shorts: merak boşluklu başlık kalıpları (kim / kimse / neden / sır / gerçek / sonra / gerçekler) ve "gerçekler" listesi formatı; karanlık AI karelerine otomatik aydınlatma (Noir altında kararıyordu); OpenAI'nin "bakiye bitti" yanıtı hız sınırından ayrılır (bekleyip denemek yerine durur ve söyler).
+
 ## 1.16.1 (4 Ekim 2026)
 
 - **Shorts görünümleri**: her Shorts konusuna göre giyinir, hep sarı değil. 8 görünüm (Punch, Dosya, İmparatorluk, Defter, Noir, Temiz, Editoryal, Tabloid): yazı tipi (Impact, daktilo, klasik serif, dar DIN, italik serif, yuvarlak modern, kitap serifi, ağır siyah), vurgu rengi, slam'in inişi (basılı kutu, damga, oyma serif, parıltı), flaş rengi (beyaz/siyah/sıcak), resim derecelendirmesi, gren, vinyet ve kamera hızı. Uzun videonun Shorts'u filminin türüne göre giyinir (suç → Dosya, savaş → İmparatorluk, finans → Defter...).

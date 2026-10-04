@@ -51,6 +51,9 @@ function useGround(genre: Genre): string {
   if (!b) return genre.bg;
   if (b.kind === 'split-color') return b.color2 ?? genre.bg;
   if (b.kind === 'blur') return '#202020';
+  // A dark related ground is the picture pulled down to near black whatever its tint colour; a light one is the paper.
+  // (Ranking test: a light look's counter over a dark related cabin took the paper's dark ink — "120,000" vanished.)
+  if (b.kind === 'related') return b.tone === 'light' ? (b.color ?? genre.paper ?? genre.bg) : '#141414';
   return b.color ?? genre.bg;
 }
 

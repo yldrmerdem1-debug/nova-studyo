@@ -76,6 +76,23 @@ export function resolveRef(ref?: DeviceRef | null): Pic {
   return { src, w: s.imgW ?? s.videoW, h: s.imgH ?? s.videoH };
 }
 
+/**
+ * The nearest picture BEFORE a written scene (found by its narration): the
+ * last resort of a device slot that resolved to nothing, so it never renders
+ * as an empty black panel.
+ */
+export function earlierPicture(scene: Scene): Pic {
+  const all = scriptScenes();
+  const say = (scene as { say?: string }).say;
+  const at = say ? all.findIndex((s) => (s as { say?: string }).say === say) : -1;
+  for (let i = (at < 0 ? all.length : at) - 1; i >= 0; i--) {
+    const s = all[i] as Scene & { image?: string; images?: string[] };
+    const src = s.image ?? s.images?.[0] ?? s.layers?.bg;
+    if (src && at >= 0) return { src, w: s.imgW ?? s.videoW, h: s.imgH ?? s.videoH };
+  }
+  return {};
+}
+
 /* ------------------------------------------------------------- hand marks */
 
 type Pt = [number, number];

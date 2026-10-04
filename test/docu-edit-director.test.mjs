@@ -414,3 +414,23 @@ test('annotate marks are located on the chosen archive photo (mocked vision), ca
   const fresh = await D.placeAnnotations(script, { publicDir: pub, settings: { ffmpegPath: FFMPEG }, llm: async () => { throw Error('credit balance is too low'); }, ffmpeg: FFMPEG });
   assert.ok(fresh.script.scenes.every((s) => !s.annotate));
 });
+
+test('split: every side shows a picture — a bare side takes the scene\'s own, two bare sides are refused', () => {
+  const script = fixture();
+  const own = D.applyPatches(script, [{ scene: 12, device: 'split', priority: 1, reason: 'karşılaştırma', mode: 'before-after', left: { fromScene: 2, label: 'Cooper' }, right: { label: 'McCoy' } }]);
+  assert.equal(own.accepted.length, 1);
+  const sc = own.scenes[12];
+  assert.equal(sc.type, 'split');
+  assert.equal(sc.right.own, true);
+  assert.ok(!sc.left.own);
+  assert.ok(sc.imagePrompt, 'the scene keeps its own picture for the bare side');
+  const both = D.applyPatches(fixture(), [{ scene: 12, device: 'split', priority: 1, reason: 'x', left: { label: 'Cooper' }, right: { label: 'McCoy' } }]);
+  assert.equal(both.accepted.length, 0);
+  assert.match(both.rejected[0].why, /iki tarafında da resim yok/);
+  const s2 = fixture();
+  delete s2.scenes[12].imagePrompt;
+  delete s2.scenes[12].source;
+  const none = D.applyPatches(s2, [{ scene: 12, device: 'split', priority: 1, reason: 'x', left: { fromScene: 2, label: 'Cooper' }, right: { label: 'McCoy' } }]);
+  assert.equal(none.accepted.length, 0);
+  assert.match(none.rejected[0].why, /kendi resmi de yok/);
+});
