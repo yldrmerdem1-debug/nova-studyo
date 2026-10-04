@@ -1,5 +1,17 @@
 # Nova Studyo — Sürüm Notları
 
+## 1.16.3 (5 Ekim 2026)
+
+Hareket: Shorts'ta yapay zekâ videosu, uzun videoda gerçek stok klip.
+
+- **Shorts hareketi (Replicate)**: Shorts'un açılış cümleleri ve uygun sahneleri durağan resim yerine gerçek ~5 sn harekete döner (varsayılan Kling 2.5 Turbo Pro; Ayarlar'dan model ve Shorts başına sahne sayısı — varsayılan 4). Klipler Shorts'un kurgusundan geçer (görünümün rengi, greni, yazıları, sayıları, sesleri). Gerçek kişi fotoğrafı ve belge asla canlandırılmaz. Replicate bakiyesi biterse Shorts düşmez: yapılmış klipler kalır, gerisi durağan.
+- **Bağımsız Shorts paneli**: Kütüphane → "📱 Bağımsız Shorts": konu yaz, açılış türü/format/başlık kalıbı/görünüm seç ya da otomatik (kanal tekdüzeleşmesin diye sırayla döner). Üretilenler oynatılır; başlık, alternatifler, açıklama ve künye tek tıkla kopyalanır.
+- **Commons'tan doğrudan gerçek görsel**: plan bir Wikimedia Commons dosyasını adıyla isteyebilir; lisansı doğrulanarak indirilir (seçici gerekmez). Arşiv seçimi yapılamazsa o cümleler anonim AI görseline döner.
+- **Uzun video: atmosfer sahneleri önce gerçek stok klip** (Pexels, Pixabay, arşiv) arar; bulunamazsa AI resmi kalır (modern stok fotoğrafına düşmez). 1950 öncesi hikâyede yalnızca insansız doğa.
+- **Uzun video açılışı**: gerçek klibi olmayan, hareket eden bir şey gösteren en çok 2 açılış resmi resimden videoya çevrilir (uygunsa; her açılışta değil).
+- **2.5D derinlik katmanları artık isteğe bağlı** (varsayılan kapalı): sahne başına ücretli Replicate çağrısıydı.
+- Teaser Shorts da hareketli: filmin AI resimleri ve yeni dikey resimler canlanır.
+
 ## 1.16.2 (4 Ekim 2026)
 
 İlk sıralama videosu ("10 kayboluş") kare kare incelendi; kalite denetiminin bulduklarıyla birlikte düzeltildi.
