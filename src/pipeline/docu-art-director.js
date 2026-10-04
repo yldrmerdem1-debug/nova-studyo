@@ -2124,8 +2124,11 @@ export async function artDirect(script, { settings = {}, usage, logFn = () => {}
     if (skipped === "no-key") logFn("Sanat yönetmeni: Anthropic anahtarı yok — belirleyici yedek planlayıcı devrede");
     plan = buildPlan(script, { prop, history, catalogs: cats });
     delete plan._usedTransitions;
-    if (cacheFile) writeJson(cacheFile, { key, version: ART_VERSION, model: mdl, mode, savedAt: new Date().toISOString(), plan });
-    if (record && historyFile) {
+    // A fallback forced by an empty balance or a passing error is not the film's look: kept out of the
+    // cache and the channel history, so the resume after a top-up asks the model again (ranking test, 1.16).
+    const transient = skipped === "no-credit" || skipped === "error";
+    if (cacheFile && !transient) writeJson(cacheFile, { key, version: ART_VERSION, model: mdl, mode, savedAt: new Date().toISOString(), plan });
+    if (record && historyFile && !transient) {
       try {
         recordHistory(historyFile, { id: script.id || script.seedKey || null, genre: ctx.genre, variant: plan.look.variant, textStyles: plan.palette.textStyles, transitions: plan.palette.transitions, cameras: topCameras(plan), opening: plan.opening?.kind || null, at: new Date().toISOString() });
       } catch (e) { logFn(`Görünüm geçmişi yazılamadı: ${String(e?.message || e).slice(0, 120)}`); }
