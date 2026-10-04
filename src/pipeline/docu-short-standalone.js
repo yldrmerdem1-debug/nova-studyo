@@ -37,8 +37,9 @@ const PIC = {
 const SCHEMA = {
   type: "object",
   properties: {
-    title: { type: "string", description: "YouTube Shorts title, max 70 chars, no hashtags" },
-    description: { type: "string", description: "2-3 sentences + 3-5 hashtags" },
+    titles: { type: "array", items: { type: "string" }, description: "3 different curiosity-gap titles (see the title rule), max 60 chars each" },
+    title: { type: "string", description: "the strongest of the 3 titles" },
+    description: { type: "string", description: "one line that deepens the hook + at most 3 hashtags (#shorts, #history and one topic tag)" },
     hook: { type: "string", description: "3-6 word label shown at the top after the opening, ALL CAPS" },
     genre: { type: "string", enum: GENRES, description: "the subject's spirit: crime = mystery/unsolved/case, epic = war/empire/battle, finance = money/markets, science = discovery/space/what-if, inspire = a life, horror = dark/paranormal, documentary = bizarre/everyday history" },
     mood: { type: "string", enum: MOODS },
@@ -70,11 +71,35 @@ const SCHEMA = {
       },
     },
   },
-  required: ["title", "description", "hook", "genre", "mood", "year", "opening", "beats"],
+  required: ["titles", "title", "description", "hook", "genre", "mood", "year", "opening", "beats"],
   additionalProperties: false,
 };
 
 const clean = (t) => String(t || "").replace(/\s+/g, " ").trim();
+
+/*
+ * What the Shorts that hold viewers do (YouTube search, Oct 2026): "Bizarre punishments from Ancient
+ * Rome (Part three)" 43M, "Crazy Facts About Queen Cleopatra" 21M, "Normal Photos With Disturbing
+ * Backstory" 5.1M, "She Sold Poison as Beauty Products…" 318K — while the same subjects titled by their
+ * name and hashtags ("The mystery of the Dancing Plague of 1518 #history #shorts") sat at 19-106 views.
+ * The subject does not sell; the gap does. Title patterns rotate like the looks, so the channel's
+ * words never fall into one formula either.
+ */
+export const TITLE_PATTERNS = {
+  who: "The [person or role] Who [did the unexpected thing] — ('The Doctor Who Saved Lives in Auschwitz')",
+  nobody: "[A number] [people or things] [did something impossible]. Nobody Knows Why.",
+  why: "Why [the strange fact]? — a real question the Short answers",
+  secret: "This [ordinary thing] Hid a [dark or strange] Secret",
+  true: "[A claim that sounds false]… And It Was True",
+  then: "[Someone] Did [X]. Then [the twist].",
+  facts: "[N] [Adjective] Facts About [subject] — a list Short, numbered, the strongest last",
+};
+
+/** The Short's shape: one story told forward, or a quick list of 3-5 linked facts (the strongest last). */
+export const SHORT_FORMATS = {
+  story: "ONE story told forward: the strangest moment first, then how it happened, the detail nobody knows, the payoff.",
+  facts: "a LIST of 3-5 separate, linked facts or cases about the subject, each 2 short sentences with its own picture, rising in shock, the strongest last; a series can follow (say nothing like 'part one' aloud).",
+};
 const hash = (s) => crypto.createHash("sha1").update(String(s)).digest("hex").slice(0, 10);
 
 /** Verified facts for the Short (web search): a short, sourced research note. */
@@ -95,7 +120,7 @@ export async function researchShort({ topic, angle = "", settings = {}, usage = 
 }
 
 /** Claude: the Short's narration, its opening and one picture per sentence. */
-export async function planShort({ topic, angle = "", research, opening = "triple", llm = callJSON, settings = {}, usage = null, logFn = () => {} }) {
+export async function planShort({ topic, angle = "", research, opening = "triple", format = "story", titlePattern = "who", llm = callJSON, settings = {}, usage = null, logFn = () => {} }) {
   const plan = await llm({
     system: "You write and picture-edit viral, accurate YouTube Shorts for an English history/mystery/finance channel. Return only the requested JSON.",
     user: [
@@ -105,8 +130,12 @@ export async function planShort({ topic, angle = "", research, opening = "triple
       research,
       "",
       "Write a 45-55 s vertical Short (115-140 words of narration in total) that people watch to the end and share:",
-      `- OPENING (${opening}): ${OPENINGS[opening] || OPENINGS.triple}. It must land in the first 3 seconds and make the scroll stop.`,
-      "- then 6-9 sentences: the story with rising stakes, concrete numbers, names and one detail nobody knows; the last sentence is a payoff or twist that rewards watching (not 'follow for more'); it may end on a question that invites comments.",
+      `- SHAPE: ${SHORT_FORMATS[format] || SHORT_FORMATS.story}`,
+      `- OPENING (${opening}): ${OPENINGS[opening] || OPENINGS.triple}. No context first: the first spoken words ARE the strangest concrete fact of the subject. It lands in the first 2 seconds and stops the scroll.`,
+      "- then 6-9 sentences: rising stakes, concrete numbers, names and one detail nobody knows; the last sentence is a payoff or twist that rewards watching (never 'follow for more').",
+      "- LOOP: the last sentence leads naturally back into the first (a viewer who keeps watching hears the opening again and it still makes sense).",
+      `- TITLE: never the subject's name alone, never hashtags. Pattern for this Short: ${TITLE_PATTERNS[titlePattern] || TITLE_PATTERNS.who}. Write 3 titles (two in this pattern, one free), each a curiosity gap the Short closes, max 60 characters, true to the facts; pick the strongest as title.`,
+      "- HOOK label (on screen after the opening): 3-6 words that ADD to the title, never repeat it.",
       "- plain spoken English, short sentences, no hashtags, emojis or stage directions in the narration.",
       "- EVERY sentence gets ONE picture that shows exactly what it says. A real person, place, ship, building, document or object that was photographed or painted: source archive with a precise search. Only where no real picture can exist (before photography, a reconstruction, an anonymous moment): source ai, never showing a real person's face.",
       "- before photography the archive still has the period's own pictures: paintings, engravings, woodcuts, chronicles, maps of the event or the place (Brueghel's drawing of the 1564 dancers for a dancing mania) — search for those before choosing ai.",
@@ -158,7 +187,7 @@ export function pickShortMusic(lib, { mood = "curious", genre = "documentary", s
  * @returns meta {file, title, description, credits, look, opening, ...}
  */
 export async function makeStandaloneShort({
-  topic, angle = "", opening = "triple", look: lookIn = null, recentLooks = [], dir, settings = {}, usage = null, logFn = () => {},
+  topic, angle = "", opening = "triple", format = "story", titlePattern = "who", look: lookIn = null, recentLooks = [], dir, settings = {}, usage = null, logFn = () => {},
   ffmpeg, libraryRoot, llm = callJSON, research: researchIn = null, speak = speakTeaser, newPicture = newVerticalPicture,
 }) {
   const ff = ffmpeg || settings.ffmpegPath || "ffmpeg";
@@ -176,7 +205,7 @@ export async function makeStandaloneShort({
   let plan = read("plan.json");
   if (!plan) {
     logFn("Shorts planı yazılıyor...");
-    plan = await planShort({ topic, angle, research, opening, llm, settings, usage, logFn });
+    plan = await planShort({ topic, angle, research, opening, format, titlePattern, llm, settings, usage, logFn });
     save("plan.json", plan);
   }
   const look = lookIn && SHORT_LOOKS[lookIn] ? lookIn : pickLook({ genre: plan.genre, recent: recentLooks, seed: parseInt(hash(topic), 16) });
@@ -316,7 +345,7 @@ export async function makeStandaloneShort({
   const media = { ...credits };
   if (aiCount) media.ai = { provider: "ai", file: "ai", all: aiCount === assets.length };
   const kunye = kunyeUret(media, { dil: "en" });
-  const meta = { file: out, topic, look, opening, title: clean(plan.title), description: clean(plan.description), hook: plan.hook, genre: plan.genre, mood: plan.mood, narration: text, credits: kunye.metin || "", aiPictures: aiCount, archivePictures: assets.length - aiCount, beats: beats.map((b, k) => ({ say: b.say, picture: assets[k].generated ? "ai" : assets[k].rel })) };
+  const meta = { file: out, topic, look, opening, format, titlePattern, title: clean(plan.title), titles: (plan.titles || []).map(clean), description: clean(plan.description), hook: plan.hook, genre: plan.genre, mood: plan.mood, narration: text, credits: kunye.metin || "", aiPictures: aiCount, archivePictures: assets.length - aiCount, beats: beats.map((b, k) => ({ say: b.say, picture: assets[k].generated ? "ai" : assets[k].rel })) };
   save("short.json", meta);
   logFn(`Shorts hazır: ${out}`);
   return meta;
