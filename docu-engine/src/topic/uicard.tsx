@@ -31,13 +31,15 @@ export const UiCardScn: React.FC<{ scene: UiCardScene; genre: Genre; durFrames: 
   const rows = (scene.rows ?? []).filter((r) => r && String(r.label ?? '').trim()).slice(0, 8);
   const n = rows.length;
   const hl = Number.isInteger(scene.highlight) && (scene.highlight as number) >= 0 && (scene.highlight as number) < n ? (scene.highlight as number) : -1;
+  // A row the narration never names has no spoken frame (Infinity): it lights after the voice, near the end,
+  // instead of crashing the render (ranking test: "inputRange ... [Infinity,Infinity]").
   const cues = cueFrames(
     rows.map((r) => ({ label: r.value ? `${r.label} ${r.value}` : r.label })),
     scene.wordTimes,
     durFrames,
     fps,
     { lead: 0.35, tail: 0.3, gap: 6 },
-  );
+  ).map((c, i) => (Number.isFinite(c) ? c : Math.max(0, durFrames - Math.round(0.9 * fps) - (n - 1 - i) * 4)));
   const kind = scene.kind ?? 'ranking';
   const paperish = kind === 'form' || kind === 'ledger' || (kind === 'ranking' && ['ticker', 'telegraph', 'siege', 'case-file'].includes(t.motif));
   const phone = kind === 'phone';
@@ -62,7 +64,8 @@ export const UiCardScn: React.FC<{ scene: UiCardScene; genre: Genre; durFrames: 
   const ink = terminal ? '#9cf2b2' : phone ? '#f2f2f2' : paperish ? P.paperInk : '#15171a';
   const font = terminal ? FONT.plexMono : paperish ? P.typed : FONT.inter;
   const hlAt = hl >= 0 ? cues[hl] : Infinity;
-  const hlP = interpolate(f, [hlAt, hlAt + 10], [0, 1], { ...clamp, easing: ease });
+  // A card without a highlighted row has no highlight animation to interpolate.
+  const hlP = Number.isFinite(hlAt) ? interpolate(f, [hlAt, hlAt + 10], [0, 1], { ...clamp, easing: ease }) : 0;
   const title = String(scene.title ?? '').toUpperCase();
   const tSize = title ? fitFont(title, terminal || paperish ? P.monoKey : 'inter', { maxW: cardW - 120, cap: 44, upper: true, trackEm: 0.06 }) : 0;
   return (

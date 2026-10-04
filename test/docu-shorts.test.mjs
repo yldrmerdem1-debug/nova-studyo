@@ -38,15 +38,17 @@ test('1453 teaser captions follow readable phrases and never mix adjacent senten
 
 test('caption repair preserves Claude styles and the intentional hook, slam, figure and end animations', () => {
   const ass = S.buildTeaserAss(constantinopleOptions);
-  assert.equal(ass.split('\n').filter(l => l.startsWith('Style:')).join('\n'), S.buildShortAss({cues:[],start:0,end:56.65,hook:'',endCard:''}).split('\n').filter(l => l.startsWith('Style:')).join('\n'));
+  // The default look is the channel's punch (Impact, the yellow printed boxes): docu-shorts-looks.js styles.
+  assert.deepEqual(ass.split('\n').filter(l => l.startsWith('Style:')).map(l => l.split(',')[0]), ['Style: Cap', 'Style: Hook', 'Style: Slam', 'Style: Open', 'Style: Fig', 'Style: End']);
+  assert.ok(ass.includes('Style: Slam,Impact,150,&H00111111,&H00111111,&H0000D4FF'), 'punch slam: yellow printed box');
   const events = ass.split('\n').filter(l => l.startsWith('Dialogue:') && l.split(',')[3] !== 'Cap');
   assert.deepEqual(events, [
     'Dialogue: 3,0:00:00.20,0:00:00.96,Slam,,0,0,0,,{\\fscx150\\fscy150\\t(0,90,\\fscx100\\fscy100)\\fad(0,80)}CHAIN',
     'Dialogue: 3,0:00:01.81,0:00:02.62,Slam,,0,0,0,,{\\fscx150\\fscy150\\t(0,90,\\fscx100\\fscy100)\\fad(0,80)}CANNON',
     'Dialogue: 3,0:00:04.01,0:00:04.92,Slam,,0,0,0,,{\\fscx150\\fscy150\\t(0,90,\\fscx100\\fscy100)\\fad(0,80)}TWENTY-ONE',
     'Dialogue: 1,0:00:04.92,0:00:08.42,Hook,,0,0,0,,{\\fscx125\\fscy125\\t(0,160,\\fscx100\\fscy100)\\fad(0,250)}SHIPS THAT CROSSED A HILL',
-    'Dialogue: 3,0:00:14.93,0:00:16.73,Slam,,0,0,0,,{\\an5\\pos(540,1230)\\fscx160\\fscy160\\t(0,110,\\fscx100\\fscy100)\\fad(0,150)}4,773',
-    'Dialogue: 3,0:00:21.98,0:00:23.78,Slam,,0,0,0,,{\\an5\\pos(540,1230)\\fscx160\\fscy160\\t(0,110,\\fscx100\\fscy100)\\fad(0,150)}60 OXEN',
+    'Dialogue: 3,0:00:14.93,0:00:16.73,Fig,,0,0,0,,{\\an5\\pos(540,1230)\\fscx160\\fscy160\\t(0,110,\\fscx100\\fscy100)\\fad(0,150)}4,773',
+    'Dialogue: 3,0:00:21.98,0:00:23.78,Fig,,0,0,0,,{\\an5\\pos(540,1230)\\fscx160\\fscy160\\t(0,110,\\fscx100\\fscy100)\\fad(0,150)}60 OXEN',
     'Dialogue: 2,0:00:54.35,0:00:56.65,End,,0,0,0,,{\\fscx125\\fscy125\\t(0,160,\\fscx100\\fscy100)}FULL DOCUMENTARY ON THE CHANNEL',
   ]);
 });
@@ -114,7 +116,7 @@ test('teaser: beats map to word times, each beat shows its own moment, the last 
   assert.ok(Math.abs(seg[2].dur - (words.at(-1).e + 0.45 - words[9].s)) < 1e-9);
   const ass = S.buildTeaserAss({ words, hook: 'The day it vanished', voiceEnd: 4.5, total: 7 });
   assert.match(ass, /,Hook,,.*THE DAY IT VANISHED/);
-  assert.match(ass, /,Cap,,.*IN \{\\c&H00D4FF&\}ONE\{\\c&HFFFFFF&\} DAY/, 'spoken numbers are highlighted');
+  assert.match(ass, /,Cap,,.*IN \{\\c&H0000D4FF&\}ONE\{\\c&H00FFFFFF&\} DAY/, 'spoken numbers are highlighted');
   for (const [w, prev, key] of [['fourteen', 'x', true], ['billion', 'x', true], ['$205', 'x', true], ['Fisher', 'x', true], ['Then', 'fell.', false], ['the', 'x', false]]) assert.equal(S.isKeyWord(w, prev), key, w);
   assert.match(ass, /,End,,.*FULL DOCUMENTARY ON THE CHANNEL/);
 });

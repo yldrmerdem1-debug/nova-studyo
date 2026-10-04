@@ -13,6 +13,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { callJSON } from "../llm.js";
+import { SHORT_LOOKS, inkTag, keyTag, lookStyles, pickLook, slamTags } from "./docu-shorts-looks.js";
 import { DARK_CLIP, darkestFrame, describePictures, newVerticalPicture, periodFit, pictureAssets, planPictureTeaser, renderPictureTeaser, sizeOf, storyYear } from "./docu-shorts-pictures.js";
 
 export const SHORT_MIN = 40;
@@ -401,19 +402,33 @@ function teaserPhrases(words) {
 }
 
 /** Kelime zamanlarından sabit altyazı öbekleri (vurgu kelimeleri sarı) + kanca + kapaklı izle kartı. */
-export function buildTeaserAss({ words, hook = "", slams = [], figures = [], hookFor = null, voiceEnd, total, endCard = "FULL DOCUMENTARY ON THE CHANNEL" }) {
-  const lines = buildShortAss({ cues: [], start: 0, end: total, hook: "", endCard: "" }).split("\n").filter((l) => !l.startsWith("Dialogue:"));
+export function buildTeaserAss({ words, hook = "", slams = [], figures = [], hookFor = null, voiceEnd, total, endCard = "FULL DOCUMENTARY ON THE CHANNEL", look = "punch", opening = null }) {
+  // The look (docu-shorts-looks.js) sets every style: type, keyword colour, how a slam lands.
+  const L = SHORT_LOOKS[look] || SHORT_LOOKS.punch;
+  const head = buildShortAss({ cues: [], start: 0, end: total, hook: "", endCard: "" }).split("\n").filter((l) => !l.startsWith("Dialogue:") && !l.startsWith("Style:"));
+  const at = head.indexOf("[V4+ Styles]");
+  const lines = [...head.slice(0, at + 2), ...lookStyles(look), ...head.slice(at + 2)];
   const ev = [];
+  const sTag = slamTags(look);
   // Açılış: anlatıcının üç kelimesi ("ships", "hill", "night") tam söylendiği anda ortaya çakılır,
   // her biri kendi görüntüsünün üstünde; açılış bitince kanca üstte etiket olarak kalır.
-  slams.forEach((m) => ev.push(`Dialogue: 3,${assTime(m.s)},${assTime(m.e)},Slam,,0,0,0,,{\\fscx150\\fscy150\\t(0,90,\\fscx100\\fscy100)\\fad(0,80)}${assText(m.text)}`));
-  const openEnd = slams.length ? slams.at(-1).e : 0;
+  slams.forEach((m) => ev.push(`Dialogue: 3,${assTime(m.s)},${assTime(m.e)},Slam,,0,0,0,,${sTag}${assText(m.text)}`));
+  // A question / statement / quote opening: the whole line set big while it is said, its key word in the look's colour.
+  if (opening?.text) {
+    const key = String(opening.key || "").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+    const txt = assText(L.upper ? opening.text.toUpperCase() : opening.text)
+      .split(" ")
+      .map((w) => (key && w.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "") === key ? `${keyTag(look)}${w}${inkTag(look)}` : w))
+      .join(" ");
+    ev.push(`Dialogue: 3,${assTime(opening.s)},${assTime(opening.e)},Open,,0,0,0,,{\\an5\\pos(${W / 2},${H * 0.42})\\fad(120,120)\\fscx106\\fscy106\\t(0,300,\\fscx100\\fscy100)}${txt}${opening.who ? `\\N{\\fs44\\i0}— ${assText(opening.who)}` : ""}`);
+  }
+  const openEnd = Math.max(slams.length ? slams.at(-1).e : 0, opening?.e ?? 0);
   // hookFor: the label stays only that long after the opening (a picture Short is not covered by it all along).
   const hookEnd = hookFor != null ? Math.min(voiceEnd + 0.2, openEnd + hookFor) : voiceEnd + 0.2;
   if (hook) ev.push(`Dialogue: 1,${assTime(openEnd)},${assTime(hookEnd)},Hook,,0,0,0,,{\\fscx125\\fscy125\\t(0,160,\\fscx100\\fscy100)\\fad(0,250)}${assText(hook.toUpperCase())}`);
   // A striking number lands big on the picture when it is said ("4,773"), never as a dark card — in the lower
   // middle, above the captions: faces and subjects sit in the upper half of a vertical picture.
-  figures.forEach((m) => ev.push(`Dialogue: 3,${assTime(m.s)},${assTime(m.e)},Slam,,0,0,0,,{\\an5\\pos(${W / 2},1230)\\fscx160\\fscy160\\t(0,110,\\fscx100\\fscy100)\\fad(0,150)}${assText(m.text)}`));
+  figures.forEach((m) => ev.push(`Dialogue: 3,${assTime(m.s)},${assTime(m.e)},Fig,,0,0,0,,{\\an5\\pos(${W / 2},1230)\\fscx160\\fscy160\\t(0,110,\\fscx100\\fscy100)\\fad(0,150)}${assText(m.text)}`));
   // Açılışta alt yazı yok: çakılan kelime zaten ekranda (aynı sözü iki kez yazmak yankı olur).
   let i = words.findIndex((w) => w.s >= openEnd - 0.05);
   if (i < 0) i = words.length;
@@ -423,13 +438,13 @@ export function buildTeaserAss({ words, hook = "", slams = [], figures = [], hoo
     const e = phrase.next ? Math.min(phrase.next.s, chunk.at(-1).e + 0.6) : chunk.at(-1).e + 0.3;
     const txt = chunk
       .map((c, k) => {
-        const w = assText(c.w.toUpperCase());
-        return isKeyWord(c.w, (k ? chunk[k - 1] : phrase.previous || words[i - 1])?.w) ? `{\\c&H00D4FF&}${w}{\\c&HFFFFFF&}` : w;
+        const w = assText(L.upper ? c.w.toUpperCase() : c.w);
+        return isKeyWord(c.w, (k ? chunk[k - 1] : phrase.previous || words[i - 1])?.w) ? `${keyTag(look)}${w}${inkTag(look)}` : w;
       })
       .join(" ");
     ev.push(`Dialogue: 0,${assTime(s)},${assTime(e)},Cap,,0,0,0,,${txt}`);
   }
-  ev.push(`Dialogue: 2,${assTime(voiceEnd + 0.3)},${assTime(total)},End,,0,0,0,,{\\fscx125\\fscy125\\t(0,160,\\fscx100\\fscy100)}${assText(endCard)}`);
+  if (endCard) ev.push(`Dialogue: 2,${assTime(voiceEnd + 0.3)},${assTime(total)},End,,0,0,0,,{\\fscx125\\fscy125\\t(0,160,\\fscx100\\fscy100)}${assText(endCard)}`);
   return [...lines.filter(Boolean), ...ev, ""].join("\n");
 }
 
@@ -756,10 +771,17 @@ export function newPictureStyle(year, genre = "") {
 }
 
 /** Teaser in picture mode (docu-shorts-pictures.js): every sentence its own full-screen vertical picture. */
-export async function makePictureTeaser({ jobDir, job = {}, settings = {}, usage = null, logFn = () => {}, llm, visionLlm, ffmpeg, title: titleIn, speak = speakTeaser, newPicture = newVerticalPicture } = {}) {
+export async function makePictureTeaser({ jobDir, job = {}, settings = {}, usage = null, logFn = () => {}, llm, visionLlm, ffmpeg, title: titleIn, speak = speakTeaser, newPicture = newVerticalPicture, look: lookIn = null } = {}) {
   const last = latestOutput(jobDir);
   if (!last?.v || !fs.existsSync(last.s)) throw new Error("bitmiş video/altyazı bulunamadı");
   const ff = ffmpeg || settings.ffmpegPath || "ffmpeg";
+  // The teaser dresses like its film: the long video's genre picks the look (docu-shorts-looks.js), not one yellow for all.
+  let filmGenre = job.docuGenre || "documentary";
+  try {
+    const pf = fs.readdirSync(path.join(jobDir, "docu")).find((f) => f.endsWith(".props.json"));
+    filmGenre = JSON.parse(fs.readFileSync(path.join(jobDir, "docu", pf), "utf8")).script?.genre || filmGenre;
+  } catch {}
+  const look = pickLook({ genre: filmGenre, want: lookIn });
   const cues = parseSrt(fs.readFileSync(last.s, "utf8"));
   const title = titleIn || job.meta?.title || job.topic || "";
   const dir = path.join(jobDir, "shorts");
@@ -843,7 +865,7 @@ export async function makePictureTeaser({ jobDir, job = {}, settings = {}, usage
     figures.push({ text: b.figure.toUpperCase(), s: said.s, e: Math.max(said.s + 0.8, Math.min(end - 0.05, said.s + 1.8)) });
   });
   const assFile = path.join(dir, `short-${stamp}.ass`);
-  fs.writeFileSync(assFile, buildTeaserAss({ words, hook: plan.hook, slams, figures, hookFor: 3.5, voiceEnd: voiceEnd + 0.45, total }), "utf8");
+  fs.writeFileSync(assFile, buildTeaserAss({ words, hook: plan.hook, slams, figures, hookFor: 3.5, voiceEnd: voiceEnd + 0.45, total, look }), "utf8");
 
   let musicFile = null;
   const sfx = {};
@@ -865,7 +887,7 @@ export async function makePictureTeaser({ jobDir, job = {}, settings = {}, usage
   if (!thumbFile) throw new Error("kapak bulunamadı");
   const out = path.join(dir, `short-${stamp}.mp4`);
   logFn(`Shorts: ${segments.length} dikey görsel, ${total.toFixed(1)} sn render ediliyor...`);
-  renderPictureTeaser({ segments, voiceFile, musicFile, thumbFile, assFile, out, total, sfx, slamAt: slams.map((m) => m.s), ffmpeg: ff });
+  renderPictureTeaser({ segments, voiceFile, musicFile, thumbFile, assFile, out, total, sfx, slamAt: slams.map((m) => m.s), ffmpeg: ff, look });
   const meta = { file: out, mode: "pictures", hook: plan.hook, slams, figures, title: plan.title, description: plan.description, narration: text, beats: plan.beats.map((b) => ({ say: b.say, slam: b.slam, figure: b.figure, picture: b.asset?.rel || (b.asset?.generated ? "new" : null), what: b.asset?.what })), segments, start: 0, end: total, source: last.v };
   fs.writeFileSync(path.join(dir, `short-${stamp}.json`), JSON.stringify(meta, null, 2), "utf8");
   logFn(`Shorts hazır: ${out}`);

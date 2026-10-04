@@ -16,6 +16,7 @@ import { spawnSync } from "node:child_process";
 import { callJSON, callVisionJSON } from "../llm.js";
 import { openAIImagesProvider } from "./openai-images.js";
 import { donemYili, hikayeDonemi } from "./docu-archive.js";
+import { SHORT_LOOKS, flashColour, pictureFilter } from "./docu-shorts-looks.js";
 
 const W = 1080;
 const H = 1920;
@@ -335,15 +336,19 @@ export function verticalCrop(w, h, box = { x: 0, y: 0, w: 1, h: 1 }) {
  * Sound as before: the new narration, the film's music under it, a hit on each slammed word, a whoosh on
  * the later cuts, -14 LUFS.
  */
-export function renderPictureTeaser({ segments, voiceFile, musicFile, thumbFile, assFile, out, total, sfx = {}, slamAt = [], ffmpeg = "ffmpeg", fontsDir = "C:/Windows/Fonts" }) {
+export function renderPictureTeaser({ segments, voiceFile, musicFile, thumbFile, assFile, out, total, sfx = {}, slamAt = [], ffmpeg = "ffmpeg", fontsDir = "C:/Windows/Fonts", look: lookId = null, musicStart = 0, musicGain = 0.22 }) {
   const esc = (p) => String(p).replace(/\\/g, "/").replace(/:/g, "\\:").replace(/'/g, "\\'");
   const args = ["-y", "-hide_banner", "-loglevel", "error"];
   const parts = [];
+  // The Short's look (docu-shorts-looks.js): its grade, grain and vignette, its camera speed, its flash.
+  const L = lookId ? SHORT_LOOKS[lookId] : null;
+  const pz = L?.push ?? 0.07;
+  const flash = lookId ? flashColour(lookId) : "white";
   segments.forEach((g, i) => {
     const frames = Math.max(2, Math.round(g.dur * 30));
     const c = verticalCrop(g.srcW, g.srcH, g.box);
-    const push = i % 2 ? `1.07-0.07*on/${frames}` : `1+0.07*on/${frames}`;
-    const look = "eq=contrast=1.05:saturation=0.93,noise=alls=6:allf=t,vignette=angle=PI/5";
+    const push = i % 2 ? `${(1 + pz).toFixed(3)}-${pz}*on/${frames}` : `1+${pz}*on/${frames}`;
+    const look = lookId ? pictureFilter(lookId) : "eq=contrast=1.05:saturation=0.93,noise=alls=6:allf=t,vignette=angle=PI/5";
     if (g.kind === "clip") {
       args.push("-ss", g.clipStart.toFixed(2), "-t", (g.dur + 0.1).toFixed(2), "-i", g.abs);
       parts.push(`[${i}:v]crop=${c.w}:${c.h}:${c.x}:${c.y},scale=${W}:${H}:flags=lanczos,fps=30,setsar=1,${look},trim=0:${g.dur.toFixed(3)},setpts=PTS-STARTPTS,setsar=1[s${i}]`);
@@ -354,7 +359,11 @@ export function renderPictureTeaser({ segments, voiceFile, musicFile, thumbFile,
   });
   const n = segments.length;
   const endDur = Math.max(1.5, total - segments.reduce((a, g) => a + g.dur, 0));
-  args.push("-loop", "1", "-t", endDur.toFixed(2), "-i", thumbFile, "-i", voiceFile);
+  // A standalone Short has no film to send to: no cover card, the last picture holds to the end.
+  const hasEnd = !!thumbFile && fs.existsSync(thumbFile);
+  if (hasEnd) args.push("-loop", "1", "-t", endDur.toFixed(2), "-i", thumbFile);
+  else args.push("-f", "lavfi", "-t", "0.1", "-i", "color=c=black:s=16x16:r=30");
+  args.push("-i", voiceFile);
   let next = n + 2;
   let musicIn = null;
   if (musicFile) {
@@ -369,13 +378,18 @@ export function renderPictureTeaser({ segments, voiceFile, musicFile, thumbFile,
     }
   }
   // End card: the cover fitted across the width over its own blurred copy.
-  parts.push(`[${n}:v]fps=30,setsar=1,split[ea][eb]`, `[ea]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},gblur=sigma=30,eq=brightness=-0.25[eg]`, `[eb]scale=${W - 60}:-2[et]`, `[eg][et]overlay=(W-w)/2:(H-h)/2,setpts=PTS-STARTPTS,setsar=1[endc]`);
-  parts.push(`${segments.map((_, i) => `[s${i}]`).join("")}[endc]concat=n=${n + 1}:v=1:a=0[cat]`);
-  parts.push(`[cat]subtitles='${esc(assFile)}':fontsdir='${esc(fontsDir)}',fade=t=in:d=0.18:color=white,fade=t=out:st=${(total - 0.4).toFixed(2)}:d=0.4,format=yuv420p[v]`);
+  if (hasEnd) {
+    parts.push(`[${n}:v]fps=30,setsar=1,split[ea][eb]`, `[ea]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},gblur=sigma=30,eq=brightness=-0.25[eg]`, `[eb]scale=${W - 60}:-2[et]`, `[eg][et]overlay=(W-w)/2:(H-h)/2,setpts=PTS-STARTPTS,setsar=1[endc]`);
+    parts.push(`${segments.map((_, i) => `[s${i}]`).join("")}[endc]concat=n=${n + 1}:v=1:a=0[cat]`);
+  } else {
+    parts.push(`[${n}:v]nullsink`);
+    parts.push(`${segments.map((_, i) => `[s${i}]`).join("")}concat=n=${n}:v=1:a=0,tpad=stop_mode=clone:stop_duration=${Math.max(0, endDur).toFixed(2)}[cat]`);
+  }
+  parts.push(`[cat]subtitles='${esc(assFile)}':fontsdir='${esc(fontsDir)}',fade=t=in:d=0.18:color=${flash},fade=t=out:st=${(total - 0.4).toFixed(2)}:d=0.4,format=yuv420p[v]`);
   const mix = ["[vo]"];
   parts.push(`[${n + 1}:a]apad,atrim=0:${total.toFixed(2)},volume=1.0[vo]`);
   if (musicIn != null) {
-    parts.push(`[${musicIn}:a]atrim=0:${total.toFixed(2)},asetpts=PTS-STARTPTS,volume=0.22,afade=t=out:st=${(total - 1.2).toFixed(2)}:d=1.2[mus]`);
+    parts.push(`[${musicIn}:a]atrim=${musicStart.toFixed(2)}:${(musicStart + total).toFixed(2)},asetpts=PTS-STARTPTS,volume=${musicGain},afade=t=in:d=0.4,afade=t=out:st=${(total - 1.2).toFixed(2)}:d=1.2[mus]`);
     mix.push("[mus]");
   }
   const cuts = [];
@@ -386,7 +400,7 @@ export function renderPictureTeaser({ segments, voiceFile, musicFile, thumbFile,
   }
   const openEnd = slamAt.length ? slamAt.at(-1) + 0.3 : 0;
   const whooshAt = cuts.slice(0, -1).filter((c) => c > openEnd).map((c) => Math.max(0, c - 0.28));
-  const hitAt = [...(slamAt.length ? slamAt : [0]), cuts.at(-1)];
+  const hitAt = [...(slamAt.length ? slamAt : [0]), ...(hasEnd ? [cuts.at(-1)] : [])];
   const place = (inIdx, times, gain, tag) => {
     if (inIdx == null || !times.length) return;
     parts.push(`[${inIdx}:a]volume=${gain},asplit=${times.length}${times.map((_, k) => `[${tag}${k}]`).join("")}`);

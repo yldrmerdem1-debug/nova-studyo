@@ -1,5 +1,14 @@
 # Nova Studyo — Sürüm Notları
 
+## 1.16.1 (4 Ekim 2026)
+
+- **Shorts görünümleri**: her Shorts konusuna göre giyinir, hep sarı değil. 8 görünüm (Punch, Dosya, İmparatorluk, Defter, Noir, Temiz, Editoryal, Tabloid): yazı tipi (Impact, daktilo, klasik serif, dar DIN, italik serif, yuvarlak modern, kitap serifi, ağır siyah), vurgu rengi, slam'in inişi (basılı kutu, damga, oyma serif, parıltı), flaş rengi (beyaz/siyah/sıcak), resim derecelendirmesi, gren, vinyet ve kamera hızı. Uzun videonun Shorts'u filminin türüne göre giyinir (suç → Dosya, savaş → İmparatorluk, finans → Defter...).
+- **Açılış türleri**: üç kelime, soru, şok sayı, alıntı (kimin söylediğiyle) ya da tek cümlelik inanılmaz tespit; büyük ve ortada, anahtar kelimesi görünüm renginde.
+- **Bağımsız Shorts**: uzun videoya bağlı olmayan Shorts hattı (docu-short-standalone.js): web araştırması, Claude planı (her cümleye bir görsel), gerçek kişi/yer/belge uzun videonun arşiv hattıyla (dönem kuralları, görüntü modeliyle seçim), fotoğraf öncesi için dönemin tablo/gravürü, AI yalnızca gerçek kişi içermeyen sahneye; ses kütüphanesinden ruh hâline uygun müzik; açıklamaya görsel künyesi.
+- **Düzeltme**: anlatımın hiç söylemediği bir satırı olan arayüz kartı render'ı çökertiyordu ("inputRange ... [Infinity,Infinity]"); söylenmeyen satır artık sesten sonra yanar.
+- **Düzeltme**: kredisi bittiği için düşülen sanat yönetmeni yedek planı önbelleğe yazılmıyor; kredi yüklenince model yeniden planlar.
+- Sıralama araştırması 64k bütçe (ilk iş 32k'yı düşünmeye harcayıp metin yazamamıştı).
+
 ## 1.16.0 (4 Ekim 2026)
 
 ### Yeni kategori: Sıralama (geri sayım)
