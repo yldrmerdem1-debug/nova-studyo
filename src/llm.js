@@ -326,14 +326,18 @@ export function researchText(resp) {
     });
     return b.text + (links.length ? ' ' + [...new Set(links)].join(' ') : '');
   }).join('\n');
-  return {text,sources};
+  // The 2026 search tool (dynamic filtering) filters results in code: the answer quotes its sources
+  // inline but its text blocks carry no citations. The pages it searched are still the provenance.
+  const searched = (resp.content || []).filter(b => b.type === 'web_search_tool_result' && Array.isArray(b.content))
+    .flatMap(b => b.content).filter(r => /^https?:\/\//i.test(r?.url || '')).map(r => ({url:r.url,title:r.title || '',page_age:r.page_age || ''}));
+  return {text,sources,searched};
 }
 
 /** Research returns text, including inline citations and machine-readable provenance. */
 export async function callText({system,user,webSearch=false,maxSearches=6,maxTokens=16000,usage,logFn,model,request=createMessage,signal,isCancelled}) {
   const params = {max_tokens:maxTokens,system,messages:[{role:'user',content:user}]};
   if (webSearch) params.tools = [{type:'web_search_20260209',name:'web_search',max_uses:maxSearches}];
-  const parts = [], citations = [];
+  const parts = [], citations = [], searched = [];
   let warning = webSearch ? '' : '> Web araştırması kapalı: bilgiler web üzerinden doğrulanmadı. Yayından önce kaynakları kontrol edin.';
   let resp;
   const send = () => accountedRequest(request,params,{usage,logFn,model,signal,isCancelled});
@@ -349,12 +353,17 @@ export async function callText({system,user,webSearch=false,maxSearches=6,maxTok
   let guard = 0;
   for (;;) {
     textOf(resp,true,logFn); // refuse/truncation safeguards still apply
-    const piece = researchText(resp); parts.push(piece.text); citations.push(...piece.sources);
+    const piece = researchText(resp); parts.push(piece.text); citations.push(...piece.sources); searched.push(...piece.searched);
     if (resp.stop_reason !== 'pause_turn') break;
     if (guard++ >= 4) { warning += '\n> Web araştırması tamamlanamadı: araç devam sınırı doldu.';break; }
     params.messages.push({role:'assistant',content:resp.content});
     assertNotCancelled({signal,isCancelled});
     resp = await send();
+  }
+  // No structured citations: the searched pages the answer actually links are the provenance.
+  if (webSearch && !citations.length) {
+    const body = parts.join('\n');
+    citations.push(...searched.filter(r => body.includes(r.url)));
   }
   if (webSearch && !citations.length && !warning) warning = '> Araştırmada doğrulanabilir kaynak bağlantısı alınamadı; bilgiler doğrulanmadı.';
   const unique = [...new Map(citations.map(c => [c.url+'|'+(c.cited_text || ''),c])).values()];

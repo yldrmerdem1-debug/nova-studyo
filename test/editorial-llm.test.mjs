@@ -63,3 +63,24 @@ test('legacy token totals without model provenance do not become a complete cost
 test('zero and null budgets both mean unlimited per UI contract',async()=>{
  let n=0;const request=async()=>{n++;return response('result');};await llm.callText({user:'x',usage:{budgetUsd:0},request});await llm.callText({user:'x',usage:{budgetUsd:null},request});assert.equal(n,2);
 });
+
+test('research on the 2026 search tool: no citation blocks, but the searched pages the text links are the provenance (no false "unverified" banner)', async () => {
+  const { callText } = await import('../src/llm.js');
+  const resp = {
+    stop_reason: 'end_turn',
+    usage: { input_tokens: 10, output_tokens: 10 },
+    content: [
+      { type: 'server_tool_use', id: 's1', name: 'web_search', input: { query: 'irkutsk plague' } },
+      { type: 'web_search_tool_result', tool_use_id: 's1', content: [
+        { type: 'web_search_result', url: 'https://www.interfax.ru/russia/1120228', title: 'Interfax', page_age: '4 Oct 2026' },
+        { type: 'web_search_result', url: 'https://example.org/unused', title: 'Unused' },
+      ] },
+      { type: 'text', text: 'Rospotrebnadzor: pneumonia of unknown etiology — https://www.interfax.ru/russia/1120228' },
+    ],
+  };
+  const out = await callText({ system: 's', user: 'u', webSearch: true, request: async () => resp });
+  assert.doesNotMatch(out, /doğrulanabilir kaynak bağlantısı alınamadı/);
+  assert.match(out, /## Kaynak kayıtları/);
+  assert.match(out, /interfax\.ru\/russia\/1120228/);
+  assert.doesNotMatch(out.split('## Kaynak kayıtları')[1], /example\.org\/unused/);
+});
