@@ -1,5 +1,16 @@
 # Nova Studyo — Sürüm Notları
 
+## 1.16.6 (5 Ekim 2026)
+
+Kling 3 ile hareket, Gündem radarı, haber formatı.
+
+- **Kling (doğrudan API)**: Ayarlar → KLING API. Anahtar varsa resimden video Replicate yerine doğrudan Kling'den. **Açılış Kling 3.0 1080p** (Shorts'un ilk cümleleri, belgeselin açılış sahneleri — izleyici orada kalır ya da kaydırır); açılış dışı hareket ucuz **Kling 2.5 Turbo 720p**. Saniye başı ödenir: klip cümle kadar istenir (3 sn'lik cümleye 3-4 sn). Test düğmesi kalan birimi gösterir. Bağlantı kopsa da ödenmiş klip kaybolmaz: aynı resim + tarif bir sonraki çalıştırmada Kling'de bulunur ve indirilir.
+- **Gündem radarı** (yeni sayfa): Google'ın trend aramaları + manşetler; Claude kanallara uyan, büyük, taze ve kafa karıştıran konuları seçer (başlık, açı, "asla söyleme" satırı); ilgi Nepal sel videosunun ölçeğiyle karşılaştırılır.
+- **Haber açıklayıcı formatı** (Gündem çipi): soğuk açılış, doğrulanmış/doğrulanmamış ayrımı, zorunlu web araştırması.
+- **Dönem sahne sahne**: yüzyıllara yayılan ya da bugüne uzanan hikâyede (Kara Ölüm 1338–2026) arşiv seçici ve dönem denetimi her sahneyi kendi yılıyla, yoksa bölümünün dönemiyle yargılar. Eskiden tek ortanca yıl ("1911") 2026 laboratuvar fotoğraflarını "dönem dışı" diye eliyordu.
+- **Filigran**: Openverse'ün rawpixel önizlemeleri (soluk "rawpixel" filigranlı) artık aday olmaz.
+- **Shorts altyazısı** bir miktarı bölmez ("half | a dozen" tek başına "12 hastane" okunuyordu).
+
 ## 1.16.5 (5 Ekim 2026)
 
 Anlatım yalnızca Eleven v4 ile.
