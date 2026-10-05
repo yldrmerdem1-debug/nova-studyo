@@ -384,6 +384,17 @@ const KEY_TESTS = {
     const j = await r.json().catch(() => ({}));
     return { ok: true, bilgi: `geçerli · ${j.username || "hesap"} (bakiye replicate.com/account/billing)` };
   },
+  kling: async (k) => {
+    // Kaynak paketi sorgusu ücretsiz (QPS ≤ 1): anahtar + kalan birim.
+    const now = Date.now();
+    const r = await fetch(`https://api-singapore.klingai.com/account/costs?start_time=${now - 365 * 864e5}&end_time=${now}`, { headers: { Authorization: `Bearer ${k}` } });
+    if (r.status === 401 || r.status === 403) return { ok: false, bilgi: "anahtar geçersiz" };
+    const j = await r.json().catch(() => null);
+    if (!r.ok || Number(j?.code) !== 0) return { ok: false, bilgi: `HTTP ${r.status} ${j?.message || ""}`.trim() };
+    const live = (j.data?.resource_pack_subscribe_infos || []).filter((p) => p.status === "online");
+    const left = live.reduce((a, p) => a + (Number(p.remaining_quantity) || 0), 0);
+    return { ok: true, bilgi: live.length ? `geçerli · ${left} birim kaldı (~${Math.floor(left / 4)} açılış klibi, 5 sn Kling 3.0 1080p)` : "geçerli · aktif paket yok (klingai.com → API → paket al)" };
+  },
   europeana: async (k) => {
     // reusability=open ile sorulur: hem anahtarı hem TİCARİ KULLANILABİLİR
     // sonuç geldiğini doğrular. Süzgeçsiz sorguda dönenlerin çoğu
@@ -401,7 +412,7 @@ const KEY_TESTS = {
 const KEY_FIELD = {
   anthropic: "anthropicKey", pexels: "pexelsKey", pixabay: "pixabayKey", unsplash: "unsplashKey",
   eleven: "elevenKey", kie: "kieKey", fal: "falKey", higgs: "higgsKey",
-  europeana: "europeanaKey", openai: "openaiKey", replicate: "replicateKey",
+  europeana: "europeanaKey", openai: "openaiKey", replicate: "replicateKey", kling: "klingKey",
 };
 
 // Sinematik Belgesel vitrin senaryosu (docu-engine/videos/belgesel.json).

@@ -781,3 +781,28 @@ test('pre-industrial story: stock sites only for timeless shots (sea, sky, fire)
   assert.equal(keep({ search: 'candle flame in darkness' }, 1453).length, 5);
   assert.equal(keep({ search: 'new york street' }, 1929).length, 5, 'after 1850 the rule does not apply');
 });
+
+test('scene eras: a story from 1338 to today judges each scene by its own time, not one median year', () => {
+  const scenes = [
+    { chapter: 0, say: 'This October a technician died.', search: 'Irkutsk institute winter' },
+    { chapter: 0, say: 'Sixty staff were sealed inside.' },
+    { chapter: 1, say: 'Caffa.', search: 'siege of Caffa 1346' },
+    { chapter: 1, say: 'Europe.', search: 'Black Death 1348 manuscript' },
+    { chapter: 1, say: 'The ships came.' },
+    { chapter: 2, say: 'Sverdlovsk.', search: 'Sverdlovsk 1979' },
+    { chapter: 2, say: 'Yeltsin admitted it.', search: 'Yeltsin 1992' },
+    { chapter: 2, say: 'A reporter asked again.', search: 'Moscow press 2024' },
+    { chapter: 3, say: 'So what do we know?' },
+    { chapter: 3, say: 'In 1979 it was told tainted meat.', search: 'Soviet laboratory 1979' },
+    ...Array.from({ length: 8 }, () => ({ chapter: 3, say: 'An open file.' })),
+  ];
+  const r = arch.sceneEras({ scenes }, { now: 2026 });
+  assert.deepEqual(r.scenes.map((s) => s.era), ['2026', '2026', '1346', '1348', '1348', '1979', '1992', '2024', '2026', '1979', ...Array(8).fill('2026')]);
+  // A narrow story keeps the single story era; a countdown keeps its items' own years.
+  const narrow = { scenes: [{ chapter: 0, search: 'Apollo 13 1970' }, { chapter: 1, say: 'Houston.' }] };
+  assert.equal(arch.sceneEras(narrow, { now: 2026 }), narrow);
+  const ranking = { format: 'ranking', scenes };
+  assert.equal(arch.sceneEras(ranking, { now: 2026 }), ranking);
+  // A news explainer: chapters with no year are today.
+  assert.equal(arch.sceneEras({ scenes: [{ chapter: 0, say: 'Today.' }] }, { now: 2026, news: true }).scenes[0].era, '2026');
+});

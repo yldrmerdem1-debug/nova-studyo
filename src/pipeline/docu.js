@@ -32,7 +32,7 @@ import { qaVideo, QA_VERSION, invalidateArchivePicks, applyQaRejections } from "
 import { runDocuPackage, renderWithEngine } from "./docu-package.js";
 import { designGate, stillScript, stillAssets } from "./docu-design-gate.js";
 import { auditEra, applyEraRejections, eraRejectedUrls, eraAiOnly, readEraFixes } from "./docu-era-audit.js";
-import { hikayeDonemi } from "./docu-archive.js";
+import { hikayeDonemi, sceneEras } from "./docu-archive.js";
 import { claudeSpendUsd } from "../llm.js";
 
 /**
@@ -140,6 +140,9 @@ export function runDocuEngine({ scriptPath, workDir, output, srt, thumbnail, voi
     openaiImageModel: settings.openaiImageModel || "gpt-image-2",
     // Açılış hareketi modeli; 2.5D derinlik katmanları sahne başına ücretli Replicate çağrısı — yalnızca ayar açıksa.
     videoModel: settings.replicateVideoModel || undefined,
+    // Kling anahtarı varsa açılış hareketi doğrudan Kling 3.0 1080p (Replicate'in yerine).
+    klingOpeningModel: settings.klingOpeningModel || undefined,
+    klingOpeningResolution: settings.klingOpeningResolution || undefined,
     depthLayers: settings.docuDepthLayers === true,
     cacheDir: path.join(DATA_DIR, "docu-cache"),
     ffmpeg: settings.ffmpegPath || "ffmpeg",
@@ -160,7 +163,7 @@ export function runDocuEngine({ scriptPath, workDir, output, srt, thumbnail, voi
       cwd: runtime,
       env: {
         ...process.env, ELECTRON_RUN_AS_NODE: "1",
-        NOVA_ELEVEN_KEY: settings.elevenKey, NOVA_REPLICATE_KEY: settings.replicateKey || "", NOVA_OPENAI_KEY: settings.openaiKey || "",
+        NOVA_ELEVEN_KEY: settings.elevenKey, NOVA_REPLICATE_KEY: settings.replicateKey || "", NOVA_KLING_KEY: settings.klingKey || "", NOVA_OPENAI_KEY: settings.openaiKey || "",
         // Ses kütüphanesi (lisanslı müzik + efekt/ortam sesleri) ve müzik kaynağı.
         NOVA_AUDIO_LIB: audioLibraryDir(settings),
         NOVA_MUSIC_SOURCE: docuMusicSource(settings),
@@ -463,6 +466,12 @@ export async function runDocuJob({ jobId, job, dir, usage, saveUsage, isCancelle
       return Number.isFinite(y) && y !== 0 ? { ...s, era: y < 0 ? `${-y} BC` : String(y) } : s;
     }) };
   }
+  // Yüzyıllara yayılan hikâye (ya da bugünün haberi): sahne kendi yılıyla, yoksa bölümünün dönemiyle yargılanır.
+  // Bugünü anlatan konu: haber formatı ya da konusu/yönlendirmesi bu yılı ya da geçen yılı anıyor ("October 2026").
+  const thisYear = new Date().getFullYear();
+  const today = job.docuFormat === "news" || [thisYear, thisYear - 1].some((y) => new RegExp(`\b${y}\b`).test(`${job.topic || ""} ${job.guidance || ""}`));
+  const withEras = sceneEras(docu, { news: today, now: thisYear });
+  if (withEras !== docu) { docu = withEras; writeJson(docuFile, docu); log2("Geniş zamanlı hikâye: sahneler kendi/bölüm dönemiyle arşivlenecek"); }
   for (const w of docu.stats?.warnings || []) quality.push(w);
   const script = novaView(docu);
   // Senaryo sonradan düzenlenmiş olabilir: Nova görünümü her çalıştırmada ona eşitlenir.
@@ -713,8 +722,8 @@ export async function runDocuJob({ jobId, job, dir, usage, saveUsage, isCancelle
     }
     log2(`Sahne düzeltmeleri uygulandı: ${hit} sahne`);
   }
-  // Açılış hareketi: gerçek klibi olmayan en çok iki açılış sahnesi resimden videoya (Replicate) — uyuyorsa.
-  if (settings.docuOpeningMotion !== false && settings.replicateKey) {
+  // Açılış hareketi: gerçek klibi olmayan en çok iki açılış sahnesi resimden videoya (Kling 3.0; anahtarı yoksa Replicate).
+  if (settings.docuOpeningMotion !== false && (settings.klingKey || settings.replicateKey)) {
     const moving = openingMotionTargets(engineDocu);
     if (moving) log2(`Açılış: ${moving} sahne resimden videoya çevrilecek (gerçek klibi yok)`);
   }

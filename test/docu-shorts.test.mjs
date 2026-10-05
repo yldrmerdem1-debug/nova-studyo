@@ -270,3 +270,13 @@ test('picture Short figures land when the whole number is said, unit included (s
   const e = ws('Over nine thousand banks fail');
   assert.equal(e[S.numberEnd(e, 1)].w, 'thousand');
 });
+
+test('a quantity is never split across captions: "half | a dozen hospitals" would read as twelve', () => {
+  const text = 'So why are nearly two hundred people under watch, and half a dozen hospitals sealed?';
+  let t = 0;
+  const words = text.split(' ').map((w) => { const s = t; t += 0.32; return { w, s, e: s + 0.28 }; });
+  const captions = captionEvents(S.buildTeaserAss({ words, voiceEnd: t, total: t + 2 }));
+  const lines = captions.map((c) => c.text.toLowerCase());
+  assert.ok(lines.some((l) => /half a dozen/.test(l)), lines.join(' | '));
+  assert.ok(lines.some((l) => /two hundred/.test(l)), lines.join(' | '));
+});

@@ -412,6 +412,10 @@ function teaserPhrases(words) {
   const chunks = [];
   const sentenceEnd = /[.!?…]["'”’)]*$/;
   const dangling = /^(a|an|the|and|or|but|at|by|for|from|in|of|on|to|with|could|would|should|will|ve|bir|ile|için)$/i;
+  // A quantity is one unit: "half | a dozen hospitals" read as "a dozen" (12) on its own line — wrong number.
+  const bare = (w) => String(w || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const magnitude = /^(dozen|dozens|hundred|hundreds|thousand|thousands|million|millions|billion|billions|trillion|trillions|percent)$/;
+  const splitsQuantity = (a, b) => !/[,.;:!?]$/.test(String(a)) && (magnitude.test(bare(b)) || (bare(a) === "half" && /^(a|an)$/.test(bare(b))));
   for (let begin = 0; begin < words.length;) {
     let end = begin + 1;
     while (end < words.length && !sentenceEnd.test(words[end - 1].w)) end++;
@@ -428,6 +432,7 @@ function teaserPhrases(words) {
           + (j === i ? 45 : 0) + Math.max(0, 1.15 - duration) * 120
           + Math.max(0, duration - 2.8) * 15
           + (stop < end && dangling.test(words[j].w) ? 25 : 0)
+          + (stop < end && splitsQuantity(words[j].w, words[stop].w) ? 80 : 0)
           - (/[,;:]$/.test(words[j].w) ? 4 : 0) + costs.get(stop);
         if (score < best) { best = score; next.set(i, stop); }
       }

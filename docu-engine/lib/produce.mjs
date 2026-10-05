@@ -44,6 +44,7 @@ import { ensureFoley, libraryRoot, loadLibrary, musicHistoryFor, pickSfxPools, p
 import { applyBreath, applyEditGrammar } from './edit-grammar.mjs';
 import { planInserts } from './inserts.mjs';
 import { directLines, isV4, untagAlignment } from './voice-director.mjs';
+import { klingImageToVideo } from './kling.mjs';
 import { VOICE_CHAIN_VERSION, applySpace, panVariant, processVoice, widenBed } from './sound-craft.mjs';
 import { placeTimeline } from '../src/timeline.js';
 import { openingEnd } from '../src/opening/plan.js';
@@ -571,6 +572,7 @@ export async function produce(scriptIn, o) {
   const FFMPEG = o.ffmpeg ?? 'ffmpeg';
   const EL_KEY = o.keys?.eleven;
   const RP_KEY = o.keys?.replicate;
+  const KL_KEY = o.keys?.kling;
   const OA_KEY = o.keys?.openai;
   if (!EL_KEY) throw new Error('ElevenLabs anahtarı yok');
   /*
@@ -1182,10 +1184,13 @@ export async function produce(scriptIn, o) {
   /*
    * OPENING MOTION (Nova marks at most two opening scenes `aiMotion`: an AI still of something that
    * moves — sea, fire, crowds, steam — that found no real footage). The still becomes a 5 s image-to-
-   * video clip (Replicate, Kling 2.5 Turbo Pro by default) and the scene plays it as footage; the
-   * settled part is used (the first ~0.6 s barely moves). Paid once per picture + prompt + model.
+   * video clip and the scene plays it as footage; the settled part is used (the first ~0.6 s barely
+   * moves). With a Kling key: Kling 3.0 1080p straight from Kling's API (the opening is where the
+   * viewer stays or leaves); otherwise Replicate (Kling 2.5 Turbo Pro by default). Paid once per
+   * picture + prompt + model.
    */
-  const VIDEO_MODEL = o.videoModel || 'kwaivgi/kling-v2.5-turbo-pro';
+  const VIDEO_MODEL = KL_KEY ? (o.klingOpeningModel || 'kling-3.0') : (o.videoModel || 'kwaivgi/kling-v2.5-turbo-pro');
+  const NEGATIVE = 'text, captions, watermark, morphing, warping faces, distorted hands, flicker, fast camera shake, cartoon, modern objects';
   async function openingMotion(scene) {
     const what = String(scene.motion || scene.imagePrompt || '').trim().replace(/\.$/, '');
     const prompt = `${what}; natural movement in the scene (water, smoke, fire, cloth, crowds, light). One slow, deliberate cinematic camera push. Realistic physics, photographic, period-accurate, same lighting and grade as the first frame, no new objects or people appear, faces stay stable.`;
@@ -1195,10 +1200,14 @@ export async function produce(scriptIn, o) {
     if (!fileOk(abs)) {
       log(`açılış hareketi: ${basename(scene.image)} → ${VIDEO_MODEL.split('/').pop()}`);
       const uri = 'data:image/jpeg;base64,' + readFileSync(join(PUBLIC, scene.image)).toString('base64');
-      const input = /kling/.test(VIDEO_MODEL)
-        ? { start_image: uri, prompt, duration: 5, negative_prompt: 'text, captions, watermark, morphing, warping faces, distorted hands, flicker, fast camera shake, cartoon, modern objects' }
-        : { image: uri, prompt };
-      writeAtomic(abs, await replicate(VIDEO_MODEL, input));
+      if (KL_KEY) {
+        writeAtomic(abs, await klingImageToVideo({ key: KL_KEY, image: uri, prompt, negative: NEGATIVE, duration: 5, resolution: o.klingOpeningResolution || '1080p', model: VIDEO_MODEL, taskId: `nova-op-${key}`, logFn: log, isCancelled: cancelled }));
+      } else {
+        const input = /kling/.test(VIDEO_MODEL)
+          ? { start_image: uri, prompt, duration: 5, negative_prompt: NEGATIVE }
+          : { image: uri, prompt };
+        writeAtomic(abs, await replicate(VIDEO_MODEL, input));
+      }
     }
     const info = String(spawnSync(FFMPEG, ['-hide_banner', '-i', abs], { encoding: 'utf8', windowsHide: true }).stderr || '');
     const d = /Duration: (\d+):(\d+):([\d.]+)/.exec(info);
@@ -1458,7 +1467,7 @@ export async function produce(scriptIn, o) {
     if (failed) warnings.fallbackImages.push(i);
     // A collage board shows photos as paper cards and never draws depth layers: no paid cutout for them.
     const onBoard = scene.type === 'photo' && GENRE_LOOK.collage && !scene.natural && !scene.fullBleed;
-    if (scene.aiMotion && scene.image && RP_KEY && !scene.video) {
+    if (scene.aiMotion && scene.image && (KL_KEY || RP_KEY) && !scene.video) {
       try {
         Object.assign(scene, await openingMotion(scene));
       } catch (e) {

@@ -41,7 +41,7 @@ export function motionPrompt({ motion = "", picture = "", say = "", opening = fa
 const sha = (x) => crypto.createHash("sha1").update(x).digest("hex").slice(0, 16);
 
 /** Başlangıç resmi: 9:16 pencere, en fazla 1080x1920, JPEG — yükleme küçük, kadraj doğru. */
-function startFrame(ffmpeg, abs, crop) {
+export function startFrame(ffmpeg, abs, crop) {
   const tmp = path.join(os.tmpdir(), `nova-i2v-${process.pid}-${Math.random().toString(36).slice(2)}.jpg`);
   const vf = crop ? `crop=${crop.w}:${crop.h}:${crop.x}:${crop.y},scale=1080:1920:flags=lanczos` : "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920";
   const r = spawnSync(ffmpeg, ["-y", "-v", "error", "-i", abs, "-vf", vf, "-frames:v", "1", "-q:v", "3", tmp], { encoding: "utf8" });

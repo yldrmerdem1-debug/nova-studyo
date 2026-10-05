@@ -4,7 +4,7 @@
 // spec.json: { scriptPath, workDir, cacheDir, output, srt?, thumbnail?, voiceId?, voiceModel?, ffmpeg?, concurrency?,
 //              renderConcurrency?, imageProvider?, openaiImageModel?, minSeconds?, audioLibrary?, musicSource?,
 //              keepChunks?, cancelFile? }
-// Anahtarlar ortamdan gelir (dosyaya yazılmaz): NOVA_ELEVEN_KEY, NOVA_REPLICATE_KEY, NOVA_OPENAI_KEY.
+// Anahtarlar ortamdan gelir (dosyaya yazılmaz): NOVA_ELEVEN_KEY, NOVA_REPLICATE_KEY, NOVA_KLING_KEY, NOVA_OPENAI_KEY.
 // Ses kütüphanesi ve müzik kaynağı da ortamdan: NOVA_AUDIO_LIB (klasör), NOVA_MUSIC_SOURCE ("library" | "eleven").
 //
 // stdout'a her satır bir JSON olay yazar:
@@ -61,6 +61,8 @@ try {
     openaiImageModel: spec.openaiImageModel,
     // Opening motion clips (Replicate) and the optional paid 2.5D depth layers (Nova settings).
     videoModel: spec.videoModel || undefined,
+    klingOpeningModel: spec.klingOpeningModel || undefined,
+    klingOpeningResolution: spec.klingOpeningResolution || undefined,
     depthLayers: typeof spec.depthLayers === 'boolean' ? spec.depthLayers : undefined,
     // Seslendirmeden sonra ölçülen süre bunun altındaysa müzik/render'a geçilmez.
     minSeconds: Number(spec.minSeconds) || 0,
@@ -70,7 +72,7 @@ try {
     musicSource: process.env.NOVA_MUSIC_SOURCE || spec.musicSource || undefined,
     // Render parçaları: belirtilmezse yalnız eksik varlıklı (yeniden render'ı beklenen) videoda saklanır.
     keepChunks: typeof spec.keepChunks === 'boolean' ? spec.keepChunks : undefined,
-    keys: { eleven: process.env.NOVA_ELEVEN_KEY, replicate: process.env.NOVA_REPLICATE_KEY, openai: process.env.NOVA_OPENAI_KEY },
+    keys: { eleven: process.env.NOVA_ELEVEN_KEY, replicate: process.env.NOVA_REPLICATE_KEY, kling: process.env.NOVA_KLING_KEY, openai: process.env.NOVA_OPENAI_KEY },
     cancelled: () => {
       if (!stop && spec.cancelFile && Date.now() - lastCheck > 500) {
         lastCheck = Date.now();

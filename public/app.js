@@ -2043,8 +2043,11 @@ function renderSettings(main) {
         <div>${keyRow({ id: "sReplicate", which: "replicate", label: "REPLICATE API",
           has: s.hasReplicateKey, placeholder: "replicate.com/account/api-tokens",
           hint: "Shorts hareketi (resimden video), Sinematik Belgesel 2.5D derinlik katmanları (yazı kişinin arkasına geçer); OpenAI anahtarı yoksa FLUX ile görsel üretimi." })}</div>
+        <div>${keyRow({ id: "sKling", which: "kling", label: "KLING API",
+          has: s.hasKlingKey, placeholder: "klingai.com → API → API Key",
+          hint: "Resimden video, doğrudan Kling (Replicate'in yerine geçer). Açılış Kling 3.0 1080p, açılış dışı hareket Kling 2.5 Turbo 720p. Test kalan birimi gösterir." })}</div>
         <div>
-          <label class="field-label">SHORTS HAREKETİ (REPLICATE)</label>
+          <label class="field-label">SHORTS HAREKETİ (${s.hasKlingKey ? "KLING" : "REPLICATE"})</label>
           <label class="row" style="gap:8px; font-size:13px"><input type="checkbox" id="sShortsMotion" ${s.shortsMotion !== false ? "checked" : ""}/> Açılış ve uygun sahneler gerçek harekete dönsün</label>
           <div class="row" style="gap:8px; margin-top:6px">
             <input id="sShortsMotionMax" type="number" min="0" max="20" value="${Number.isFinite(+s.shortsMotionMax) ? +s.shortsMotionMax : 4}" style="width:80px" title="Shorts başına en çok hareketli sahne"/>
@@ -2052,7 +2055,7 @@ function renderSettings(main) {
           </div>
           <label class="row" style="gap:8px; font-size:13px; margin-top:6px"><input type="checkbox" id="sDocuOpenMotion" ${s.docuOpeningMotion !== false ? "checked" : ""}/> Uzun video açılışı: gerçek klibi yoksa en çok 2 sahne hareketli</label>
           <label class="row" style="gap:8px; font-size:13px"><input type="checkbox" id="sDocuDepth" ${s.docuDepthLayers === true ? "checked" : ""}/> Uzun video 2.5D derinlik katmanları (sahne başına ücretli)</label>
-          <div class="hint">Shorts başına en çok sahne ve Replicate modeli (Kling 2.5 Turbo Pro önerilir; seedance-1-pro, hailuo-02, veo-3-fast da olur). Klip başına ~5 sn; gerçek kişi fotoğrafı ve belge asla canlandırılmaz.</div>
+          <div class="hint">Shorts başına en çok sahne ve (Kling anahtarı yoksa) Replicate modeli. Kling varsa açılış cümleleri Kling 3.0, kalanı 2.5 Turbo; klip cümle kadar (saniye başı ödenir). Gerçek kişi fotoğrafı ve belge asla canlandırılmaz.</div>
         </div>
         <div class="full" style="border-top:1px solid var(--border); padding-top:14px; margin-top:4px">
           <b style="font-size:13px">🎥 Sinematik Belgesel — müzik ve ses</b>
@@ -2250,7 +2253,7 @@ function renderSettings(main) {
       shortsMotionMax: Number($("#sShortsMotionMax").value) || 0,
       replicateVideoModel: $("#sRepVid").value.trim(),
     };
-    for (const [id, key] of [["sOpenai", "openaiKey"], ["sAnthropic", "anthropicKey"], ["sPexels", "pexelsKey"], ["sPixabay", "pixabayKey"], ["sUnsplash", "unsplashKey"], ["sEuropeana", "europeanaKey"], ["sEleven", "elevenKey"], ["sReplicate", "replicateKey"], ["sFal", "falKey"], ["sKie", "kieKey"], ["sHiggs", "higgsKey"]]) {
+    for (const [id, key] of [["sOpenai", "openaiKey"], ["sAnthropic", "anthropicKey"], ["sPexels", "pexelsKey"], ["sPixabay", "pixabayKey"], ["sUnsplash", "unsplashKey"], ["sEuropeana", "europeanaKey"], ["sEleven", "elevenKey"], ["sReplicate", "replicateKey"], ["sKling", "klingKey"], ["sFal", "falKey"], ["sKie", "kieKey"], ["sHiggs", "higgsKey"]]) {
       const v = $("#" + id).value.trim();
       if (v) patch[key] = v;
     }

@@ -40,6 +40,14 @@ export const DEFAULT_SETTINGS = {
   elevenKey: "",
   // Sinematik Belgesel modu: görseller (flux, tutarlı karakter, derinlik katmanları) Replicate'ten.
   replicateKey: "",
+  // Kling (doğrudan API, klingai.com): resimden video. Varsa Replicate'in yerine geçer. Açılış
+  // (Shorts'un ilk cümleleri, belgeselin açılışı) Kling 3.0 1080p — izleyici orada tutulur; açılış
+  // dışı hareket ucuz Kling 2.5 Turbo 720p. Saniye başı ödenir: klip cümle kadar istenir.
+  klingKey: "",
+  klingOpeningModel: "kling-3.0",
+  klingOpeningResolution: "1080p",
+  klingModel: "kling-2.5-turbo",
+  klingResolution: "720p",
   // Shorts hareketi: resimden videoya (Replicate). Açılış cümleleri her zaman, sonra uygun
   // (AI ya da kişisiz arşiv) cümleler tavana kadar canlanır; gerçek kişi fotoğrafı ve belge
   // asla (yüz bozulur, belge sahtelenir). Klip başına ~5 sn.
@@ -255,8 +263,9 @@ export function publicSettings() {
   s.hasHiggsKey = !!s.higgsKey;
   s.hasOpenaiKey = !!s.openaiKey;
   s.hasReplicateKey = !!s.replicateKey;
+  s.hasKlingKey = !!s.klingKey;
   delete s.anthropicKey; delete s.pexelsKey; delete s.pixabayKey; delete s.elevenKey; delete s.unsplashKey;
-  delete s.falKey; delete s.kieKey; delete s.higgsKey; delete s.openaiKey; delete s.europeanaKey; delete s.replicateKey;
+  delete s.falKey; delete s.kieKey; delete s.higgsKey; delete s.openaiKey; delete s.europeanaKey; delete s.replicateKey; delete s.klingKey;
   const lib = audioLibraryInfo(s);
   s.audioLibrary = { dir: lib.dir, defaultDir: audioLibraryDir({}), ready: lib.ready, tracks: lib.tracks, sfx: lib.sfx };
   return s;

@@ -230,6 +230,50 @@ export function hikayeDonemi(script) {
   const orta = yillar[Math.floor(yillar.length / 2)];
   return `${orta}${yillar[0] !== yillar.at(-1) ? ` (anlatım ${yillar[0]}–${yillar.at(-1)} arası)` : ""}`;
 }
+/** A scene's own years (digits in its search/text fields; a year counter 5×). */
+function sahneYillari(s) {
+  const yillar = [];
+  const metin = [s.say, s.search, s.text, s.title, s.kicker, s.caption, s.role, ...(s.imagePrompts || []).map((p) => p?.search)].filter(Boolean).join(" ");
+  for (const m of String(metin).matchAll(/\b(1\d\d\d|20[0-2]\d)\b/g)) yillar.push(+m[1]);
+  if (s.type === "counter" && (s.year || (Number.isInteger(s.to) && s.to >= 1000 && s.to <= 2029 && !s.prefix && !s.suffix))) yillar.push(s.to, s.to, s.to, s.to, s.to);
+  return yillar;
+}
+/** Bundan geniş (yıl) hikâye tek dönemle yargılanmaz. */
+export const GENIS_HIKAYE_YIL = 150;
+/**
+ * Yüzyıllara yayılan hikâyede her sahnenin kendi dönemi (scene.era). Tek ortanca yıl yanlıştı: Kara
+ * Ölüm (1338–2026) "1911" çıktı ve 2026 laboratuvar sahnesinin modern fotoğrafları "1911 ile
+ * çelişiyor" diye reddedildi. Sahne kendi yılını taşıyorsa o; yoksa bölümünün dönemi; yılı hiç
+ * geçmeyen bölüm, hikâye bugüne uzanıyorsa (ya da haber formatıysa) bugün. Geri sayım (her madde
+ * kendi yılı), senaryonun kendi `era`sı ve elle verilmiş sahne `era`sı dokunulmaz.
+ */
+export function sceneEras(script, { now = new Date().getFullYear(), news = false } = {}) {
+  if (!script?.scenes?.length || script.era || script.format === "ranking") return script;
+  const all = script.scenes.flatMap(sahneYillari).sort((a, b) => a - b);
+  const genis = all.length > 0 && all.at(-1) - all[0] >= GENIS_HIKAYE_YIL;
+  if (!genis && !news) return script;
+  const bugune = news || (all.length > 0 && all.at(-1) >= now - 5);
+  const bolum = new Map();
+  for (const s of script.scenes) {
+    if (bolum.has(s.chapter)) continue;
+    const own = script.scenes.filter((x) => x.chapter === s.chapter);
+    // Bugünde geçen bölüm geçmişe tek cümleyle döner ("1979'da da öyle denmişti"): o tek yıl bölümün
+    // dönemi değildir. Yıl taşıyan sahne azsa (%15'ten az) bölüm bugündür; o sahne kendi yılını alır.
+    const yilli = own.filter((x) => sahneYillari(x).length).length;
+    const d = bugune && yilli < own.length * 0.15 ? "" : hikayeDonemi({ scenes: own });
+    bolum.set(s.chapter, d ? String(donemYili(d)) : bugune ? String(now) : "");
+  }
+  let n = 0;
+  const scenes = script.scenes.map((s) => {
+    if (s.era) return s;
+    const own = sahneYillari(s).sort((a, b) => a - b);
+    const era = own.length ? String(own[Math.floor(own.length / 2)]) : bolum.get(s.chapter);
+    if (!era) return s;
+    n++;
+    return { ...s, era };
+  });
+  return n ? { ...script, scenes } : script;
+}
 /**
  * Hikâyenin ana yılı (hikayeDonemi metninin ilk yılı) ya da null. 100–2099 ve MÖ/BC yılları (negatif):
  * yalnızca 1500+ tanındığında "1453 (Bizans ve Osmanlı…)" null dönüyor, dönem denetimi ve

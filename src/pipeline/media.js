@@ -342,6 +342,8 @@ function searchLocalAssets(query, wantType) {
     }));
 }
 
+const hostOf = (u) => { try { return new URL(u).hostname; } catch { return ""; } };
+
 async function searchOpenverse(query) {
   const url = `https://api.openverse.org/v1/images/?q=${encodeURIComponent(query)}&page_size=16&mature=false`;
   const data = await fetchJson(url);
@@ -349,6 +351,9 @@ async function searchOpenverse(query) {
     .filter((r) => r.url && boyutYeterli(r.width, r.height))
     // SVG ffmpeg tarafından çözülemiyor — baştan ele
     .filter((r) => !/\.svgz?(\?|$)/i.test(r.url) && !/svg/i.test(r.filetype || ""))
+    // rawpixel'in Openverse'e verdiği adres önizleme: CC0 eserin üstüne soluk "rawpixel" filigranı basılı
+    // (Kara Ölüm Shorts'unda bakteri mikrografı). Görüntü modeli soluk filigranı kaçırıyor — kaynakta elenir.
+    .filter((r) => !/(^|\.)rawpixel\.com$/i.test(hostOf(r.url)) && !/rawpixel/i.test(r.source || r.provider || ""))
     .map((r) => ({
       provider: "openverse",
       type: "image",
