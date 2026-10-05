@@ -254,7 +254,7 @@ function docuBibleSchema(plan) {
     properties: {
       title: { type: "string", description: "Videonun başlığı (video dilinde, merak uyandıran)" },
       genre: { type: "string", enum: DOCU_GENRES.map((g) => g.id), description: "Kurgu stili — hikâyenin RUHUNA en uyan: " + DOCU_GENRES.map((g) => `${g.id} = ${g.when}`).join("; ") },
-      visualStyle: { type: "string", description: "İNGİLİZCE, tek cümle: tüm görsellerin ortak dili (dönem, film stoğu, ışık, lens). Örn: 'Authentic 1970s Istanbul documentary photograph, grainy Kodak Tri-X black and white film, natural available light, candid, archival print texture.'" },
+      visualStyle: { type: "string", description: "İNGİLİZCE, tek cümle: TEK BİR KARENİN ortak dili (dönem, film stoğu, ışık, lens) — her görsel isteğine eklenir. Kurguyu anlatma ('intercut with archival prints', 'mixed with', 'collage' YAZMA: görsel üretici kolaj yapar). Örn: 'Authentic 1970s Istanbul documentary photograph, grainy Kodak Tri-X black and white film, natural available light, candid, archival print texture.'" },
       centralQuestion: { type: "string", description: "Videonun MERKEZ SORUSU (video dilinde, tek soru cümlesi). İzleyici cevabı için sonuna kadar kalır; son bölüm cevaplar." },
       stakes: { type: "string", description: "Ne kaybedilebilirdi, neden önemli (video dilinde, 1 cümle)" },
       promise: { type: "string", description: "İlk 30 saniyede anlatıcının söyleyeceği VAAT: izleyici sonunda neyi anlayacak (video dilinde, 1 cümle, 'bu videoda' kalıbı OLMADAN)" },

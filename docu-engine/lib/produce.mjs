@@ -886,7 +886,16 @@ export async function produce(scriptIn, o) {
    * a model ever rejects it on generations too, it is dropped for the run.
    */
   let oaModeration = true;
-  async function openaiImage({ prompt, size, refs = [] }) {
+  /*
+   * ONE FRAME. A visualStyle that describes the edit ("intercut with authentic archival prints:
+   * manuscripts, glass-plate photographs, film stills") rides on every prompt, and GPT Image read it
+   * as "make a collage": 17 of the Black Death video's stills came out as grids of invented archive
+   * photos with invented faces. Sent with every request, outside the cache key (good stills of old
+   * projects stay cached).
+   */
+  const ONE_FRAME = ' One single continuous photograph of one scene: never a collage, grid, mosaic, split frame, contact sheet or several pictures; no photos pinned or laid out on a surface unless the scene itself is about them.';
+  async function openaiImage({ prompt: asked, size, refs = [] }) {
+    const prompt = `${asked}${ONE_FRAME}`;
     const deadline = Date.now() + 8 * 60_000;
     for (let attempt = 1; ; attempt++) {
       guard();
