@@ -414,10 +414,11 @@ export function newsResearchLines(job, minutes) {
   return [
     `Video formatı: GÜNDEM AÇIKLAYICI belgesel (son 1-3 günün olayı), hedef süre ~${minutes} dakika.`,
     ``,
-    `Şunları çıkar (web araması yap; en güncel kaynaklar):`,
+    `Şunları çıkar (web araması yap; en güncel kaynaklar — hem olayın yerel dilindeki basında hem büyük uluslararası yayınlarda ara):`,
     `1) KRONOLOJİ: tarih ve mümkünse saatle, ne oldu — her madde kaynağıyla (yayın adı + tarih).`,
     `2) DOĞRULANMIŞ olgular ve DOĞRULANMAMIŞ iddialar ayrı listelerde. Her iddianın sahibi (resmî kurum, yerel basın, isimsiz kaynak).`,
-    `3) Resmî açıklamalar kelimesi kelimesine (tırnak içinde, kimin söylediği, tarih). Uluslararası tepkiler.`,
+    `3) Resmî açıklamalar kelimesi kelimesine (tırnak içinde, kimin söylediği, tarih). Uluslararası tepkiler: BM/DSÖ, AB, ABD ve ilgili kurumların OLAYA ÖZEL açıklamaları — basına yazılı/e-postayla verilenler dahil; bulamadıysan nerede aradığını yaz.`,
+    `3b) ÖLÇEK: olayın sayısal büyüklüğü — kaç kişi etkilendi, izole edildi, gözlem/karantina altında; kapanan ya da kısıtlanan kurumların TAM listesi; alınan önlemler. Her sayı kaynağıyla, çelişen sayılar yan yana.`,
     `4) Rakip versiyonlar: her biri, dayandığı kaynak ve neden önemli olduğu.`,
     `5) Bilim/olgu arka planı: olayın konusu olan şey nedir, ne kadar tehlikeli/önemli (resmî kaynaklarla: DSÖ, CDC, resmî kurumlar).`,
     `6) Tarihî emsaller: benzer olaylar, resmî açıklamanın sonradan yanlış çıktığı ya da doğru çıktığı vakalar (tarih ve sayıyla).`,

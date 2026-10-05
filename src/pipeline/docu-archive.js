@@ -413,7 +413,8 @@ function pickPromptBase(scene, n) {
 }
 
 /** Görme kararı: OpenAI anahtarı varsa onunla (Anthropic kredisi bittiğinde de çalışır), yoksa Claude ile. */
-async function visionPick(scene, thumbs, { settings, usage, logFn, titles = [], sizes = [], video = null }) {
+/** Exported for the picker A/B test (scratchpad vision-ab); the pipeline calls it through `pick`. */
+export async function visionPick(scene, thumbs, { settings, usage, logFn, titles = [], sizes = [], video = null }) {
   const prompt = pickPrompt(scene, thumbs.length, !!video, settings._donem || "");
   const PICK_SCHEMA = video ? VIDEO_PICK_SCHEMA : PICK_SCHEMA_FOTO;
   const label = (i) => {
@@ -450,7 +451,7 @@ async function visionPick(scene, thumbs, { settings, usage, logFn, titles = [], 
     thumbs.forEach((t, i) => {
       content.push({ type: "input_text", text: label(i) });
       // Video ızgarasında 9 küçük kare var: "low" (512 px) onları okunmaz yapar.
-      content.push({ type: "input_image", image_url: `data:image/jpeg;base64,${t.toString("base64")}`, detail: video ? "auto" : "low" });
+      content.push({ type: "input_image", image_url: `data:image/jpeg;base64,${t.toString("base64")}`, detail: video ? "auto" : settings.openaiVisionDetail || "low" });
     });
     const DENEME = 5;
     const geriCekil = (attempt) => 3000 * attempt + Math.random() * 1000;
