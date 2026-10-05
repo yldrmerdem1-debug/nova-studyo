@@ -1,5 +1,14 @@
 # Nova Studyo — Sürüm Notları
 
+## 1.16.5 (5 Ekim 2026)
+
+Anlatıcı sesi: v4 sesleri.
+
+- **v4 için doğrulanmış sesler**: hesaptaki hazır ElevenLabs seslerinin hiçbiri v4 için doğrulanmamış (v2 dönemi sesler). Ses listesi artık ElevenLabs Ses Kütüphanesi'nin **v4 için doğrulanmış** belgesel/eğitim anlatıcılarını en çok kullanılandan başlayarak gösterir (İngilizce 30: James, Michael C. Vincent, Adam Stone, Christopher, Arabella, Ian Cartwell — gerilim ve gizem, Jon, Frederick Surrey, Declan Sage, Jane, Max — belgesel...; Türkçe: Mert Aksoy - Storyteller). ▶ sesin kendi v4 örneğini çalar; seçince hesaba eklenir ve kullanılır. Komik/karakter/çocuk sesleri ayıklanır.
+- Liste sırası: v4 sesleri önce, v2 sesleri sonda; her satırda hangisi olduğu yazar.
+- **Her hesap sesinde v3 / v4 düğmesi**: aynı belgesel cümlesi ses yönetmeninin tonlamasıyla o modelde okunur (bir kez üretilir, saklanır) — ses ve model kulakla seçilir.
+- Bağımsız Shorts panelinde anlatıcı seçimi.
+
 ## 1.16.4 (5 Ekim 2026)
 
 Anlatım: Eleven v4 ve ses yönetmeni.

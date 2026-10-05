@@ -496,13 +496,11 @@ app.get("/api/eleven-voices", async (req, res) => {
     res.json({
       quota,
       blocked,
-      voices: usable.map((v) => ({
-        id: v.voice_id,
-        name: v.name,
-        category: v.category,
-        labels: v.labels || {},
-        preview: v.preview_url || "",
-      })),
+      // v4-verified voices first (their preview is their v4 sample); the v2-era premades after them.
+      voices: usable.map((v) => {
+        const v4 = v4Verified(v);
+        return { id: v.voice_id, name: v.name, category: v.category, labels: v.labels || {}, v4: !!v4, preview: v4?.preview_url || v.preview_url || "" };
+      }).sort((a, b) => Number(b.v4) - Number(a.v4)),
       library,
     });
   } catch (e) {
@@ -511,28 +509,47 @@ app.get("/api/eleven-voices", async (req, res) => {
 });
 
 let narratorCache = { at: 0, list: [] };
-/** Featured narration voices of the ElevenLabs library (English + Turkish), cached for an hour. */
+/** A voice's Eleven v4 verification for a language (its own v4 preview), or null. */
+const v4Verified = (v, lang) => (v.verified_languages || []).find((l) => /eleven_v4/.test(l.model_id || "") && (!lang || l.language === lang)) || null;
+/*
+ * The library's documentary narrators VERIFIED FOR ELEVEN V4 (English + Turkish), most used first.
+ * The account's own premade voices are v2-era (none is verified for v4: user, Oct 2026 — "v4'te farklı
+ * sesler var, sen v3'teki sesleri koyuyorsun"). The preview is the voice's own v4 sample. Cached 6 h.
+ */
 async function featuredNarrators(key) {
-  if (Date.now() - narratorCache.at < 3600e3 && narratorCache.list.length) return narratorCache.list;
+  if (Date.now() - narratorCache.at < 6 * 3600e3 && narratorCache.list.length) return narratorCache.list;
   const out = [];
   // Documentary voices only: narration / education use cases, never comedic or character voices.
   const NARRATION = new Set(["narrative_story", "informative_educational"]);
-  const COMIC = /sassy|comedic|giggl|chuckl|cheerful|quirky|cartoon|hyped|cute/i;
-  for (const q of ["language=en&use_cases=narrative_story", "language=en&use_cases=informative_educational", "language=tr&use_cases=narrative_story", "language=tr&use_cases=informative_educational"]) {
-    try {
-      const r = await fetch(`https://api.elevenlabs.io/v1/shared-voices?featured=true&page_size=12&${q}`, { headers: { "xi-api-key": key } });
-      if (!r.ok) continue;
-      for (const v of (await r.json()).voices || []) {
-        if (out.some((x) => x.id === v.voice_id)) continue;
-        if (!NARRATION.has(v.use_case) || COMIC.test(`${v.name} ${v.descriptive}`)) continue;
-        out.push({
-          id: v.voice_id, name: v.name, library: true, publicOwnerId: v.public_owner_id,
-          labels: { language: v.language || "", accent: v.accent || "", gender: v.gender || "", age: v.age || "", description: v.descriptive || "", use_case: v.use_case || "" },
-          preview: v.preview_url || "", uses: v.cloned_by_count || 0,
-        });
+  const COMIC = /sassy|comedic|giggl|chuckl|cheerful|quirky|cartoon|hyped|cute|kids|grandpa|asmr|romantic/i;
+  const CAP = { en: 30, tr: 6 };
+  for (const lang of ["en", "tr"]) {
+    let n = 0;
+    for (const uc of ["narrative_story", "informative_educational"]) {
+      for (let page = 0; page < 3 && n < CAP[lang]; page++) {
+        try {
+          const r = await fetch(`https://api.elevenlabs.io/v1/shared-voices?page_size=100&page=${page}&language=${lang}&use_cases=${uc}&sort=cloned_by_count`, { headers: { "xi-api-key": key } });
+          if (!r.ok) break;
+          const j = await r.json();
+          for (const v of j.voices || []) {
+            const v4 = v4Verified(v, lang);
+            if (!v4 || out.some((x) => x.id === v.voice_id)) continue;
+            if (!NARRATION.has(v.use_case) || COMIC.test(`${v.name} ${v.descriptive}`)) continue;
+            out.push({
+              id: v.voice_id, name: v.name, library: true, v4: true, publicOwnerId: v.public_owner_id,
+              labels: { language: lang, accent: v4.accent || v.accent || "", gender: v.gender || "", age: v.age || "", description: v.descriptive || "", use_case: v.use_case || "" },
+              preview: v4.preview_url || v.preview_url || "", uses: v.cloned_by_count || 0,
+            });
+            if (++n >= CAP[lang]) break;
+          }
+          if (!j.has_more) break;
+        } catch {
+          break;
+        }
       }
-    } catch {}
+    }
   }
+  out.sort((a, b) => b.uses - a.uses);
   narratorCache = { at: Date.now(), list: out };
   return out;
 }

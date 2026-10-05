@@ -505,22 +505,25 @@ function renderForm(main) {
       if (!list.length) return `<div class="hint">ElevenLabs sesleri yükleniyor…</div>`;
       // Every voice can be heard reading the same documentary line, performed by the voice director, on v3 and on v4.
       const lang = f.language === "en" ? "en" : "tr";
-      satirlar = list.map((v) => ({
+      // v4-verified voices first — the account's, then the library's — and the v2-era premades last
+      // (they read on v4 but were never tuned for it).
+      const mine = (v) => ({
         deger: "el:" + v.id,
         secili: f.elevenVoiceId === v.id,
         ad: v.name.split(" - ")[0],
-        alt: [v.labels?.accent, v.labels?.description].filter(Boolean).join(" · ")
-          || v.name.split(" - ")[1] || "",
+        alt: [v.v4 ? "v4 sesi" : "v2 sesi", v.labels?.accent, v.labels?.description].filter(Boolean).join(" · "),
         onizleme: v.preview || "",
         v3: `/api/eleven-sample/${v.id}?model=eleven_v3&lang=${lang}`,
         v4: `/api/eleven-sample/${v.id}?model=eleven_v4&lang=${lang}`,
-      })).concat((state.elevenLibrary || []).filter((v) => !v.labels?.language || v.labels.language.startsWith(lang)).map((v) => ({
+      });
+      const lib = (state.elevenLibrary || []).filter((v) => !v.labels?.language || v.labels.language.startsWith(lang)).map((v) => ({
         deger: "lib:" + v.id,
         secili: false,
         ad: v.name.split(" - ")[0],
-        alt: ["Kütüphane", v.labels?.accent, v.labels?.description, v.uses ? `${Math.round(v.uses / 1000)}B kullanım` : ""].filter(Boolean).join(" · "),
+        alt: ["v4 sesi · kütüphane (seçince hesaba eklenir)", v.labels?.accent, v.labels?.description, v.uses ? `${Math.round(v.uses / 1000)}B kullanım` : ""].filter(Boolean).join(" · "),
         onizleme: v.preview || "",
-      })));
+      }));
+      satirlar = [...list.filter((v) => v.v4).map(mine), ...lib, ...list.filter((v) => !v.v4).map(mine)];
     } else {
       satirlar = edgeVoices().map(([id, v]) => ({
         deger: id,
