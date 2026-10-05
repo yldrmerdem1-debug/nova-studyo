@@ -133,6 +133,8 @@ export function runDocuEngine({ scriptPath, workDir, output, srt, thumbnail, voi
   const spec = path.join(workDir, "spec.json");
   writeJson(spec, {
     scriptPath, workDir, output, srt, thumbnail, voiceId,
+    // Anlatım modeli: Eleven v4 (ses yönetmeni satır satır tonlar — docu-engine/lib/voice-director.mjs).
+    voiceModel: settings.docuVoiceModel || "eleven_v4",
     imageProvider: docuImageProvider(settings),
     openaiImageModel: settings.openaiImageModel || "gpt-image-2",
     // Açılış hareketi modeli; 2.5D derinlik katmanları sahne başına ücretli Replicate çağrısı — yalnızca ayar açıksa.

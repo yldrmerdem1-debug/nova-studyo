@@ -331,7 +331,7 @@ const SCENES_SCHEMA = {
         properties: {
           type: { type: "string", enum: TYPES },
           mood: { type: "string", enum: MOODS },
-          say: { type: "string", description: "Anlatıcının bu sahnedeki satırı (video dilinde), başında İngilizce v3 performans etiketi olabilir: [whispers] ..." },
+          say: { type: "string", description: "Anlatıcının bu sahnedeki satırı (video dilinde), başında İngilizce v4 yönlendirmesi olabilir: [whispers], [quiet, tense] ..." },
           dur: { type: "number", description: "Sahnenin en kısa süresi (sn). Ses daha uzunsa sahne uzar." },
           imagePrompt: { type: "string", description: "İNGİLİZCE çekim tarifi (montage/counter/chart dışında zorunlu)" },
           cast: { type: "array", items: { type: "string" }, description: "Bu karede görünen karakter anahtarları" },
@@ -497,8 +497,8 @@ UZUN FORM: izleyici her 60-90 saniyede yeni bir kanca almalı — bir soru, bir 
 DUYGU (mood) MÜZİĞİN İŞARETİDİR: müzik bölümleri mood'dan kurulur. Bir duyguyu 5-10 sahne (20-60 sn) KORU, yalnızca bölümün dönüm noktasında (turn) değiştir; bölüm başına en fazla 3-4 değişim. Satır satır duygu farkını v3 etiketiyle ver, mood'u değiştirerek değil.
 curious merak · calm sıcak · tension gerilim · dread tehdit · reveal ifşa · sad hüzün · triumph zafer.
 
-SES PERFORMANSI (ElevenLabs v3): say satırının başına İngilizce köşeli etiket koy — [whispers] [quietly] [curious] [warmly] [confident] [serious] [dramatic] [slowly] [sad] [sighs] [softly] [excited]. Etiket satırın duygusunu OYNATIR.
-"..." gerçek bir duraklamadır: ifşadan önce nefes tut ("Ve o tarif... bir gece... [dramatic] çalındı."). Çok nadir, tek kelimeyi BÜYÜK HARFLE vurgula. Etiket dışında köşeli parantez, emoji, madde işareti yok.
+SES PERFORMANSI (ElevenLabs v4 — bir ses sanatçısını yönetiyorsun): say satırının başına İngilizce köşeli YÖNLENDİRME koy. Tek etiket ([whispers] [sighs] [exhales] [curious] [excited] [sarcastic]) ya da kısa tarif ("[low, hushed voice]", "[quiet, tense]", "[slowly, with weight]", "[softly, with sorrow]", "[firmly]", "[warm, unhurried]"). Yönlendirme satırın İŞLEVİNİ oynatır: açılış alçak ve sakin; ifşa yavaş ve ağırlıklı; tehdit fısıltıya yakın; vurucu kısa cümle kararlı (asla fısıltı değil); soru merakla; bölüm sonu yumuşak. Her satıra etiket koyma: aynı renk ardışık satırlarda bir kez yeter (ses satırdan satıra taşır); yönlendirmesiz satırı sistem sahnenin duygusuyla tamamlar. Ses efekti etiketi ([gunshot] [explosion] [applause]) ASLA.
+"..." gerçek bir duraklamadır: ifşadan önce nefes tut ("And that recipe... one night... [slowly, with weight] was stolen."). Çok nadir, tek kelimeyi BÜYÜK HARFLE vurgula. Etiket dışında köşeli parantez, emoji, madde işareti yok.
 
 GÖRSEL: imagePrompt İNGİLİZCE, somut bir çekim: çekim ölçeği + özne + eylem + ışık. Çekimleri ÇEŞİTLE: extreme close-up (eller, gözler, nesne), detail (belge, para, alet), wide (sokak, bina, kalabalık), silhouette, high angle, over-the-shoulder, empty place (kimsenin olmadığı mekân). Aynı kareyi videoda iki kez isteme.
 Karakter görünüyorsa cast'a anahtarını yaz ve istemde "the man"/"the woman" de; GERÇEK İSİM, yazı, tabela, logo, ekran metni isteme (görselde okunur yazı OLMAYACAK). Stil tarifi yazma, sistem ekler.
@@ -583,7 +583,7 @@ function performanceText(s, v3 = true) {
 export function docuElevenNeed(docu, { musicSource = "library", libraryReady = true, sfxPoolReady = false, voiceCachedFraction = 0, musicCached = false } = {}) {
   const lang = /^en/i.test(docu?.locale || "") ? "en" : "tr";
   const scenes = (docu?.scenes || []).filter((s) => !s.chapterCard);
-  const v3 = !docu?.voiceModel || /v3/.test(docu.voiceModel);
+  const v3 = !docu?.voiceModel || /v[34]/.test(docu.voiceModel);
   const chars = scenes.reduce((n, s) => n + (s.say ? performanceText(s, v3).length : 0), 0);
   const voice = Math.round(chars * Math.max(0, 1 - voiceCachedFraction));
   const sec = estimateDocuSeconds(docu, lang);

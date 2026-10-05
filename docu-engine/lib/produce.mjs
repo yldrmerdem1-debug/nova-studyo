@@ -43,6 +43,7 @@ import { fileURLToPath } from 'node:url';
 import { ensureFoley, libraryRoot, loadLibrary, musicHistoryFor, pickSfxPools, planAmbience, planEvents, planScore, readMusicHistory, recordMusicHistory, renderScore, sceneYears, sfxMeta, storyGravity } from './audio-director.mjs';
 import { applyBreath, applyEditGrammar } from './edit-grammar.mjs';
 import { planInserts } from './inserts.mjs';
+import { directLines, isV4, untagAlignment } from './voice-director.mjs';
 import { VOICE_CHAIN_VERSION, applySpace, panVariant, processVoice, widenBed } from './sound-craft.mjs';
 import { placeTimeline } from '../src/timeline.js';
 import { openingEnd } from '../src/opening/plan.js';
@@ -1717,7 +1718,10 @@ export async function produce(scriptIn, o) {
    * "voiceModel" for a steadier read; tags are stripped for it.
    */
   const MODEL = o.voiceModel ?? script.voiceModel ?? 'eleven_v3';
-  const V3 = MODEL.startsWith('eleven_v3');
+  // v4 takes the same inline direction (tags, "...") plus continuous stability; the voice director
+  // (voice-director.mjs) performs each line. v3 keeps its old reads (and its cached takes).
+  const V4 = isV4(MODEL);
+  const V3 = MODEL.startsWith('eleven_v3') || V4;
   /* A line with no direction of its own gets its scene's mood as a tag. */
   const MOOD_TAG = {
     curious: '[curious]',
@@ -1769,14 +1773,19 @@ export async function produce(scriptIn, o) {
    * paid for stay cached.
    */
   const voiced = script.scenes.filter((s) => s.say);
+  // v4: the voice director performs every line knowing its neighbours (opening, punch lines, questions, chapter ends, reveals).
+  const directed = V4 ? directLines(voiced, { model: MODEL }) : null;
   const lines = voiced.map((scene, k) => {
     const mood = MOODS[scene.mood ?? 'curious'] ?? MOODS.curious;
-    const settings = V3
-      ? { stability: V3_STABILITY }
-      : { stability: mood.voice.stability, similarity_boost: 0.82, style: mood.voice.style, use_speaker_boost: true };
-    const text = performance(scene);
+    const settings = V4
+      ? { stability: directed[k].stability, similarity_boost: 0.8 }
+      : V3
+        ? { stability: V3_STABILITY }
+        : { stability: mood.voice.stability, similarity_boost: 0.82, style: mood.voice.style, use_speaker_boost: true };
+    const text = V4 ? directed[k].text : performance(scene);
     const take = Number.isInteger(scene.take) && scene.take > 0 ? scene.take : 0;
-    const ctx = V3 ? null : { previous_text: k > 0 ? stripTags(voiced[k - 1].say) : '', next_text: k < voiced.length - 1 ? stripTags(voiced[k + 1].say) : '' };
+    // Request stitching keeps prosody continuous across lines (v4 and v2; v3 did not support it).
+    const ctx = V3 && !V4 ? null : { previous_text: k > 0 ? stripTags(voiced[k - 1].say) : '', next_text: k < voiced.length - 1 ? stripTags(voiced[k + 1].say) : '' };
     const key = hash(`${VOICE}|${MODEL}|${JSON.stringify(settings)}|${text}${take ? `|take:${take}` : ''}${ctx ? `|ctx:${ctx.previous_text}|${ctx.next_text}` : ''}`);
     return { scene, text, settings, take, ctx, key };
   });
@@ -1879,7 +1888,9 @@ export async function produce(scriptIn, o) {
     }
     writeAtomic(join(CACHE, rel), Buffer.from(j.audio_base64, 'base64'));
     const a = j.alignment;
-    return { dur: a.character_end_times_seconds.at(-1), words: wordsFromAlignment(a), audio: rel, ...(seed !== undefined ? { seed } : {}) };
+    // v4's descriptive tags are several words ("[low, hushed voice]"): their characters are dropped
+    // from the word timings so a tag word can never be taken for a script word ("Last voice, 01:19").
+    return { dur: a.character_end_times_seconds.at(-1), words: wordsFromAlignment(V4 ? untagAlignment(a) : a), audio: rel, ...(seed !== undefined ? { seed } : {}) };
   }
   const seedOf = (n) => (SEED * 7919 + n * 104729) % 4294967295;
 

@@ -1948,6 +1948,14 @@ function renderSettings(main) {
           <div class="hint">Anlatım her zaman ElevenLabs v3 ile. Müzik ve efektler lisanslı ses kütüphanesinden kurgulanırsa ElevenLabs kredisi yalnızca anlatıma gider.</div>
         </div>
         <div>
+          <label class="field-label">ANLATIM SESİ (ELEVENLABS)</label>
+          <div class="row" style="gap:8px; flex-wrap:wrap">
+            <span class="hint" style="margin:0">Belgesel</span> <select id="sDocuVoiceModel">${[["eleven_v4","Eleven v4 · ses yönetmeni (önerilen)"],["eleven_v4_turbo","Eleven v4 Turbo · hızlı"],["eleven_v3","Eleven v3 · eski okuma"],["eleven_multilingual_v2","Multilingual v2 · sakin"]].map(([v,l])=>`<option value="${v}" ${(s.docuVoiceModel||"eleven_v4")===v?"selected":""}>${l}</option>`).join("")}</select>
+            <span class="hint" style="margin:0">Shorts</span> <select id="sShortsVoiceModel">${[["eleven_v4","Eleven v4 · ses yönetmeni (önerilen)"],["eleven_v4_turbo","Eleven v4 Turbo · hızlı"],["eleven_v3","Eleven v3 · eski okuma"],["eleven_multilingual_v2","Multilingual v2 · sakin"]].map(([v,l])=>`<option value="${v}" ${(s.docuShortsVoiceModel||"eleven_v4")===v?"selected":""}>${l}</option>`).join("")}</select>
+          </div>
+          <div class="hint">v4: her satır bir ses sanatçısı gibi yönetilir — açılış alçak ve sakin, vurucu cümle kararlı, soru meraklı, ifşa nefes tutarak, bölüm sonu yumuşak; duyguya göre ince kararlılık ve satırlar arası doğal geçiş. Yazarın kendi yönlendirmesi ([whispers] gibi) her zaman önce gelir.</div>
+        </div>
+        <div>
           <label class="field-label">BELGESEL MÜZİĞİ</label>
           <div class="chips" id="sDocuMusic">
             <div class="chip ${(s.docuMusicSource || "library") === "library" ? "sel" : ""}" data-k="library">Ses kütüphanesi · kredi harcamaz</div>
@@ -2124,6 +2132,8 @@ function renderSettings(main) {
       docuMusicSource: docuMusicSel,
       audioLibraryDir: $("#sAudioLib").value.trim(),
       shortsMotion: $("#sShortsMotion").checked,
+      docuVoiceModel: $("#sDocuVoiceModel").value,
+      docuShortsVoiceModel: $("#sShortsVoiceModel").value,
       docuOpeningMotion: $("#sDocuOpenMotion").checked,
       docuDepthLayers: $("#sDocuDepth").checked,
       shortsMotionMax: Number($("#sShortsMotionMax").value) || 0,

@@ -47,6 +47,11 @@ export const DEFAULT_SETTINGS = {
   shortsMotionMax: 4,
   // Uzun video: açılışta gerçek klibi olmayan en çok 2 hareketli AI sahnesi resimden videoya.
   docuOpeningMotion: true,
+  // Sinematik Belgesel ve Shorts anlatım modeli. eleven_v4: ses yönetmeni her satırı tonlar
+  // (açılış alçak ve sakin, vurucu satır kararlı, soru meraklı, bölüm sonu yumuşak; duyguya göre
+  // sürekli kararlılık; satırlar arası bağlam). eleven_v3: eski okuma ve önbellekteki sesler.
+  docuVoiceModel: "eleven_v4",
+  docuShortsVoiceModel: "eleven_v4",
   // Uzun video 2.5D derinlik katmanları (kişi kesme + silme): sahne başına ücretli Replicate çağrısı.
   docuDepthLayers: false,
   replicateVideoModel: "kwaivgi/kling-v2.5-turbo-pro",

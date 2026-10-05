@@ -323,9 +323,50 @@ export function slamTimes(beats, words) {
   return out;
 }
 
+/**
+ * The Short's narration as performed (Eleven v4): every beat directed by the long video's voice
+ * director (docu-engine/lib/voice-director.mjs) — the opening low and steady, slams firm, questions
+ * curious, the colour of the Short's mood without a tag on every line. Tags only, never a changed
+ * word: speakTeaser drops them from the timings, so beat/slam/figure offsets stay those of the plain text.
+ */
+export async function shortVoiceText(beats, { mood = "curious", model = "eleven_v4" } = {}) {
+  const plain = beats.map((b) => b.say).join(" ");
+  if (!/eleven_v[34]/.test(String(model))) return plain;
+  try {
+    const { docuEngineDir } = await import("./docu.js");
+    const { pathToFileURL } = await import("node:url");
+    const { directLines } = await import(pathToFileURL(path.join(docuEngineDir(), "lib", "voice-director.mjs")).href);
+    const d = directLines(beats.map((b) => ({ say: b.say, mood, type: b.slam ? "slam" : "photo", chapter: 0 })), { model, punctuation: false });
+    return d.map((x) => x.text).join(" ");
+  } catch {
+    return plain;
+  }
+}
+
+/** Alignment without the tag spans (and the space after each): offsets match the untagged text again. */
+function untag(a) {
+  const out = { characters: [], character_start_times_seconds: [], character_end_times_seconds: [] };
+  let inTag = false;
+  let skip = false;
+  a.characters.forEach((ch, i) => {
+    if (ch === "[") inTag = true;
+    if (inTag) {
+      if (ch === "]") { inTag = false; skip = true; }
+      return;
+    }
+    if (skip && /\s/.test(ch)) { skip = false; return; }
+    skip = false;
+    out.characters.push(ch);
+    out.character_start_times_seconds.push(a.character_start_times_seconds[i]);
+    out.character_end_times_seconds.push(a.character_end_times_seconds[i]);
+  });
+  return out;
+}
+
 /** ElevenLabs: metin -> mp3 + kelime zamanları (with-timestamps), uzun videonun anlatıcısıyla. */
-export async function speakTeaser({ text, voiceId, key, model = "eleven_v3", fetchImpl = fetch }) {
-  const body = { text, model_id: model, voice_settings: model === "eleven_v3" ? { stability: 0.5 } : { stability: 0.45, similarity_boost: 0.82, style: 0.35, use_speaker_boost: true } };
+export async function speakTeaser({ text, voiceId, key, model = "eleven_v4", fetchImpl = fetch }) {
+  const voice_settings = /eleven_v4/.test(model) ? { stability: 0.45, similarity_boost: 0.8 } : model === "eleven_v3" ? { stability: 0.5 } : { stability: 0.45, similarity_boost: 0.82, style: 0.35, use_speaker_boost: true };
+  const body = { text, model_id: model, voice_settings };
   const r = await fetchImpl(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/with-timestamps?output_format=mp3_44100_192`, {
     method: "POST",
     headers: { "xi-api-key": key, "Content-Type": "application/json" },
@@ -334,7 +375,7 @@ export async function speakTeaser({ text, voiceId, key, model = "eleven_v3", fet
   });
   if (!r.ok) throw Object.assign(new Error(`ElevenLabs ${r.status}: ${(await r.text()).slice(0, 200)}`), { status: r.status });
   const j = await r.json();
-  const a = j.alignment || j.normalized_alignment;
+  const a = untag(j.alignment || j.normalized_alignment);
   const words = [];
   let cur = "";
   let s0 = null;
@@ -797,7 +838,8 @@ export async function makePictureTeaser({ jobDir, job = {}, settings = {}, usage
   const text = plan.beats.map((b) => b.say).join(" ");
   logFn(`Shorts: seslendiriliyor (${text.length} karakter)...`);
   const voiceId = job.elevenVoiceId || settings.docuEnVoiceId || "nPczCjzI2devNBz1zQrb";
-  const tts = await speak({ text, voiceId, key: settings.elevenKey, model: settings.docuShortsVoiceModel || "eleven_v3" });
+  const voiceModel = settings.docuShortsVoiceModel || "eleven_v4";
+  const tts = await speak({ text: await shortVoiceText(plan.beats, { mood: "tension", model: voiceModel }), voiceId, key: settings.elevenKey, model: voiceModel });
   const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "");
   const voiceFile = path.join(dir, `short-${stamp}.voice.mp3`);
   fs.writeFileSync(voiceFile, tts.audio);
@@ -926,7 +968,8 @@ export async function makeDocuTeaser({ jobDir, job = {}, settings = {}, usage = 
   const text = plan.beats.map((b) => b.say).join(" ");
   logFn(`Shorts: seslendiriliyor (${text.length} karakter)...`);
   const voiceId = job.elevenVoiceId || settings.docuEnVoiceId || "nPczCjzI2devNBz1zQrb";
-  const tts = await speak({ text, voiceId, key: settings.elevenKey, model: settings.docuShortsVoiceModel || "eleven_v3" });
+  const voiceModel = settings.docuShortsVoiceModel || "eleven_v4";
+  const tts = await speak({ text: await shortVoiceText(plan.beats, { mood: "tension", model: voiceModel }), voiceId, key: settings.elevenKey, model: voiceModel });
   const dir = path.join(jobDir, "shorts");
   fs.mkdirSync(dir, { recursive: true });
   const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "");

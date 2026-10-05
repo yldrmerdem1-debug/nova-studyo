@@ -15,7 +15,7 @@ import crypto from "node:crypto";
 import { callJSON, callText } from "../llm.js";
 import { resolveArchive } from "./docu-archive.js";
 import { describePictures, newVerticalPicture, renderPictureTeaser, sizeOf } from "./docu-shorts-pictures.js";
-import { beatStarts, buildTeaserAss, newPictureStyle, numberEnd, slamTimes, slamWord, speakTeaser } from "./docu-shorts.js";
+import { beatStarts, buildTeaserAss, newPictureStyle, numberEnd, shortVoiceText, slamTimes, slamWord, speakTeaser } from "./docu-shorts.js";
 import { OPENINGS, SHORT_LOOKS, pickLook } from "./docu-shorts-looks.js";
 import { kunyeUret } from "./kunye.js";
 import { commonsMetadata } from "./provenance.js";
@@ -341,13 +341,15 @@ export async function makeStandaloneShort({
   const text = beats.map((b) => b.say).join(" ");
   const voiceFile = path.join(dir, "voice.mp3");
   let words = read("words.json");
-  if (!words || !fs.existsSync(voiceFile) || read("voice-text.json")?.text !== text) {
+  const voiceModel = settings.docuShortsVoiceModel || "eleven_v4";
+  // The performance is part of the take: a new model re-voices the Short (same words or not).
+  if (!words || !fs.existsSync(voiceFile) || read("voice-text.json")?.text !== text || (read("voice-text.json")?.model || "eleven_v3") !== voiceModel) {
     logFn(`Shorts: seslendiriliyor (${text.length} karakter)...`);
-    const tts = await speak({ text, voiceId: settings.docuEnVoiceId || "nPczCjzI2devNBz1zQrb", key: settings.elevenKey, model: settings.docuShortsVoiceModel || "eleven_v3" });
+    const tts = await speak({ text: await shortVoiceText(beats, { mood: plan.mood, model: voiceModel }), voiceId: settings.docuEnVoiceId || "nPczCjzI2devNBz1zQrb", key: settings.elevenKey, model: voiceModel });
     fs.writeFileSync(voiceFile, tts.audio);
     words = tts.words;
     save("words.json", words);
-    save("voice-text.json", { text });
+    save("voice-text.json", { text, model: voiceModel });
   }
 
   // 4) timing: one picture per sentence, slams and figures on their spoken words

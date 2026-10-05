@@ -1,5 +1,15 @@
 # Nova Studyo — Sürüm Notları
 
+## 1.16.4 (5 Ekim 2026)
+
+Anlatım: Eleven v4 ve ses yönetmeni.
+
+- **Eleven v4** belgesel ve Shorts anlatımının varsayılanı (Ayarlar → Anlatım sesi; v4 Turbo, v3, Multilingual v2 seçilebilir). Kelime zamanları v4'te de gelir; altyazı ve "önce söyle, sonra göster" zamanlaması aynen çalışır.
+- **Ses yönetmeni** (docu-engine/lib/voice-director.mjs): her satır işlevine göre tonlanır — film alçak ve sakin açılır; vurucu kısa cümle kararlı (fısıltı değil); soru merakla; ifşa son cümleciğinden önce nefes tutar ("..."); bölüm sonu yumuşak ve yavaş; sahnenin duygusu v4'ün tarif etiketleriyle ("[low, hushed voice]", "[quiet, tense]", "[slowly, with weight]"...). Aynı renk ardışık satırlarda bir kez söylenir (her satırda etiket yapay duyulur). Yazarın kendi yönlendirmesi her zaman önce gelir.
+- **İnce kararlılık**: v4'te sürekli (v3: üç sabit değer) — tehdit 0,40, ifşa 0,38, gerilim 0,42, sakin 0,55, vurucu satır 0,58; 0,35'in altına inilmez (uzun okumada kayma).
+- **Satırlar arası süreklilik**: v4'te her satır önceki ve sonraki satırı bağlam olarak alır — tonlama satırdan satıra kopmaz.
+- Senaryo yazarı v4'e göre yönlendirme yazar (ses efekti etiketi asla). v3 ile yapılmış videoların sesleri önbellekte kalır (v3 eskisi gibi okunur).
+
 ## 1.16.3 (5 Ekim 2026)
 
 Hareket: Shorts'ta yapay zekâ videosu, uzun videoda gerçek stok klip.
