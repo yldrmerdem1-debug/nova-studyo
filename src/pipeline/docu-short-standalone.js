@@ -221,7 +221,7 @@ export async function commonsPicture(title, { publicDir, fetchFn = (...a) => fet
  */
 export async function makeStandaloneShort({
   topic, angle = "", opening = "triple", format = "story", titlePattern = "who", look: lookIn = null, recentLooks = [], dir, settings = {}, usage = null, logFn = () => {},
-  ffmpeg, libraryRoot, llm = callJSON, research: researchIn = null, speak = speakTeaser, newPicture = newVerticalPicture,
+  ffmpeg, libraryRoot, llm = callJSON, research: researchIn = null, speak = speakTeaser, newPicture = newVerticalPicture, voiceId = null,
 }) {
   const ff = ffmpeg || settings.ffmpegPath || "ffmpeg";
   fs.mkdirSync(dir, { recursive: true });
@@ -342,14 +342,15 @@ export async function makeStandaloneShort({
   const voiceFile = path.join(dir, "voice.mp3");
   let words = read("words.json");
   const voiceModel = settings.docuShortsVoiceModel || "eleven_v4";
+  const narrator = voiceId || settings.docuEnVoiceId || "nPczCjzI2devNBz1zQrb";
   // The performance is part of the take: a new model re-voices the Short (same words or not).
-  if (!words || !fs.existsSync(voiceFile) || read("voice-text.json")?.text !== text || (read("voice-text.json")?.model || "eleven_v3") !== voiceModel) {
+  if (!words || !fs.existsSync(voiceFile) || read("voice-text.json")?.text !== text || (read("voice-text.json")?.model || "eleven_v3") !== voiceModel || (read("voice-text.json")?.voice || "nPczCjzI2devNBz1zQrb") !== narrator) {
     logFn(`Shorts: seslendiriliyor (${text.length} karakter)...`);
-    const tts = await speak({ text: await shortVoiceText(beats, { mood: plan.mood, model: voiceModel }), voiceId: settings.docuEnVoiceId || "nPczCjzI2devNBz1zQrb", key: settings.elevenKey, model: voiceModel });
+    const tts = await speak({ text: await shortVoiceText(beats, { mood: plan.mood, model: voiceModel }), voiceId: narrator, key: settings.elevenKey, model: voiceModel });
     fs.writeFileSync(voiceFile, tts.audio);
     words = tts.words;
     save("words.json", words);
-    save("voice-text.json", { text, model: voiceModel });
+    save("voice-text.json", { text, model: voiceModel, voice: narrator });
   }
 
   // 4) timing: one picture per sentence, slams and figures on their spoken words

@@ -248,6 +248,7 @@ app.post("/api/shorts", async (req, res) => {
     const settings = getSettings();
     await makeStandaloneShort({
       topic, angle: String(req.body?.angle || "").slice(0, 500), opening, format, titlePattern, look, recentLooks: prev.slice(0, 2).map((m) => m.look),
+      voiceId: /^[A-Za-z0-9]{10,40}$/.test(String(req.body?.voiceId || "")) ? req.body.voiceId : null,
       dir: path.join(STANDALONE_DIR, slug), settings, usage: { input: 0, output: 0 },
       logFn: (m) => { entry.log.push(String(m)); if (entry.log.length > 200) entry.log.shift(); },
       ffmpeg: settings.ffmpegPath || "ffmpeg", libraryRoot: audioLibraryDir(settings),
@@ -488,6 +489,10 @@ app.get("/api/eleven-voices", async (req, res) => {
     const usable = (d.voices || []).filter((v) => !freeTier || v.category !== "professional");
     const blocked = (d.voices || []).length - usable.length;
 
+    // ElevenLabs Ses Kütüphanesi'nin öne çıkan anlatıcıları (belgesel/sesli kitap): seçilince hesaba
+    // eklenir (POST /api/eleven-voices/add). Ücretsiz planda kütüphane sesi API'den kullanılamaz.
+    const mine = new Set((d.voices || []).map((v) => v.voice_id));
+    const library = freeTier ? [] : (await featuredNarrators(elevenKey)).filter((v) => !mine.has(v.id));
     res.json({
       quota,
       blocked,
@@ -498,9 +503,103 @@ app.get("/api/eleven-voices", async (req, res) => {
         labels: v.labels || {},
         preview: v.preview_url || "",
       })),
+      library,
     });
   } catch (e) {
     res.status(500).json({ error: e.message, voices: [], quota: null });
+  }
+});
+
+let narratorCache = { at: 0, list: [] };
+/** Featured narration voices of the ElevenLabs library (English + Turkish), cached for an hour. */
+async function featuredNarrators(key) {
+  if (Date.now() - narratorCache.at < 3600e3 && narratorCache.list.length) return narratorCache.list;
+  const out = [];
+  // Documentary voices only: narration / education use cases, never comedic or character voices.
+  const NARRATION = new Set(["narrative_story", "informative_educational"]);
+  const COMIC = /sassy|comedic|giggl|chuckl|cheerful|quirky|cartoon|hyped|cute/i;
+  for (const q of ["language=en&use_cases=narrative_story", "language=en&use_cases=informative_educational", "language=tr&use_cases=narrative_story", "language=tr&use_cases=informative_educational"]) {
+    try {
+      const r = await fetch(`https://api.elevenlabs.io/v1/shared-voices?featured=true&page_size=12&${q}`, { headers: { "xi-api-key": key } });
+      if (!r.ok) continue;
+      for (const v of (await r.json()).voices || []) {
+        if (out.some((x) => x.id === v.voice_id)) continue;
+        if (!NARRATION.has(v.use_case) || COMIC.test(`${v.name} ${v.descriptive}`)) continue;
+        out.push({
+          id: v.voice_id, name: v.name, library: true, publicOwnerId: v.public_owner_id,
+          labels: { language: v.language || "", accent: v.accent || "", gender: v.gender || "", age: v.age || "", description: v.descriptive || "", use_case: v.use_case || "" },
+          preview: v.preview_url || "", uses: v.cloned_by_count || 0,
+        });
+      }
+    } catch {}
+  }
+  narratorCache = { at: Date.now(), list: out };
+  return out;
+}
+
+// A library narrator chosen in Nova is added to the user's ElevenLabs voices (the user's own click).
+app.post("/api/eleven-voices/add", async (req, res) => {
+  const { elevenKey } = getSettings();
+  const { voiceId, publicOwnerId, name } = req.body || {};
+  if (!elevenKey) return res.status(400).json({ error: "ElevenLabs anahtarı yok." });
+  if (!/^[A-Za-z0-9]{10,40}$/.test(String(voiceId || "")) || !/^[A-Za-z0-9]{10,80}$/.test(String(publicOwnerId || ""))) return res.status(400).json({ error: "geçersiz ses" });
+  try {
+    const r = await fetch(`https://api.elevenlabs.io/v1/voices/add/${publicOwnerId}/${voiceId}`, {
+      method: "POST", headers: { "xi-api-key": elevenKey, "Content-Type": "application/json" },
+      body: JSON.stringify({ new_name: String(name || "Narrator").slice(0, 60) }),
+    });
+    const t = await r.text();
+    if (!r.ok) return res.status(r.status).json({ error: `ElevenLabs ${r.status}: ${t.slice(0, 200)}` });
+    narratorCache = { at: 0, list: [] };
+    res.json({ ok: true, voiceId: JSON.parse(t).voice_id || voiceId });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/*
+ * A voice reading the same documentary line, performed by the voice director, with v3 or v4 —
+ * so a voice AND a model are chosen by ear. Cached per voice + model + language.
+ */
+const SAMPLE_LINES = {
+  en: [
+    { say: "In September 1890, a man stepped onto a train in Dijon.", mood: "tension" },
+    { say: "When it reached Paris, he was not on it.", mood: "dread" },
+    { say: "He never arrived.", mood: "dread", type: "slam" },
+    { say: "For a hundred and thirty years, people have asked one question, and found no answer.", mood: "reveal" },
+  ],
+  tr: [
+    { say: "Eylül 1890'da bir adam Dijon'da bir trene bindi.", mood: "tension" },
+    { say: "Tren Paris'e vardığında, o trende değildi.", mood: "dread" },
+    { say: "Hiç gelmedi.", mood: "dread", type: "slam" },
+    { say: "Yüz otuz yıldır insanlar tek bir soruyu soruyor, ve hiçbir cevap bulamadı.", mood: "reveal" },
+  ],
+};
+app.get("/api/eleven-sample/:voiceId", async (req, res) => {
+  const { elevenKey } = getSettings();
+  const voiceId = String(req.params.voiceId || "");
+  const model = ["eleven_v4", "eleven_v4_turbo", "eleven_v3", "eleven_multilingual_v2"].includes(req.query.model) ? req.query.model : "eleven_v4";
+  const lang = req.query.lang === "tr" ? "tr" : "en";
+  if (!elevenKey || !/^[A-Za-z0-9]{10,40}$/.test(voiceId)) return res.status(400).end();
+  const file = path.join(PREVIEW_DIR, `eleven-sample-${voiceId}-${model}-${lang}.mp3`);
+  try {
+    if (!fs.existsSync(file)) {
+      const { pathToFileURL } = await import("node:url");
+      const { directLines } = await import(pathToFileURL(path.join(docuEngineDir(), "lib", "voice-director.mjs")).href);
+      const d = directLines(SAMPLE_LINES[lang], { model });
+      const text = d.map((x) => x.text).join(" ");
+      const stability = /eleven_v4/.test(model) ? 0.45 : /eleven_v3/.test(model) ? 0.5 : 0.45;
+      const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`, {
+        method: "POST", headers: { "xi-api-key": elevenKey, "Content-Type": "application/json" },
+        body: JSON.stringify({ text, model_id: model, voice_settings: { stability, similarity_boost: 0.8 } }),
+      });
+      if (!r.ok) return res.status(r.status).json({ error: `ElevenLabs ${r.status}: ${(await r.text()).slice(0, 200)}` });
+      fs.mkdirSync(PREVIEW_DIR, { recursive: true });
+      fs.writeFileSync(file, Buffer.from(await r.arrayBuffer()));
+    }
+    res.sendFile(file);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 

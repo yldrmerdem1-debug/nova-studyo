@@ -503,6 +503,8 @@ function renderForm(main) {
       }
       const list = state.elevenVoices || [];
       if (!list.length) return `<div class="hint">ElevenLabs sesleri yükleniyor…</div>`;
+      // Every voice can be heard reading the same documentary line, performed by the voice director, on v3 and on v4.
+      const lang = f.language === "en" ? "en" : "tr";
       satirlar = list.map((v) => ({
         deger: "el:" + v.id,
         secili: f.elevenVoiceId === v.id,
@@ -510,7 +512,15 @@ function renderForm(main) {
         alt: [v.labels?.accent, v.labels?.description].filter(Boolean).join(" · ")
           || v.name.split(" - ")[1] || "",
         onizleme: v.preview || "",
-      }));
+        v3: `/api/eleven-sample/${v.id}?model=eleven_v3&lang=${lang}`,
+        v4: `/api/eleven-sample/${v.id}?model=eleven_v4&lang=${lang}`,
+      })).concat((state.elevenLibrary || []).filter((v) => !v.labels?.language || v.labels.language.startsWith(lang)).map((v) => ({
+        deger: "lib:" + v.id,
+        secili: false,
+        ad: v.name.split(" - ")[0],
+        alt: ["Kütüphane", v.labels?.accent, v.labels?.description, v.uses ? `${Math.round(v.uses / 1000)}B kullanım` : ""].filter(Boolean).join(" · "),
+        onizleme: v.preview || "",
+      })));
     } else {
       satirlar = edgeVoices().map(([id, v]) => ({
         deger: id,
@@ -526,8 +536,10 @@ function renderForm(main) {
           <div class="voice ${s.secili ? "sel" : ""}" data-voice="${esc(s.deger)}">
             <span class="voice-tik">${s.secili ? "✓" : ""}</span>
             <span class="voice-ad">${esc(s.ad)}${s.alt ? `<small>${esc(s.alt)}</small>` : ""}</span>
-            <button type="button" class="voice-play" data-play-voice="${esc(s.onizleme)}"
+            <button type="button" class="voice-play" data-play-voice="${esc(s.onizleme)}" data-label="▶"
                     title="Bu sesi dinle">▶</button>
+            ${s.v3 ? `<button type="button" class="voice-play" data-play-voice="${esc(s.v3)}" data-label="v3" title="Aynı belgesel cümlesi, ses yönetmeniyle, Eleven v3">v3</button>
+            <button type="button" class="voice-play" data-play-voice="${esc(s.v4)}" data-label="v4" title="Aynı belgesel cümlesi, ses yönetmeniyle, Eleven v4">v4</button>` : ""}
           </div>`).join("")}
       </div>
       ${voiceQuotaNote(f, p)}`;
@@ -1062,6 +1074,21 @@ function renderForm(main) {
         const satir = e.target.closest("[data-voice]");
         if (!satir) return;
         const v = satir.dataset.voice;
+        // A library narrator: added to the user's ElevenLabs voices on this click, then selected.
+        if (v.startsWith("lib:")) {
+          const lib = (state.elevenLibrary || []).find((x) => x.id === v.slice(4));
+          if (!lib) return;
+          toast(`${lib.name.split(" - ")[0]} hesabına ekleniyor…`);
+          api("/api/eleven-voices/add", { method: "POST", body: { voiceId: lib.id, publicOwnerId: lib.publicOwnerId, name: lib.name } })
+            .then((r) => {
+              state.form.elevenVoiceId = r.voiceId;
+              state.elevenVoices = null;
+              toast(`${lib.name.split(" - ")[0]} eklendi ve seçildi ✓`);
+              renderForm(main);
+            })
+            .catch((err) => toast(`Ses eklenemedi: ${err.message || err}`, true));
+          return;
+        }
         if (v.startsWith("el:")) state.form.elevenVoiceId = v.slice(3);
         else state.form.voiceId = v;
         liste.querySelectorAll("[data-voice]").forEach((el) => {
@@ -1081,12 +1108,15 @@ function renderForm(main) {
         if (!src) return toast("Bu ses için önizleme yok", true);
         // Aynı anda tek ses çalsın
         if (state.sesCalan) { try { state.sesCalan.pause(); } catch {} }
-        liste.querySelectorAll(".voice-play").forEach((b) => (b.textContent = "▶"));
+        liste.querySelectorAll(".voice-play").forEach((b) => (b.textContent = b.dataset.label || "▶"));
         const a = new Audio(src);
         state.sesCalan = a;
-        btn.textContent = "⏸";
-        a.addEventListener("ended", () => { btn.textContent = "▶"; });
-        a.play().catch(() => { btn.textContent = "▶"; toast("Ses önizleme başarısız", true); });
+        const label = btn.dataset.label || "▶";
+        // A v3/v4 sample is synthesised on first play (a few seconds).
+        btn.textContent = label === "▶" ? "⏸" : "…";
+        a.addEventListener("playing", () => { btn.textContent = "⏸"; });
+        a.addEventListener("ended", () => { btn.textContent = label; });
+        a.play().catch(() => { btn.textContent = label; toast("Ses önizleme başarısız", true); });
       });
     }
     $("#fVoiceRetry")?.addEventListener("click", () => {
@@ -1127,6 +1157,7 @@ function renderForm(main) {
   if (useEleven() && !state.elevenVoices && !state.elevenVoicesError) {
     api("/api/eleven-voices").then((d) => {
       state.elevenVoices = d.voices || [];
+      state.elevenLibrary = d.library || [];
       state.elevenQuota = d.quota || null;
       state.elevenBlocked = d.blocked || 0;
       state.elevenVoicesError = null;
@@ -1724,7 +1755,7 @@ async function openStandaloneShorts() {
       <div class="card" style="display:grid; gap:8px; padding:12px">
         <input id="ssTopic" placeholder="Konu (ör. The Great Molasses Flood, Boston 1919)"/>
         <input id="ssAngle" placeholder="Açı (isteğe bağlı): neyin anlatılacağı, vurgulanacak gerçekler"/>
-        <div class="row" style="gap:8px; flex-wrap:wrap">${sel("ssOpening", OPEN)} ${sel("ssFormat", FORMAT)} ${sel("ssTitle", TITLE)} ${sel("ssLook", LOOK)}
+        <div class="row" style="gap:8px; flex-wrap:wrap">${sel("ssOpening", OPEN)} ${sel("ssFormat", FORMAT)} ${sel("ssTitle", TITLE)} ${sel("ssLook", LOOK)} ${sel("ssVoice", [["", "Anlatıcı: Brian (varsayılan)"], ...(state.elevenVoices || []).map((v) => [v.id, "Anlatıcı: " + v.name.split(" - ")[0]])])}
           <button class="btn primary" id="ssGo">Üret</button></div>
       </div>
       ${busy.map((b) => `<div class="card" style="padding:10px; margin-top:8px"><b>Hazırlanıyor:</b> ${esc(b.topic)}<div class="muted" style="font-size:11.5px; white-space:pre-wrap">${esc(b.log.join("\n"))}</div></div>`).join("")}
@@ -1740,7 +1771,7 @@ async function openStandaloneShorts() {
       const topic = $("#ssTopic").value.trim();
       if (topic.length < 4) return toast("Konu yazın");
       try {
-        const g = await api("/api/shorts", { method: "POST", body: { topic, angle: $("#ssAngle").value.trim(), opening: $("#ssOpening").value, format: $("#ssFormat").value, titlePattern: $("#ssTitle").value, look: $("#ssLook").value } });
+        const g = await api("/api/shorts", { method: "POST", body: { topic, angle: $("#ssAngle").value.trim(), opening: $("#ssOpening").value, format: $("#ssFormat").value, titlePattern: $("#ssTitle").value, look: $("#ssLook").value, voiceId: $("#ssVoice").value } });
         toast(`Başladı: açılış ${g.opening}, başlık ${g.titlePattern}, görünüm ${g.look}`);
       } catch (e) {
         toast(`Başlatılamadı: ${e.message || e}`);
@@ -1751,6 +1782,8 @@ async function openStandaloneShorts() {
     // While something is being made the panel follows it (until the modal is closed).
     if (busy.length) timer = setTimeout(() => { if ($("#modalBox #ssTopic")) refresh(); }, 6000);
   };
+  // The narrator list (the same ElevenLabs voices as the studio form).
+  if (!state.elevenVoices) await api("/api/eleven-voices").then((v) => { state.elevenVoices = v.voices || []; state.elevenLibrary = v.library || []; }).catch(() => {});
   const refresh = async () => draw(await api("/api/shorts"));
   refresh();
 }
