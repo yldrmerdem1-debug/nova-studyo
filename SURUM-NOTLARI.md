@@ -1,5 +1,15 @@
 # Nova Studyo — Sürüm Notları
 
+## 1.16.7 (6 Ekim 2026)
+
+Model düzeni: kurgu Opus, araştırma GPT 6.1, görsel analiz gpt-6-luna.
+
+- **Model düzeni**: yaratıcı iş (hikâye planı, konu kimliği, sanat ve kurgu yönetmeni, paket) **Opus 5.5**; araştırma, SEO ve gündem radarı **GPT 6.1** (gpt-6.1-sol); görsel analiz (arşiv fotoğrafı seçimi, dönem denetimi, kalite denetimi, tasarım kapısı, kapak kontrolü, Shorts resimleri) **gpt-6-luna**. OpenAI hata verirse ya da bakiye biterse iş Claude'a devredilir, video durmaz.
+- **Senarist seçimi** (Ayarlar → SENARİST): Opus 5.5 (plan Opus, bölümler Sonnet) ya da GPT 6.1 (plan ve bölümler GPT).
+- **Tek kare kuralı**: AI görselleri artık asla kolaj/ızgara olmaz (Kara Ölüm'de görsel dil cümlesi yüzünden 17 kare uydurma arşiv fotoğrafı kolajı çıkmıştı). Senarist de görsel dili tek bir karenin görünümü olarak yazar.
+- **Açılış hareketi**: başlık sahnesi de canlanabilir; "snowy, foggy, cracks" gibi kelime türevleri tanınır (Kara Ölüm açılışı hiç hareket etmemişti).
+- **Araştırma**: 2026 web arama aracında yanlış "kaynak alınamadı" uyarısı giderildi, kaynak kayıtları yazılır; haber araştırması ölçeği (izole/karantina sayıları, kapanan kurumların tam listesi) ve kurumların olaya özel açıklamalarını ister.
+
 ## 1.16.6 (5 Ekim 2026)
 
 Kling 3 ile hareket, Gündem radarı, haber formatı.
