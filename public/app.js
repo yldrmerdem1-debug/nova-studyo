@@ -187,6 +187,7 @@ function render() {
     else renderForm(main);
   } else if (state.page === "queue") renderQueue(main);
   else if (state.page === "library") renderLibrary(main);
+  else if (state.page === "gundem") renderGundem(main);
   else if (state.page === "settings") renderSettings(main);
 }
 
@@ -768,9 +769,12 @@ function renderForm(main) {
     ["horror", "Korku", "karanlık, kan kırmızısı"],
     // Bir format: geri sayım (N'den 1'e), sıra kartları; görsel/ses dilini konuya göre Claude seçer.
     ["ranking", "Sıralama", "geri sayım: 10'dan 1'e maddeler, dev sıra kartları; görsel dili konuya göre seçilir"],
+    // Bir format: son 1-3 günün büyük, kafa karıştıran olayı — web araştırması, iddialar kaynağıyla, telifli haber görüntüsü yok.
+    ["news", "Gündem", "son günlerin büyük olayı: doğrulanan ve iddia edilen ayrı, kaynaklı; web araştırmalı"],
   ];
   /** The ranking chip is a format, the others a style: one or the other is lit. */
-  const stilSecili = (k) => (k === "ranking" ? f.docuFormat === "ranking" : f.docuFormat !== "ranking" && (f.docuGenre || "") === k);
+  const FORMATS = ["ranking", "news"];
+  const stilSecili = (k) => (FORMATS.includes(k) ? f.docuFormat === k : !FORMATS.includes(f.docuFormat) && (f.docuGenre || "") === k);
   /** Yüklü hazır senaryo varsa tahminler onun sahnelerinden yapılır, süre ayarından değil. */
   const docuHazir = () => (f.docuScript?.scenes?.length ? f.docuScript.scenes : null);
   /** Sinematik Belgesel: ~9 kelime/sahne, 120 kelime/dk (docu-script.js DOCU_WPM ile aynı). */
@@ -903,7 +907,7 @@ function renderForm(main) {
       refresh();
     }));
     kutu.querySelectorAll("[data-stil]").forEach((b) => b.addEventListener("click", () => {
-      if (b.dataset.stil === "ranking") { state.form.docuFormat = "ranking"; delete state.form.docuGenre; }
+      if (["ranking", "news"].includes(b.dataset.stil)) { state.form.docuFormat = b.dataset.stil; delete state.form.docuGenre; }
       else {
         delete state.form.docuFormat;
         if (b.dataset.stil) state.form.docuGenre = b.dataset.stil; else delete state.form.docuGenre;
@@ -1728,7 +1732,80 @@ async function openShorts(id) {
  * hareketli (Replicate), kütüphaneden müzik. Açılış türü, format, başlık kalıbı ve görünüm boş
  * bırakılırsa kanal tekdüzeleşmesin diye sırayla döner.
  */
-async function openStandaloneShorts() {
+/**
+ * GÜNDEM RADARI: Google'ın şu an en çok aranan konuları; "Değerlendir" ile kanallara uygun, büyük,
+ * taze ve kafa karıştıran olanlar — Nepal ölçüsüyle büyüklük (16,7 bin aboneli kanalın 4 milyon
+ * izlenen açıklama videosu), başlık, açı ve videonun asla söylememesi gereken şey. Bir konu tek
+ * tıkla Gündem belgeseli ya da bağımsız Shorts olarak başlar.
+ */
+async function renderGundem(main) {
+  const geo = state.gundemGeo || "US";
+  main.innerHTML = `
+    <div class="page-title">Gündem Radarı</div>
+    <div class="page-sub">Şu an en çok aranan konular. Ölçü: Nepal seli — 16,7 bin aboneli bir kanalın "Explained" videosu 1 ayda 4 milyon izlendi; zamanlama ve bilgi karmaşası kaliteden önce gelir.
+      <span class="row" style="gap:6px; float:right">
+        ${["US", "GB", "TR"].map((g) => `<button class="btn ${g === geo ? "primary" : ""}" data-geo="${g}">${g}</button>`).join("")}
+        <button class="btn primary" id="gEval">🧠 Kanallara göre değerlendir</button>
+      </span></div>
+    <div id="gPicks"></div>
+    <div class="card" id="gList" style="padding:10px"><div class="muted">Yükleniyor…</div></div>`;
+  $$("[data-geo]", main).forEach((b) => b.addEventListener("click", () => { state.gundemGeo = b.dataset.geo; renderGundem(main); }));
+  const picksBox = $("#gPicks", main);
+  const drawPicks = (r) => {
+    const big = (p) => (p.vsBenchmark != null ? `<b style="color:${p.vsBenchmark >= 1 ? "var(--ok, #2ecc71)" : "var(--muted)"}">Nepal'in ${p.vsBenchmark >= 1 ? `${p.vsBenchmark.toFixed(1)} katı` : `%${Math.round(p.vsBenchmark * 100)}'i`}</b>${p.rising ? " ↑" : ""}` : "");
+    picksBox.innerHTML = `<div class="card" style="padding:12px; margin-bottom:12px">
+      <b>Kanallara uygun konular</b> <span class="muted" style="font-size:12px">— büyüklük ${r.benchmark?.term ? `"${esc(r.benchmark.term)}"` : "Nepal"} zirvesine göre (Google Trends, son 90 gün)</span>
+      ${(r.picks || []).map((p, k) => `
+        <div style="border-top:1px solid var(--border); padding:10px 0; display:grid; gap:4px">
+          <div><b>${esc(p.title)}</b> <span class="muted">· ${esc(p.channel)} · ${esc(p.freshness)} · karmaşa ${p.confusion}/5 · büyüklük ${p.bigness}/5</span> ${big(p)}</div>
+          <div class="muted" style="font-size:12.5px">${esc(p.story)} — <i>${esc(p.question)}</i></div>
+          <div style="font-size:12.5px">${esc(p.angle)}</div>
+          <div style="font-size:12px"><b>Kapak:</b> ${esc(p.thumbnail)} · <b style="color:var(--warn)">Asla söyleme:</b> ${esc(p.neverSay)}</div>
+          <div class="row" style="gap:6px"><button class="btn primary" data-docu="${k}">🎬 Gündem belgeseli başlat</button><button class="btn" data-short="${k}">📱 Shorts başlat</button></div>
+        </div>`).join("") || '<div class="muted">Uygun konu bulunamadı.</div>'}
+    </div>`;
+    $$("[data-docu]", picksBox).forEach((b) => b.addEventListener("click", () => {
+      const p = r.picks[+b.dataset.docu];
+      Object.assign(state.form, {
+        mediaKind: "docu", docuSource: "archive", docuFormat: "news", language: "en", topic: p.title,
+        guidance: `${p.angle}\n\nThe question millions are asking: ${p.question}\nWhat happened: ${p.story}\nThumbnail line: ${p.thumbnail}\nNEVER claim: ${p.neverSay}`,
+      });
+      delete state.form.docuGenre;
+      state.showForm = true;
+      location.hash = "#studio";
+      toast("Gündem belgeseli formu dolduruldu — sesi seçip başlatın");
+    }));
+    $$("[data-short]", picksBox).forEach((b) => b.addEventListener("click", () => {
+      const p = r.picks[+b.dataset.short];
+      openStandaloneShorts({ topic: p.title, angle: `${p.story} ${p.angle} Never claim: ${p.neverSay}` });
+    }));
+  };
+  if (state.gundemPicks) drawPicks(state.gundemPicks);
+  $("#gEval", main).addEventListener("click", async (e) => {
+    e.target.disabled = true;
+    e.target.textContent = "Değerlendiriliyor… (~30 sn)";
+    try {
+      state.gundemPicks = await api("/api/trends/evaluate", { method: "POST", body: { geos: [geo, ...(geo === "US" ? ["GB"] : ["US"])] } });
+      drawPicks(state.gundemPicks);
+    } catch (err) {
+      toast(`Değerlendirilemedi: ${err.message || err}`, true);
+    }
+    e.target.disabled = false;
+    e.target.textContent = "🧠 Kanallara göre değerlendir";
+  });
+  try {
+    const r = await api(`/api/trends?geo=${geo}`);
+    $("#gList", main).innerHTML = `<b>Şu an trend (${esc(r.geo)})</b>${r.items.map((i) => `
+      <div style="border-top:1px solid var(--border); padding:7px 0; font-size:12.5px">
+        <b>${esc(i.title)}</b> <span class="muted">· ${esc(i.traffic || "")} arama</span>
+        ${i.news.slice(0, 2).map((n) => `<div class="muted">↳ <a href="${esc(n.url)}" target="_blank" rel="noopener">${esc(n.title)}</a> (${esc(n.source)})</div>`).join("")}
+      </div>`).join("")}`;
+  } catch (err) {
+    $("#gList", main).innerHTML = `<div class="muted">Gündem alınamadı: ${esc(err.message || String(err))}</div>`;
+  }
+}
+
+async function openStandaloneShorts(prefill = {}) {
   const OPEN = [["", "Açılış: otomatik (sırayla)"], ["triple", "Üç kelime"], ["question", "Soru"], ["number", "Şok sayı"], ["quote", "Alıntı"], ["statement", "Tek cümle tespit"]];
   const FORMAT = [["", "Format: otomatik"], ["story", "Hikâye"], ["facts", "Gerçekler listesi"]];
   const TITLE = [["", "Başlık kalıbı: otomatik (sırayla)"], ["who", "…Who … (kim)"], ["nobody", "Nobody Knows Why"], ["why", "Why …?"], ["secret", "… Hid a Secret"], ["true", "… And It Was True"], ["then", "… Then …"], ["facts", "N Facts About …"]];
@@ -1754,8 +1831,8 @@ async function openStandaloneShorts() {
     modal(`<h3>Bağımsız Shorts</h3>
       <p class="muted" style="font-size:12.5px">Kendi konusunda dikey Shorts. Claude konuyu araştırır, merak boşluklu başlık ve döngülü metin yazar; gerçek kişi/yer/belge Commons ve arşivden, olmayanı AI; açılış ve uygun sahneler Replicate ile gerçek harekete döner (Ayarlar: Replicate anahtarı). Gerçek kişi fotoğrafı ve belge asla canlandırılmaz.</p>
       <div class="card" style="display:grid; gap:8px; padding:12px">
-        <input id="ssTopic" placeholder="Konu (ör. The Great Molasses Flood, Boston 1919)"/>
-        <input id="ssAngle" placeholder="Açı (isteğe bağlı): neyin anlatılacağı, vurgulanacak gerçekler"/>
+        <input id="ssTopic" placeholder="Konu (ör. The Great Molasses Flood, Boston 1919)" value="${esc(prefill.topic || "")}"/>
+        <input id="ssAngle" placeholder="Açı (isteğe bağlı): neyin anlatılacağı, vurgulanacak gerçekler" value="${esc(prefill.angle || "")}"/>
         <div class="row" style="gap:8px; flex-wrap:wrap">${sel("ssOpening", OPEN)} ${sel("ssFormat", FORMAT)} ${sel("ssTitle", TITLE)} ${sel("ssLook", LOOK)} ${sel("ssVoice", [["", "Anlatıcı: Brian (varsayılan)"], ...(state.elevenVoices || []).map((v) => [v.id, "Anlatıcı: " + v.name.split(" - ")[0]])])}
           <button class="btn primary" id="ssGo">Üret</button></div>
       </div>

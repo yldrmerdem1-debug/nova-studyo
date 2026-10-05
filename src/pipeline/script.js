@@ -360,6 +360,7 @@ function baseSystem(job) {
 export function docuResearchLines(job) {
   const minutes = DURATIONS[job.durationPreset]?.minutes || 8;
   if (job.docuFormat === "ranking") return rankingResearchLines(job, minutes);
+  if (job.docuFormat === "news") return newsResearchLines(job, minutes);
   const { chapters } = docuPlan(job);
   const facts = Math.max(15, chapters * 4);
   const hooks = Math.max(5, chapters);
@@ -405,9 +406,31 @@ export function rankingResearchLines(job, minutes) {
   ];
 }
 
+/**
+ * NEWS EXPLAINER research: the story is days old (after any model's training), so it is researched on
+ * the web, dated to the hour, every claim with its source, and the versions kept apart.
+ */
+export function newsResearchLines(job, minutes) {
+  return [
+    `Video formatı: GÜNDEM AÇIKLAYICI belgesel (son 1-3 günün olayı), hedef süre ~${minutes} dakika.`,
+    ``,
+    `Şunları çıkar (web araması yap; en güncel kaynaklar):`,
+    `1) KRONOLOJİ: tarih ve mümkünse saatle, ne oldu — her madde kaynağıyla (yayın adı + tarih).`,
+    `2) DOĞRULANMIŞ olgular ve DOĞRULANMAMIŞ iddialar ayrı listelerde. Her iddianın sahibi (resmî kurum, yerel basın, isimsiz kaynak).`,
+    `3) Resmî açıklamalar kelimesi kelimesine (tırnak içinde, kimin söylediği, tarih). Uluslararası tepkiler.`,
+    `4) Rakip versiyonlar: her biri, dayandığı kaynak ve neden önemli olduğu.`,
+    `5) Bilim/olgu arka planı: olayın konusu olan şey nedir, ne kadar tehlikeli/önemli (resmî kaynaklarla: DSÖ, CDC, resmî kurumlar).`,
+    `6) Tarihî emsaller: benzer olaylar, resmî açıklamanın sonradan yanlış çıktığı ya da doğru çıktığı vakalar (tarih ve sayıyla).`,
+    `7) Sosyal medyada dolaşan YANLIŞ ya da abartılı iddialar ve gerçekte ne olduğu.`,
+    `8) Hâlâ bilinmeyenler ve önümüzdeki günlerde izlenecek işaretler.`,
+    `9) Kaynaklar (başlık + URL). Sayılar kaynakta nasılsa öyle; çelişen sayılar varsa ikisi de kaynağıyla.`,
+  ];
+}
+
 export async function runResearch(job, usage, logFn, opts = {}) {
   if (job.demo) return demoResearch(job.topic, job.language);
-  const wantWeb = job.useWebSearch;
+  // A news explainer is about days-old events: it is always researched on the web.
+  const wantWeb = job.useWebSearch || job.docuFormat === "news";
   logFn(wantWeb ? "Web araştırması yapılıyor..." : "Konu bilgisi derleniyor...");
   const text = await callText({
     ...(opts.model ? { model: opts.model } : {}),

@@ -206,6 +206,43 @@ app.get("/api/jobs/:id/short/:name", (req, res) => {
   res.sendFile(file);
 });
 
+// GÜNDEM RADARI (src/pipeline/trend-radar.js): şu an en çok aranan konular, kanallara uygunluk ve
+// Nepal ölçüsüyle (16,7 bin aboneli kanalın 4 milyon izlenen "Explained" videosu) büyüklük kıyası.
+const trendCache = new Map(); // geo -> {at, items}
+app.get("/api/trends", async (req, res) => {
+  const geo = /^[A-Z]{2}$/.test(String(req.query.geo || "")) ? req.query.geo : "US";
+  try {
+    const c = trendCache.get(geo);
+    if (c && Date.now() - c.at < 10 * 60e3) return res.json({ geo, items: c.items, cached: true });
+    const { fetchTrending } = await import("./src/pipeline/trend-radar.js");
+    const items = await fetchTrending({ geo });
+    trendCache.set(geo, { at: Date.now(), items });
+    res.json({ geo, items });
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message || e).slice(0, 200) });
+  }
+});
+app.post("/api/trends/evaluate", async (req, res) => {
+  const geos = (Array.isArray(req.body?.geos) ? req.body.geos : ["US", "GB"]).filter((g) => /^[A-Z]{2}$/.test(g)).slice(0, 3);
+  try {
+    const { fetchTrending, fetchHeadlines, evaluateTrending, compareInterest, DEFAULT_BENCHMARK } = await import("./src/pipeline/trend-radar.js");
+    const all = (await Promise.all(geos.map((geo) => fetchTrending({ geo }).catch(() => [])))).flat();
+    const headlines = (await Promise.all(geos.slice(0, 2).map((geo) => fetchHeadlines({ geo }).catch(() => [])))).flat();
+    const picks = await evaluateTrending({ items: all, headlines, settings: getSettings(), usage: { input: 0, output: 0 } });
+    // Bigness on one scale: the top picks against the benchmark, in the channel's main market.
+    const cmp = await compareInterest(picks.slice(0, 4).map((p) => p.searchTerm), { geo: geos[0] || "US" });
+    for (const p of picks) {
+      const c = cmp?.find((x) => x.term === p.searchTerm);
+      if (c) Object.assign(p, { interest: c.peak, interestLast: c.last, vsBenchmark: c.vsBenchmark, rising: c.rising });
+    }
+    // Measured bigness first: the stories that rival the benchmark lead the list.
+    picks.sort((x, y) => (y.vsBenchmark ?? -1) - (x.vsBenchmark ?? -1));
+    res.json({ benchmark: { ...DEFAULT_BENCHMARK, peak: cmp?.[0]?.peak ?? null }, picks });
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message || e).slice(0, 300) });
+  }
+});
+
 // BAĞIMSIZ SHORTS — uzun videoya bağlı olmayan, kendi konusunda dikey Shorts
 // (src/pipeline/docu-short-standalone.js): araştırma, plan, gerçek görseller (Commons/arşiv) ya da
 // AI, açılış ve seçilen cümleler Replicate ile hareketli, kütüphaneden müzik. data/shorts/<konu>/.

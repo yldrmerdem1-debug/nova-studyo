@@ -192,6 +192,7 @@ export function docuPlan(job) {
     secondsPerChapter: Math.round((minutes * 60) / chapters),
     chapterWords: Array.from({ length: chapters }, () => Math.round(words / chapters)),
     chapterScenes: Array.from({ length: chapters }, () => range),
+    ...(job.docuFormat === "news" ? { news: true } : {}),
   };
 }
 
@@ -1325,6 +1326,31 @@ export function rankingBibleRules(plan) {
   ];
 }
 
+/*
+ * NEWS EXPLAINER ("Gündem"): a big, fresh story the world is confused about, explained within days
+ * (Oct 2026 — a 16k-subscriber channel's "Nepal Floods 2026 Explained" took 4M views; the Siberian
+ * plague-lab death: "Kara Ölüm geri mi döndü?"). The film wins by being the one source that separates
+ * what is confirmed from what is claimed — never by being louder than the headlines.
+ */
+export function newsBibleRules() {
+  return [
+    "GÜNDEM AÇIKLAYICI (breaking-news explainer): son 1-3 günün büyük ve kafa karıştıran olayı. Video, manşetlerin vermediği NET resmi verir.",
+    "- centralQuestion: milyonların kafasındaki tek soru (\"Kara Ölüm geri mi döndü?\" gibi); son bölüm onu dürüstçe cevaplar: ne biliniyor, ne bilinmiyor, ne olursa tehlikeli olur.",
+    "- Yapı: 1) soğuk açılış — çelişkiyi tek cümlede ver (iki versiyon, iki iddia: 'Bir tüp kırıldı. Ya da Rusya'ya göre kırılmadı.'); 2) ne oldu, saat saat; 3) iki (ya da daha çok) versiyon, her biri KAYNAĞIYLA; 4) arka plan: bu neden önemli, ne kadar tehlikeli, gerçek bilim/olgu; 5) tarih: neden kimse resmî açıklamaya güvenmiyor (emsaller); 6) dürüst cevap ve sıradaki işaret.",
+    "- DOĞRULUK: doğrulanmamış hiçbir şeyi olgu gibi söyleme. Her iddia atfedilir ('yetkililere göre', 'yerel bir site isimsiz kaynaklara dayanarak'). Sayılar araştırmadaki kaynakla birebir. Panik ya da 'salgın başladı' gibi doğrulanmamış hüküm YOK; korkuyu değil bilgiyi büyüt.",
+    "- Özel kişiler (kurban, şüpheli) isimle anılmaz; ölüm ve acı saygıyla.",
+    "- title: merak boşluklu ve dürüst (\"The Black Death Never Disappeared\", \"What Really Happened at …\"); konu adı + 'explained' tek başına değil.",
+    "- GÖRSEL: yayıncı kuruluşların haber görüntüsü ASLA (telif). Gerçek ve serbest kaynaklar önce (resmî kurum fotoğrafları, kamu malı arşiv, Commons, tarihî tablolar), sonra gerçek stok video; AI yalnızca kameranın görmediği an için, gerçek kişinin yüzü asla.",
+  ];
+}
+
+/** The news explainer's per-chapter rules. */
+export function newsChapterRules({ i, n }) {
+  if (i === 0) return ["SOĞUK AÇILIŞ (GÜNDEM): ilk cümle çelişkinin kendisi; ilk 8 sn içinde olayın ne olduğu ve neden herkesin konuştuğu belli olsun. Abartma: ilk cümle doğru olmalı."];
+  if (i === n - 1) return ["SON BÖLÜM (GÜNDEM): dürüst cevap — kesin olan, belirsiz olan, neyin değişmesi gerektiği (izlenecek işaret). Korkutma da yatıştırma da: kanıt ne diyorsa o."];
+  return ["Bu bölümdeki her iddia kaynağıyla; versiyonlar karışmasın. Bir tarih ya da sayı söylendiğinde araştırmadaki değerle birebir."];
+}
+
 /** The countdown's per-chapter rules (intro, an item, number one). */
 export function rankingChapterRules({ i, n, ch, bible }) {
   const next = bible.chapters[i + 1];
@@ -1448,6 +1474,7 @@ function chapterPrompt({ i, bible, plan, written, lang }) {
         ? `MADDE #${ch.rank}: ${ch.item}${ch.place ? ` — ${ch.place}` : ""}${ch.year ? `, ${ch.year < 0 ? `MÖ ${-ch.year}` : ch.year}` : ""}. Sıra kartını (dev #${ch.rank}, maddenin adı, yer ve yıl) motor koyar: anlatıcı sıra numarasını ve maddenin başlığını SÖYLEMEZ, title sahnesi yazma. İlk satır doğrudan maddenin en çarpıcı olgusu.`
         : `Bölüm kartını ("BÖLÜM ${i + 1} — ${ch.title}") motor koyar: anlatıcı bölüm başlığını söylemez, title sahnesi yazma. İlk satır giriş kancasını yapar.`,
     ...(plan.ranking ? rankingChapterRules({ i, n, ch, bible }) : []),
+    ...(plan.news ? newsChapterRules({ i, n }) : []),
     last
       ? `SON BÖLÜM: merkez soruyu ("${bible.centralQuestion}") açıkça cevapla, açık döngüleri kapat ve soğuk açılışa geri dön (kanca: "${bible.hookWord}"${opener ? `; açılış satırı: "${stripTags(opener.say)}"` : ""}). Son sahne sakin bir kapanış: photo veya words, dur 12-15, 3-8 kelimelik kısa bir satır; müzik onun altında çözülür. silence en fazla 1 kez, en ağır duygu anında.`
       : "Bu bölümde silence YOK; slam en fazla 1.",
@@ -1499,6 +1526,7 @@ export async function runDocuScript(job, research, usage, logFn, opts = {}) {
         `Bu belgeselin "kutsal kitabını" çıkar: başlık, tür (genre), görsel dil (visualStyle), tekrar görünen karakterler (cast) ve TAM ${n} bölüm.`,
         `SÜRE: ${plan.minutes} dk; bölüm başı ~${plan.secondsPerChapter} sn (~${plan.wordsPerChapter} kelime anlatım).`,
         ...(plan.ranking ? rankingBibleRules(plan) : []),
+        ...(plan.news ? newsBibleRules() : []),
         plan.ranking ? "Aşağıdaki uzun form kuralları her MADDENİN içinde de geçerli:" : "",
         "UZUN FORM YAPISI (MagnatesMedia / Netflix belgesel kurgusu):",
         "- centralQuestion: videonun taşıdığı tek büyük soru; izleyici cevabı için sonuna kadar kalır, SON bölüm cevaplar.",

@@ -181,7 +181,7 @@ export function newJobFromRequest(body) {
   // Sinematik Belgesel: kurgu stili elle seçilebilir; boşsa Claude hikâyeye göre seçer.
   if (job.mediaKind === "docu" && ["documentary", "crime", "epic", "science", "inspire", "finance", "horror"].includes(body.docuGenre)) job.docuGenre = body.docuGenre;
   // Sıralama (geri sayım): aynı belgesel motoru, senaryo N'den 1'e maddeler (docu-script.js rankingPlan); görsel dili Claude seçer.
-  if (job.mediaKind === "docu" && body.docuFormat === "ranking") job.docuFormat = "ranking";
+  if (job.mediaKind === "docu" && ["ranking", "news"].includes(body.docuFormat)) job.docuFormat = body.docuFormat;
   // Sinematik Belgesel: hazır sahne senaryosu (örnek video / içe aktarılan JSON) ile başlatılabilir.
   if (job.mediaKind === "docu" && Array.isArray(body.docuScript?.scenes) && body.docuScript.scenes.length) {
     const { id: sourceId, ...seed } = body.docuScript;
