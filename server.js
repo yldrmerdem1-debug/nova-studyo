@@ -496,11 +496,12 @@ app.get("/api/eleven-voices", async (req, res) => {
     res.json({
       quota,
       blocked,
-      // v4-verified voices first (their preview is their v4 sample); the v2-era premades after them.
+      // Only voices verified for Eleven v4, plus Brian (user, Oct 2026: "sadece v4'ten kur, bir tek Brian
+      // bırakabilirsin — v4 daha iyisi varken neden kötüsünü kullanalım"). Their preview is their v4 sample.
       voices: usable.map((v) => {
         const v4 = v4Verified(v);
         return { id: v.voice_id, name: v.name, category: v.category, labels: v.labels || {}, v4: !!v4, preview: v4?.preview_url || v.preview_url || "" };
-      }).sort((a, b) => Number(b.v4) - Number(a.v4)),
+      }).filter((v) => v.v4 || v.id === BRIAN).sort((a, b) => Number(b.v4) - Number(a.v4)),
       library,
     });
   } catch (e) {
@@ -508,6 +509,8 @@ app.get("/api/eleven-voices", async (req, res) => {
   }
 });
 
+/** The one v2-era voice kept beside the v4 voices (the channel's narrator so far). */
+const BRIAN = "nPczCjzI2devNBz1zQrb";
 let narratorCache = { at: 0, list: [] };
 /** A voice's Eleven v4 verification for a language (its own v4 preview), or null. */
 const v4Verified = (v, lang) => (v.verified_languages || []).find((l) => /eleven_v4/.test(l.model_id || "") && (!lang || l.language === lang)) || null;
@@ -595,7 +598,7 @@ const SAMPLE_LINES = {
 app.get("/api/eleven-sample/:voiceId", async (req, res) => {
   const { elevenKey } = getSettings();
   const voiceId = String(req.params.voiceId || "");
-  const model = ["eleven_v4", "eleven_v4_turbo", "eleven_v3", "eleven_multilingual_v2"].includes(req.query.model) ? req.query.model : "eleven_v4";
+  const model = req.query.model === "eleven_v4_turbo" ? "eleven_v4_turbo" : "eleven_v4";
   const lang = req.query.lang === "tr" ? "tr" : "en";
   if (!elevenKey || !/^[A-Za-z0-9]{10,40}$/.test(voiceId)) return res.status(400).end();
   const file = path.join(PREVIEW_DIR, `eleven-sample-${voiceId}-${model}-${lang}.mp3`);

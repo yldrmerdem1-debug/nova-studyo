@@ -341,7 +341,7 @@ export async function makeStandaloneShort({
   const text = beats.map((b) => b.say).join(" ");
   const voiceFile = path.join(dir, "voice.mp3");
   let words = read("words.json");
-  const voiceModel = settings.docuShortsVoiceModel || "eleven_v4";
+  const voiceModel = settings.docuShortsVoiceModel === "eleven_v4_turbo" ? "eleven_v4_turbo" : "eleven_v4";
   const narrator = voiceId || settings.docuEnVoiceId || "nPczCjzI2devNBz1zQrb";
   // The performance is part of the take: a new model re-voices the Short (same words or not).
   if (!words || !fs.existsSync(voiceFile) || read("voice-text.json")?.text !== text || (read("voice-text.json")?.model || "eleven_v3") !== voiceModel || (read("voice-text.json")?.voice || "nPczCjzI2devNBz1zQrb") !== narrator) {

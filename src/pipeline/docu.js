@@ -47,7 +47,8 @@ export const DOCU_ENGINE_VERSION = "docu-engine-3";
 const STALL_MS = 25 * 60 * 1000;
 
 /** Türkçe varsayılan anlatıcı (Musa) ve İngilizce için George. */
-const DEFAULT_VOICE = { tr: "JKJ5z8hs4F7XP8fr2Y5U", en: "JBFqnCBsd6RMkjVDRZzb" };
+// Brian: the one v2-era voice kept beside the v4-verified voices (the others are not offered any more).
+const DEFAULT_VOICE = { tr: "nPczCjzI2devNBz1zQrb", en: "nPczCjzI2devNBz1zQrb" };
 
 export function docuEngineDir() {
   const packaged = process.resourcesPath && path.join(process.resourcesPath, "docu-engine");
@@ -134,7 +135,7 @@ export function runDocuEngine({ scriptPath, workDir, output, srt, thumbnail, voi
   writeJson(spec, {
     scriptPath, workDir, output, srt, thumbnail, voiceId,
     // Anlatım modeli: Eleven v4 (ses yönetmeni satır satır tonlar — docu-engine/lib/voice-director.mjs).
-    voiceModel: settings.docuVoiceModel || "eleven_v4",
+    voiceModel: settings.docuVoiceModel === "eleven_v4_turbo" ? "eleven_v4_turbo" : "eleven_v4",
     imageProvider: docuImageProvider(settings),
     openaiImageModel: settings.openaiImageModel || "gpt-image-2",
     // Açılış hareketi modeli; 2.5D derinlik katmanları sahne başına ücretli Replicate çağrısı — yalnızca ayar açıksa.

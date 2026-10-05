@@ -838,7 +838,7 @@ export async function makePictureTeaser({ jobDir, job = {}, settings = {}, usage
   const text = plan.beats.map((b) => b.say).join(" ");
   logFn(`Shorts: seslendiriliyor (${text.length} karakter)...`);
   const voiceId = job.elevenVoiceId || settings.docuEnVoiceId || "nPczCjzI2devNBz1zQrb";
-  const voiceModel = settings.docuShortsVoiceModel || "eleven_v4";
+  const voiceModel = settings.docuShortsVoiceModel === "eleven_v4_turbo" ? "eleven_v4_turbo" : "eleven_v4";
   const tts = await speak({ text: await shortVoiceText(plan.beats, { mood: "tension", model: voiceModel }), voiceId, key: settings.elevenKey, model: voiceModel });
   const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "");
   const voiceFile = path.join(dir, `short-${stamp}.voice.mp3`);
@@ -968,7 +968,7 @@ export async function makeDocuTeaser({ jobDir, job = {}, settings = {}, usage = 
   const text = plan.beats.map((b) => b.say).join(" ");
   logFn(`Shorts: seslendiriliyor (${text.length} karakter)...`);
   const voiceId = job.elevenVoiceId || settings.docuEnVoiceId || "nPczCjzI2devNBz1zQrb";
-  const voiceModel = settings.docuShortsVoiceModel || "eleven_v4";
+  const voiceModel = settings.docuShortsVoiceModel === "eleven_v4_turbo" ? "eleven_v4_turbo" : "eleven_v4";
   const tts = await speak({ text: await shortVoiceText(plan.beats, { mood: "tension", model: voiceModel }), voiceId, key: settings.elevenKey, model: voiceModel });
   const dir = path.join(jobDir, "shorts");
   fs.mkdirSync(dir, { recursive: true });

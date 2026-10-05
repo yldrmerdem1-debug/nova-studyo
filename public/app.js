@@ -483,7 +483,7 @@ function renderForm(main) {
     if (useEleven()) {
       const v = (state.elevenVoices || []).find((x) => x.id === f.elevenVoiceId);
       // Sinematik Belgesel ses seçilmemişse motorun varsayılan anlatıcısını kullanır.
-      if (!v && isDocu(f) && !f.elevenVoiceId) return f.language === "en" ? "George (varsayılan)" : "Musa (varsayılan)";
+      if (!v && isDocu(f) && !f.elevenVoiceId) return "Brian (varsayılan)";
       return v ? v.name : (state.elevenVoicesError ? "liste alınamadı" : "yükleniyor…");
     }
     return (p.voices[f.voiceId]?.name || "—").split(" — ")[0];
@@ -511,9 +511,8 @@ function renderForm(main) {
         deger: "el:" + v.id,
         secili: f.elevenVoiceId === v.id,
         ad: v.name.split(" - ")[0],
-        alt: [v.v4 ? "v4 sesi" : "v2 sesi", v.labels?.accent, v.labels?.description].filter(Boolean).join(" · "),
+        alt: [v.v4 ? "v4 sesi" : "Brian · kanalın anlatıcısı", v.labels?.accent, v.labels?.description].filter(Boolean).join(" · "),
         onizleme: v.preview || "",
-        v3: `/api/eleven-sample/${v.id}?model=eleven_v3&lang=${lang}`,
         v4: `/api/eleven-sample/${v.id}?model=eleven_v4&lang=${lang}`,
       });
       const lib = (state.elevenLibrary || []).filter((v) => !v.labels?.language || v.labels.language.startsWith(lang)).map((v) => ({
@@ -541,8 +540,7 @@ function renderForm(main) {
             <span class="voice-ad">${esc(s.ad)}${s.alt ? `<small>${esc(s.alt)}</small>` : ""}</span>
             <button type="button" class="voice-play" data-play-voice="${esc(s.onizleme)}" data-label="▶"
                     title="Bu sesi dinle">▶</button>
-            ${s.v3 ? `<button type="button" class="voice-play" data-play-voice="${esc(s.v3)}" data-label="v3" title="Aynı belgesel cümlesi, ses yönetmeniyle, Eleven v3">v3</button>
-            <button type="button" class="voice-play" data-play-voice="${esc(s.v4)}" data-label="v4" title="Aynı belgesel cümlesi, ses yönetmeniyle, Eleven v4">v4</button>` : ""}
+            ${s.v4 ? `<button type="button" class="voice-play" data-play-voice="${esc(s.v4)}" data-label="v4" title="Bir belgesel cümlesi, ses yönetmeninin tonlamasıyla, Eleven v4">v4</button>` : ""}
           </div>`).join("")}
       </div>
       ${voiceQuotaNote(f, p)}`;
@@ -1986,10 +1984,10 @@ function renderSettings(main) {
         <div>
           <label class="field-label">ANLATIM SESİ (ELEVENLABS)</label>
           <div class="row" style="gap:8px; flex-wrap:wrap">
-            <span class="hint" style="margin:0">Belgesel</span> <select id="sDocuVoiceModel">${[["eleven_v4","Eleven v4 · ses yönetmeni (önerilen)"],["eleven_v4_turbo","Eleven v4 Turbo · hızlı"],["eleven_v3","Eleven v3 · eski okuma"],["eleven_multilingual_v2","Multilingual v2 · sakin"]].map(([v,l])=>`<option value="${v}" ${(s.docuVoiceModel||"eleven_v4")===v?"selected":""}>${l}</option>`).join("")}</select>
-            <span class="hint" style="margin:0">Shorts</span> <select id="sShortsVoiceModel">${[["eleven_v4","Eleven v4 · ses yönetmeni (önerilen)"],["eleven_v4_turbo","Eleven v4 Turbo · hızlı"],["eleven_v3","Eleven v3 · eski okuma"],["eleven_multilingual_v2","Multilingual v2 · sakin"]].map(([v,l])=>`<option value="${v}" ${(s.docuShortsVoiceModel||"eleven_v4")===v?"selected":""}>${l}</option>`).join("")}</select>
+            <span class="hint" style="margin:0">Belgesel</span> <select id="sDocuVoiceModel">${[["eleven_v4","Eleven v4 · ses yönetmeni"],["eleven_v4_turbo","Eleven v4 Turbo · hızlı"]].map(([v,l])=>`<option value="${v}" ${(s.docuVoiceModel||"eleven_v4")===v?"selected":""}>${l}</option>`).join("")}</select>
+            <span class="hint" style="margin:0">Shorts</span> <select id="sShortsVoiceModel">${[["eleven_v4","Eleven v4 · ses yönetmeni"],["eleven_v4_turbo","Eleven v4 Turbo · hızlı"]].map(([v,l])=>`<option value="${v}" ${(s.docuShortsVoiceModel||"eleven_v4")===v?"selected":""}>${l}</option>`).join("")}</select>
           </div>
-          <div class="hint">v4: her satır bir ses sanatçısı gibi yönetilir — açılış alçak ve sakin, vurucu cümle kararlı, soru meraklı, ifşa nefes tutarak, bölüm sonu yumuşak; duyguya göre ince kararlılık ve satırlar arası doğal geçiş. Yazarın kendi yönlendirmesi ([whispers] gibi) her zaman önce gelir.</div>
+          <div class="hint">Yalnızca Eleven v4: her satır bir ses sanatçısı gibi yönetilir — açılış alçak ve sakin, vurucu cümle kararlı, soru meraklı, ifşa nefes tutarak, bölüm sonu yumuşak; duyguya göre ince kararlılık ve satırlar arası doğal geçiş. Yazarın kendi yönlendirmesi ([whispers] gibi) her zaman önce gelir.</div>
         </div>
         <div>
           <label class="field-label">BELGESEL MÜZİĞİ</label>
