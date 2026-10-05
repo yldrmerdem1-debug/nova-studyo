@@ -87,7 +87,10 @@ test('opening motion (long video): at most two moving AI stills of the first cha
     ],
   };
   assert.equal(A.openingMotionTargets(s), 2);
-  assert.deepEqual(s.scenes.map((x) => !!x.aiMotion), [false, true, false, false, false, true, false]);
+  // The title's backdrop is the film's first picture: it moves first (Backdrop plays the clip).
+  assert.deepEqual(s.scenes.map((x) => !!x.aiMotion), [true, true, false, false, false, false, false]);
+  const forms = { scenes: [{ type: 'photo', chapter: 0, imagePrompt: 'grey institute in snowy Siberia at dusk' }, { type: 'photo', chapter: 0, imagePrompt: 'a glass test tube cracks on a steel bench' }] };
+  assert.equal(A.openingMotionTargets(forms), 2, 'word forms: snowy, cracks');
   const later = { scenes: [{ type: 'photo', chapter: 1, imagePrompt: 'A ship in a storm' }] };
   assert.equal(A.openingMotionTargets(later), 0, 'only the opening chapter');
 });

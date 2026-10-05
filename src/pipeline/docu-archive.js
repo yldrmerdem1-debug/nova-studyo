@@ -983,14 +983,17 @@ export function atmosphereFootage(script, { max = 30, year = null } = {}) {
  * buhar...) gösteren AI resmi en çok iki tane motor tarafından resimden videoya çevrilir
  * (produce.mjs openingMotion). Kişi, belge, yazı kartı asla.
  */
-const HAREKET = /\b(sea|ocean|waves?|surf|storm|fire|flames?|smoke|fog|mist|rain|snow|blizzard|crowds?|march(?:ing)?|charg(?:e|ing)|battle|train|locomotive|steam|ships?|sails?|river|waterfall|clouds?|horses?|cavalry|banners?|flags?|candles?|lanterns?|explosions?|dust|wind|torrent)\b/i;
+// Word forms count: "snowy Siberia at dusk", "foggy harbour", "a test tube cracks", "flickering light" (Black Death
+// opening: "snowy" missed "snow" and no opening scene moved).
+const HAREKET = /\b(sea|ocean|waves?|surf|storm\w*|fire|flames?|smok\w*|fog\w*|mist\w*|rain\w*|snow\w*|blizzard|crowds?|march(?:ing)?|charg(?:e|ing)|battle|train|locomotive|steam\w*|ships?|sails?|river|waterfall|clouds?|horses?|cavalry|banners?|flags?|candles?|lanterns?|explosions?|dust\w*|wind\w*|torrent|crack(?:s|ing)?|shatter\w*|spill\w*|flicker\w*|sirens?|blue lights?|taiga)\b/i;
 export function openingMotionTargets(script, { max = 2, within = 6 } = {}) {
   let n = 0;
   const scenes = script?.scenes || [];
   for (let i = 0; i < Math.min(within, scenes.length) && n < max; i++) {
     const s = scenes[i];
     if ((s.chapter ?? 0) !== 0) break;
-    if (!["photo", "words"].includes(s.type) || s.video || s.archived || !s.imagePrompt) continue;
+    // The title's backdrop plays a clip too (Backdrop clip): the film's first still is the one that should move.
+    if (!["photo", "words", "title"].includes(s.type) || s.video || s.archived || !s.imagePrompt) continue;
     if (s.cast?.length || s.name || s.bg || s.images?.length || s.imagePrompts?.length || s.annotate) continue;
     if (!HAREKET.test(s.imagePrompt)) continue;
     s.aiMotion = true;
