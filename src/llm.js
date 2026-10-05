@@ -39,6 +39,111 @@ const MODEL_BACKUPS = {
 };
 const isOverload = (e) => e?.status === 429 || e?.status >= 500;
 
+/*
+ * OPENAI (gpt-*) — the same calls go to OpenAI when the model is a GPT (research and general work on
+ * gpt-6.1-sol, picture checks on gpt-6-luna; editing stays on Opus). The request is translated from
+ * the Anthropic shape and the answer translated back (text blocks with url citations, stop reason,
+ * usage), so JSON schemas, images, web research, provenance and accounting work unchanged. A failure
+ * falls back to Claude (OPENAI_BACKUPS): a video never stops because one provider is down.
+ */
+export const isOpenAIModel = (m) => /^(gpt-|o\d)/.test(String(m || ''));
+const OPENAI_BACKUPS = {
+  "gpt-6.1-sol": ["claude-opus-5-5"],
+  "gpt-6-luna": ["gpt-6.1-sol", "claude-sonnet-5-5"],
+};
+const OPENAI = 'https://api.openai.com/v1';
+
+/** Anthropic-shaped request → OpenAI Responses request body (exported for tests). */
+export function openaiBody(params, model) {
+  const part = (role, b) => b.type === 'image'
+    ? { type: 'input_image', image_url: `data:${b.source?.media_type || 'image/jpeg'};base64,${b.source?.data}`, detail: 'auto' }
+    : { type: role === 'assistant' ? 'output_text' : 'input_text', text: String(b.text ?? '') };
+  const input = (params.messages || []).map((m) => ({
+    role: m.role,
+    content: (typeof m.content === 'string' ? [{ type: 'text', text: m.content }] : m.content || [])
+      .filter((b) => b.type === 'text' || b.type === 'image').map((b) => part(m.role, b)),
+  })).filter((m) => m.content.length);
+  const web = (params.tools || []).some((t) => /^web_search/.test(t.type || ''));
+  const images = input.some((m) => m.content.some((c) => c.type === 'input_image'));
+  const body = {
+    model, input, background: true,
+    max_output_tokens: params.max_tokens || 16000,
+    // Research thinks hard; a picture check is a quick look; the rest in between.
+    reasoning: { effort: web ? 'high' : images ? 'low' : 'medium' },
+  };
+  if (params.system) body.instructions = typeof params.system === 'string' ? params.system : params.system.map((b) => b.text || '').join('\n');
+  const fmt = params.output_config?.format;
+  if (fmt?.type === 'json_schema') body.text = { format: { type: 'json_schema', name: 'nova_output', schema: fmt.schema, strict: false } };
+  if (web) body.tools = [{ type: 'web_search' }];
+  return body;
+}
+
+/** OpenAI Responses answer → the Anthropic message shape the rest of Nova reads (exported for tests). */
+export function fromOpenAI(res, model) {
+  const out = res.output || [];
+  const parts = out.filter((o) => o.type === 'message').flatMap((o) => o.content || []);
+  const refusal = parts.find((c) => c.type === 'refusal');
+  const content = parts.filter((c) => c.type === 'output_text').map((c) => ({
+    type: 'text', text: c.text || '',
+    citations: (c.annotations || []).filter((a) => a.type === 'url_citation' && a.url).map((a) => ({ type: 'web_search_result_location', url: a.url, title: a.title || '', cited_text: '' })),
+  }));
+  const u = res.usage || {};
+  const cached = u.input_tokens_details?.cached_tokens || 0;
+  const searches = out.filter((o) => o.type === 'web_search_call').length;
+  const cut = res.status === 'incomplete' && /max_output/i.test(res.incomplete_details?.reason || '');
+  return {
+    model: res.model || model,
+    content: refusal ? [] : content,
+    stop_reason: refusal ? 'refusal' : cut ? 'max_tokens' : 'end_turn',
+    stop_details: refusal ? { category: 'openai' } : null,
+    usage: { input_tokens: Math.max(0, (u.input_tokens || 0) - cached), output_tokens: u.output_tokens || 0, cache_read_input_tokens: cached, ...(searches ? { server_tool_use: { web_search_requests: searches } } : {}) },
+  };
+}
+
+const uyu = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** One request to OpenAI in background mode (a long research run outlives one HTTP request). */
+async function openaiMessage(params, model, control = {}, fetchFn = (...a) => fetch(...a)) {
+  const key = getSettings().openaiKey;
+  if (!key) throw Object.assign(new Error('OpenAI anahtarı yok'), { status: 401, fallback: true });
+  const headers = { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' };
+  const net = async (url, init) => {
+    try { return await fetchFn(url, init); } catch (e) { throw Object.assign(new Error(`OpenAI bağlantısı koptu: ${e?.cause?.code || e?.message}`), { status: 503 }); }
+  };
+  let body = openaiBody(params, model);
+  let r = await net(`${OPENAI}/responses`, { method: 'POST', headers, body: JSON.stringify(body) });
+  let res = await r.json().catch(() => ({}));
+  // A model without reasoning settings: once more without them.
+  if (r.status === 400 && /reasoning/i.test(JSON.stringify(res))) {
+    delete body.reasoning;
+    r = await net(`${OPENAI}/responses`, { method: 'POST', headers, body: JSON.stringify(body) });
+    res = await r.json().catch(() => ({}));
+  }
+  if (!r.ok) throw Object.assign(new Error(`OpenAI ${model} HTTP ${r.status}: ${String(res?.error?.message || '').slice(0, 200)}`), { status: r.status, fallback: r.status === 401 || r.status === 403 });
+  const started = Date.now();
+  for (let fail = 0; ['queued', 'in_progress'].includes(res.status);) {
+    if (control.signal?.aborted || control.isCancelled?.()) {
+      await net(`${OPENAI}/responses/${res.id}/cancel`, { method: 'POST', headers }).catch(() => {});
+      throw new Error('cancelled');
+    }
+    if (Date.now() - started > 30 * 60e3) throw Object.assign(new Error(`OpenAI ${model}: 30 dakikada bitmedi`), { status: 504 });
+    await uyu(Date.now() - started < 20e3 ? 1500 : 5000);
+    try {
+      const q = await fetchFn(`${OPENAI}/responses/${res.id}`, { headers });
+      if (q.ok) { res = await q.json(); fail = 0; } else if (++fail > 20) throw new Error(`HTTP ${q.status}`);
+    } catch (e) { if (++fail > 20) throw Object.assign(new Error(`OpenAI durum sorgusu: ${e.message}`), { status: 503 }); }
+  }
+  const msg = fromOpenAI(res, model);
+  const text = msg.content.map((b) => b.text).join('');
+  // A "failed" run sometimes still carries the full answer: use it; without text it is a provider failure.
+  if (res.status === 'failed' || res.status === 'cancelled') {
+    if (text.trim().length > 200) return msg;
+    throw Object.assign(new Error(`OpenAI ${model}: ${res.status} ${String(res.error?.message || '').slice(0, 200)}`), { status: 503 });
+  }
+  return msg;
+}
+export { openaiMessage as _openaiMessage };
+
 // ~16K üstü isteklerde akışsız çağrı HTTP zaman aşımına takılabilir.
 // Opus 5'te düşünme varsayılan olarak AÇIK ve max_tokens düşünme+yanıtı birlikte
 // sınırlıyor, yani uzun bölümlerde tavan gerçekten zorlanıyor.
@@ -79,22 +184,22 @@ async function callModel(c, model, params, control={}) {
 
 async function createMessage(params, logFn, modelOverride = null, usage = null, control={}) {
   assertNotCancelled(control);
-  const c = getClient();
   const primary = modelOverride || getSettings().model || "claude-opus-5-5";
-  const chain = [primary, ...(MODEL_BACKUPS[primary] || [])];
+  const chain = [primary, ...(MODEL_BACKUPS[primary] || OPENAI_BACKUPS[primary] || [])];
 
   let lastErr;
   for (let i = 0; i < chain.length; i++) {
     try {
       assertNotCancelled(control);
       assertUsageBudget(usage, chain[i]);
-      return await callModel(c, chain[i], params, control);
+      if (isOpenAIModel(chain[i])) return await openaiMessage(params, chain[i], control);
+      return await callModel(getClient(), chain[i], params, control);
     } catch (e) {
       assertNotCancelled(control);
       lastErr = e;
       // Yalnızca yoğunluk/limit hatasında model değiştir; 400/401 gibi hatalar
-      // istekle ilgilidir, başka modelde de aynı sonucu verir.
-      if (!isOverload(e) || i === chain.length - 1) throw e;
+      // istekle ilgilidir, başka modelde de aynı sonucu verir. OpenAI'de anahtar yok/geçersiz → Claude.
+      if (!(isOverload(e) || e?.fallback) || i === chain.length - 1) throw e;
       logFn?.(`${chain[i]} yoğun (HTTP ${e.status}) → ${chain[i + 1]} deneniyor...`);
       await new Promise((r) => setTimeout(r, 1500));
       assertNotCancelled(control);

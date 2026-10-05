@@ -438,7 +438,7 @@ export async function auditEra({ script, credits = {}, dir, settings = {}, usage
             user: eraPrompt({ title: script.title, era, year, lines: inPart.map(itemLine), mixed }),
             schema: ERA_SCHEMA,
             images: part.map((sh) => ({ etiket: `Kontak sayfası ${path.basename(sh.file, ".jpg").replace("sheet_", "")}: ${sh.tiles.map((t) => `${t.item.label}${t.frame}`).join(", ")}`, data: fs.readFileSync(sh.file).toString("base64"), mediaType: "image/jpeg" })),
-            model: model || settings.docuEraModel || ERA_MODEL,
+            model: model || settings.docuEraModel || settings.visionModel || ERA_MODEL,
             maxTokens: 3000,
             usage: localUsage,
             logFn,
@@ -491,7 +491,7 @@ export async function auditEra({ script, credits = {}, dir, settings = {}, usage
             user: confirmPrompt({ era, year, lines: shown.map((p) => `${itemLine(p.x)} — ilk taramadaki şüphe: ${p.f.what}`) }),
             schema: CONFIRM_SCHEMA,
             images: shown.map((p) => ({ etiket: `Görsel ${p.x.label}${p.x.video ? " (klibin baş/orta/son kareleri yan yana)" : ""}:`, data: fs.readFileSync(p.file).toString("base64"), mediaType: "image/jpeg" })),
-            model: model || settings.docuEraModel || ERA_MODEL,
+            model: model || settings.docuEraModel || settings.visionModel || ERA_MODEL,
             maxTokens: 2000,
             usage: localUsage,
             logFn,
@@ -529,7 +529,7 @@ export async function auditEra({ script, credits = {}, dir, settings = {}, usage
 
   const t1 = tokensOf(localUsage);
   const tok = { input: t1.input - t0.input, output: t1.output - t0.output };
-  const rate = settings.modelRates?.[model || settings.docuEraModel || ERA_MODEL] || FALLBACK_RATE;
+  const rate = settings.modelRates?.[model || settings.docuEraModel || settings.visionModel || ERA_MODEL] || FALLBACK_RATE;
   const usd = (tok.input * (rate.input ?? FALLBACK_RATE.input) + tok.output * (rate.output ?? FALLBACK_RATE.output)) / 1e6;
   const ai = flagged.filter((f) => f.kind === "ai").length;
   const ar = flagged.length - ai;

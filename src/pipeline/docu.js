@@ -50,6 +50,15 @@ const STALL_MS = 25 * 60 * 1000;
 // Brian: the one v2-era voice kept beside the v4-verified voices (the others are not offered any more).
 const DEFAULT_VOICE = { tr: "nPczCjzI2devNBz1zQrb", en: "nPczCjzI2devNBz1zQrb" };
 
+/**
+ * SENARİST (Ayarlar): Opus 5.5 — hikâye planı Opus, bölümler Sonnet 5.5 (bugünkü düzen);
+ * GPT 6.1 — plan da bölümler de gpt-6.1-sol. Kurgu, sanat yönetmeni, konu kimliği her durumda Opus.
+ */
+export function docuWriters(settings = {}) {
+  if (settings.docuWriterModel === "gpt-6.1-sol") return { bibleModel: "gpt-6.1-sol", chapterModel: "gpt-6.1-sol" };
+  return { bibleModel: null, chapterModel: settings.docuChapterModel || "claude-sonnet-5-5" };
+}
+
 export function docuEngineDir() {
   const packaged = process.resourcesPath && path.join(process.resourcesPath, "docu-engine");
   if (packaged && fs.existsSync(path.join(packaged, "bin", "nova-run.mjs"))) return packaged;
@@ -430,7 +439,7 @@ export async function runDocuJob({ jobId, job, dir, usage, saveUsage, isCancelle
     saveUsage();
     if (isCancelled()) return;
     stagePatch(jobId, "script", 8, "Sinematik senaryo yazılıyor (sahne, duygu, ses performansı)...");
-    docu = await runDocuScript(job, research, usage, log2, { dir, isCancelled, eleven: { musicSource, libraryReady: lib.ready }, chapterModel: settings.docuChapterModel || "claude-sonnet-5-5" });
+    docu = await runDocuScript(job, research, usage, log2, { dir, isCancelled, eleven: { musicSource, libraryReady: lib.ready }, ...docuWriters(settings) });
     saveUsage();
     if (isCancelled()) return;
     // Kısa senaryo diske "bitmiş" diye yazılmaz: devam, kayıtlı bölümleri yeniden uzatır.

@@ -344,7 +344,7 @@ export async function qaVideo({ video, script, placed, settings = {}, usage, log
         const lines = [];
         for (const sh of part) for (let n = sh.from; n <= sh.to; n++) lines.push(frameLine(n, got[n - 1]));
         try {
-          const mdl = model || settings.docuQaModel || QA_MODEL;
+          const mdl = model || settings.docuQaModel || settings.visionModel || QA_MODEL;
           const prompt = visionPrompt(script, lines);
           const imgs = part.map((sh) => ({ etiket: `Kontak sayfası: kareler #${sh.from}–#${sh.to}`, data: fs.readFileSync(sh.file).toString("base64"), mediaType: "image/jpeg" }));
           const ck = crypto.createHash("sha1").update(JSON.stringify([mdl, prompt, imgs.map((im) => [im.etiket, crypto.createHash("sha1").update(im.data).digest("hex")])])).digest("hex");

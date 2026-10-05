@@ -2062,6 +2062,11 @@ function renderSettings(main) {
           <div class="hint">Anlatım her zaman ElevenLabs v3 ile. Müzik ve efektler lisanslı ses kütüphanesinden kurgulanırsa ElevenLabs kredisi yalnızca anlatıma gider.</div>
         </div>
         <div>
+          <label class="field-label">SENARİST</label>
+          <select id="sDocuWriter">${[["claude-opus-5-5","Opus 5.5 · plan Opus, bölümler Sonnet"],["gpt-6.1-sol","GPT 6.1 · plan ve bölümler GPT"]].map(([v,l])=>`<option value="${v}" ${(s.docuWriterModel||"claude-opus-5-5")===v?"selected":""}>${l}</option>`).join("")}</select>
+          <div class="hint">Belgesel senaryosunu kim yazsın. Kurgu, sanat yönetmeni ve konu kimliği her durumda Opus 5.5; araştırma ve genel işler GPT 6.1; görsel analiz gpt-6-luna (OpenAI hata verirse Claude devralır).</div>
+        </div>
+        <div>
           <label class="field-label">ANLATIM SESİ (ELEVENLABS)</label>
           <div class="row" style="gap:8px; flex-wrap:wrap">
             <span class="hint" style="margin:0">Belgesel</span> <select id="sDocuVoiceModel">${[["eleven_v4","Eleven v4 · ses yönetmeni"],["eleven_v4_turbo","Eleven v4 Turbo · hızlı"]].map(([v,l])=>`<option value="${v}" ${(s.docuVoiceModel||"eleven_v4")===v?"selected":""}>${l}</option>`).join("")}</select>
@@ -2247,6 +2252,7 @@ function renderSettings(main) {
       audioLibraryDir: $("#sAudioLib").value.trim(),
       shortsMotion: $("#sShortsMotion").checked,
       docuVoiceModel: $("#sDocuVoiceModel").value,
+      docuWriterModel: $("#sDocuWriter").value,
       docuShortsVoiceModel: $("#sShortsVoiceModel").value,
       docuOpeningMotion: $("#sDocuOpenMotion").checked,
       docuDepthLayers: $("#sDocuDepth").checked,

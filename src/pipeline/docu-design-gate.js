@@ -195,7 +195,7 @@ export async function designGate(script, { props, render, placeTimeline = null, 
   if (!props?.scenes?.length) return apply("no-props");
   if (llm === false || (!settings.anthropicKey && llm === callVisionJSON)) return apply("no-key");
   if (typeof render !== "function") return apply("no-renderer");
-  const mdl = model || settings.docuDesignGateModel || GATE_MODEL;
+  const mdl = model || settings.docuDesignGateModel || settings.visionModel || GATE_MODEL;
   const per = /opus/i.test(mdl) ? SHEET_COST.opus : SHEET_COST.sonnet;
   const maxFrames = Math.min(GATE_MAX_FRAMES, Math.max(PER_SHEET, Math.floor(budgetUsd / per) * PER_SHEET));
   const moments = gateMoments(props, { max: maxFrames, fps });

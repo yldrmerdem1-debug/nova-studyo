@@ -426,7 +426,9 @@ export async function visionPick(scene, thumbs, { settings, usage, logFn, titles
   };
   // Seçici: Claude (Sonnet 5.5) varsayılan — Anthropic anahtarı yoksa ya da ayarda
   // docuPicker "openai" seçildiyse OpenAI (GPT-6).
-  const claudeIle = settings.docuPicker ? settings.docuPicker === "claude" : !!settings.anthropicKey;
+  // Görsel analiz modeli (settings.visionModel, varsayılan gpt-6-luna) GPT ise seçici OpenAI'den; Claude ise Claude'dan.
+  const gorselGpt = /^gpt-/.test(String(settings.visionModel || "")) && !!settings.openaiKey;
+  const claudeIle = settings.docuPicker ? settings.docuPicker === "claude" : !gorselGpt && !!settings.anthropicKey;
   if (claudeIle && settings.anthropicKey) {
     try {
       return await callVisionJSON({
@@ -458,7 +460,7 @@ export async function visionPick(scene, thumbs, { settings, usage, logFn, titles
     // Arşiv (kimlik önemli): gpt-6-sol. Stok için çağıran settings'e gpt-6-luna koyar.
     // (gpt-4.1-mini Apollo 13 testinde başlığında "Apollo 17" yazan fotoğrafı seçmişti:
     // gerçek kişi/olayda ucuz model kullanılmaz.)
-    const model = settings.openaiVisionModel || "gpt-6-sol";
+    const model = settings.openaiVisionModel || (gorselGpt ? settings.visionModel : "gpt-6-sol");
     // Düşünen modeller (gpt-5*, gpt-6*) çıktı bütçesini önce düşünmeye harcar: 300 token
     // boş yanıt döndürürdü. Kısa bir seçim için düşünme "low" yeter.
     let dusunen = /^(gpt-[56]|o\d)/.test(model);

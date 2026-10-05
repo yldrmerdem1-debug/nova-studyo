@@ -754,7 +754,7 @@ export async function runDocuPackage({ jobDir, job = {}, settings = {}, usage = 
     else if (hasKey && settings.docuPackageVision !== false) {
       try {
         logFn(`Kapak adayları görme modeline gösteriliyor (${cands.length} görsel)...`);
-        cands = await visionRank(cands, { llm: visionLlm, model: settings.docuPackageVisionModel || VISION_MODEL, usage: u, logFn, ff, tmp, isCancelled });
+        cands = await visionRank(cands, { llm: visionLlm, model: settings.docuPackageVisionModel || settings.visionModel || VISION_MODEL, usage: u, logFn, ff, tmp, isCancelled });
         visionRan = true;
       } catch (e) {
         if (isCancelled()) throw e;
@@ -828,7 +828,7 @@ export async function runDocuPackage({ jobDir, job = {}, settings = {}, usage = 
     if (!verify && hasKey && !creditGone && toCheck.length && settings.docuPackageVerify !== false) {
       try {
         logFn("Kapaklar 320x180'de okunurluk için denetleniyor...");
-        verify = await verifyLegibility(toCheck, { llm: visionLlm, model: settings.docuPackageVisionModel || VISION_MODEL, usage: u, logFn, isCancelled });
+        verify = await verifyLegibility(toCheck, { llm: visionLlm, model: settings.docuPackageVisionModel || settings.visionModel || VISION_MODEL, usage: u, logFn, isCancelled });
         const failing = entries.filter((e) => verify.find((v) => v.n === e.meta.n && v.checked && !v.pass));
         if (failing.length) {
           for (const e of failing) e.spec = fixSpec(e.spec, verify.find((v) => v.n === e.meta.n));

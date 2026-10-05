@@ -84,3 +84,46 @@ test('research on the 2026 search tool: no citation blocks, but the searched pag
   assert.match(out, /interfax\.ru\/russia\/1120228/);
   assert.doesNotMatch(out.split('## Kaynak kayıtları')[1], /example\.org\/unused/);
 });
+
+test('OpenAI adapter: Anthropic-shaped request in, Anthropic-shaped answer out (schema, images, web search, citations, usage)', async () => {
+  const { openaiBody, fromOpenAI, isOpenAIModel } = await import('../src/llm.js');
+  assert.ok(isOpenAIModel('gpt-6.1-sol') && isOpenAIModel('gpt-6-luna') && !isOpenAIModel('claude-opus-5-5'));
+  const body = openaiBody({
+    system: 'sys', max_tokens: 4000,
+    messages: [{ role: 'user', content: [{ type: 'text', text: 'Aday 1:' }, { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'QUJD' } }, { type: 'text', text: 'pick' }] }],
+    output_config: { format: { type: 'json_schema', schema: { type: 'object' } } },
+  }, 'gpt-6-luna');
+  assert.equal(body.instructions, 'sys');
+  assert.equal(body.max_output_tokens, 4000);
+  assert.equal(body.reasoning.effort, 'low', 'a picture check is a quick look');
+  assert.deepEqual(body.input[0].content[1], { type: 'input_image', image_url: 'data:image/jpeg;base64,QUJD', detail: 'auto' });
+  assert.equal(body.text.format.type, 'json_schema');
+  const web = openaiBody({ messages: [{ role: 'user', content: 'research' }], tools: [{ type: 'web_search_20260209', name: 'web_search' }] }, 'gpt-6.1-sol');
+  assert.deepEqual(web.tools, [{ type: 'web_search' }]);
+  assert.equal(web.reasoning.effort, 'high');
+  const msg = fromOpenAI({
+    model: 'gpt-6.1-sol', status: 'completed',
+    output: [{ type: 'web_search_call' }, { type: 'web_search_call' }, { type: 'message', content: [{ type: 'output_text', text: 'Fact.', annotations: [{ type: 'url_citation', url: 'https://www.interfax.ru/x', title: 'Interfax' }] }] }],
+    usage: { input_tokens: 1000, output_tokens: 50, input_tokens_details: { cached_tokens: 200 } },
+  }, 'gpt-6.1-sol');
+  assert.equal(msg.content[0].text, 'Fact.');
+  assert.equal(msg.content[0].citations[0].url, 'https://www.interfax.ru/x');
+  assert.deepEqual(msg.usage, { input_tokens: 800, output_tokens: 50, cache_read_input_tokens: 200, server_tool_use: { web_search_requests: 2 } });
+  assert.equal(fromOpenAI({ status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' }, output: [] }).stop_reason, 'max_tokens');
+  assert.equal(fromOpenAI({ status: 'completed', output: [{ type: 'message', content: [{ type: 'refusal', refusal: 'no' }] }] }).stop_reason, 'refusal');
+});
+
+test('OpenAI adapter: background run is polled to the end; a dropped connection is an overload (falls back), not a crash', async () => {
+  const { _openaiMessage } = await import('../src/llm.js');
+  const cfg = await import('../src/config.js');
+  cfg.saveSettings({ openaiKey: 'sk-test' });
+  let polls = 0;
+  const fetchFn = async (url, init = {}) => {
+    if (init.method === 'POST') return { ok: true, status: 200, json: async () => ({ id: 'r1', status: 'queued' }) };
+    polls++;
+    return { ok: true, status: 200, json: async () => (polls < 2 ? { id: 'r1', status: 'in_progress' } : { id: 'r1', status: 'completed', model: 'gpt-6-luna', output: [{ type: 'message', content: [{ type: 'output_text', text: '{"choice":2}' }] }], usage: { input_tokens: 10, output_tokens: 5 } }) };
+  };
+  const msg = await _openaiMessage({ messages: [{ role: 'user', content: 'x' }] }, 'gpt-6-luna', {}, fetchFn);
+  assert.equal(msg.content[0].text, '{"choice":2}');
+  await assert.rejects(_openaiMessage({ messages: [{ role: 'user', content: 'x' }] }, 'gpt-6-luna', {}, async () => { throw Object.assign(Error('fetch failed'), { cause: { code: 'ECONNRESET' } }); }), (e) => e.status === 503);
+});

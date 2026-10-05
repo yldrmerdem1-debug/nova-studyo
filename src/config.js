@@ -30,6 +30,16 @@ function bundledBin(kind) {
 export const DEFAULT_SETTINGS = {
   anthropicKey: "",
   model: "claude-opus-5-5",
+  // Model düzeni (Ekim 2026, ölçülerek): yaratıcı iş (hikâye planı, konu kimliği, sanat ve kurgu
+  // yönetmeni, paket) Opus 5.5 = model; araştırma ve genel işler (SEO, gündem radarı) GPT 6.1;
+  // görsel analiz (arşiv seçici, dönem/kalite denetimi, tasarım kapısı, kapak, Shorts resimleri)
+  // gpt-6-luna. OpenAI hata verirse Claude'a düşülür (src/llm.js OPENAI_BACKUPS).
+  docuFastModel: "gpt-6.1-sol",
+  visionModel: "gpt-6-luna",
+  // Senarist: "claude-opus-5-5" (plan Opus + bölümler Sonnet) ya da "gpt-6.1-sol" (ikisi de GPT 6.1).
+  docuWriterModel: "claude-opus-5-5",
+  // Görsel analizde OpenAI'ye giden küçük resim ayrıntısı: auto (soluk filigran ve yazı okunur).
+  openaiVisionDetail: "auto",
   useWebSearch: true,
   pexelsKey: "",
   pixabayKey: "",

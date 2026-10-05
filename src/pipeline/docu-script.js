@@ -1496,7 +1496,8 @@ function chapterPrompt({ i, bible, plan, written, lang }) {
  */
 export async function runDocuScript(job, research, usage, logFn, opts = {}) {
   // chapterModel: bölümleri yazan model (Sonnet 5.5). Hikâye planı (bible) ayarlardaki modelle (Opus 5.5) — ruh planda.
-  const { dir = null, isCancelled = () => false, llm = callJSON, eleven = {}, chapterModel = null } = opts;
+  // bibleModel: hikâye planını yazan model (Senarist ayarı; boşsa ayarlardaki ana model).
+  const { dir = null, isCancelled = () => false, llm = callJSON, eleven = {}, chapterModel = null, bibleModel = null } = opts;
   const plan = docuPlan(job);
   /** This chapter's word target (the ranking's intro is short and its number one long). */
   const cw = (i) => plan.chapterWords?.[i] ?? plan.wordsPerChapter;
@@ -1517,6 +1518,7 @@ export async function runDocuScript(job, research, usage, logFn, opts = {}) {
     guard();
     const n = plan.chapters;
     bible = await llm({
+      ...(bibleModel ? { model: bibleModel } : {}),
       system: [editorBrief(job), job.docuGenre ? genreBrief(job.docuGenre) : ""].filter(Boolean).join("\n\n"),
       user: [
         `Konu: "${job.topic}"`,

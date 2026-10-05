@@ -162,7 +162,7 @@ export async function describePictures({ assets, cacheFile, ffmpeg = "ffmpeg", l
         user: `Describe each of the ${batch.length} pictures above (numbered 1-${batch.length}).`,
         images: batch.map((x, i) => ({ etiket: `Picture ${i + 1}:`, data: x.b64, mediaType: "image/jpeg" })),
         schema: DESC_SCHEMA,
-        model: settings.docuShortsVisionModel || "claude-sonnet-5-5",
+        model: settings.docuShortsVisionModel || settings.visionModel || "claude-sonnet-5-5",
         maxTokens: 2500,
         usage,
         logFn,
