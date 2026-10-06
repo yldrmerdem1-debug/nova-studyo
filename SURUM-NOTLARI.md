@@ -8,6 +8,9 @@ Model düzeni: kurgu Opus, araştırma GPT 6.1, görsel analiz gpt-6-luna.
 - **Senarist seçimi** (Ayarlar → SENARİST): Opus 5.5 (plan Opus, bölümler Sonnet) ya da GPT 6.1 (plan ve bölümler GPT).
 - **Tek kare kuralı**: AI görselleri artık asla kolaj/ızgara olmaz (Kara Ölüm'de görsel dil cümlesi yüzünden 17 kare uydurma arşiv fotoğrafı kolajı çıkmıştı). Senarist de görsel dili tek bir karenin görünümü olarak yazar.
 - **Açılış hareketi**: başlık sahnesi de canlanabilir; "snowy, foggy, cracks" gibi kelime türevleri tanınır (Kara Ölüm açılışı hiç hareket etmemişti).
+- **Ses: kısık ton bütçesi**: anlatıcının varsayılan sesi net ve güçlü; kısık/fısıltı/yavaş tonlar satırların en fazla %15'inde (açılış, bölüm sonları, ifşa), asla art arda değil, fısıltı filmde bir kez. Kara Ölüm'de satırların %42'si kısık okunmuştu.
+- **Giriş mantığı kataloğu**: 50 farklı giriş (sahne + vaat, tek soru, sondan başla, çelişki, kuru gerçek, belge, tanık, harita, slam...). Senarist konunun tonuna uyan, kanalda son kullanılmamış 6 aday arasından seçer; ciddi haber ve trajedide şok kelimeli giriş önerilmez. Bağımsız Shorts da girişini katalogdan döndürür.
+- **ChatGPT görsel kutusu** (Ayarlar → AI GÖRSELLERİ → "ChatGPT'de elle"): API kredisi harcamadan; eksik görseller işin klasöründe gorsel-kutusu/LISTE.txt'e hazır ChatGPT mesajlarıyla yazılır, 01.png, 02.png… bırakılınca "Kaldığı yerden devam et" onları alır. OpenAI bakiyesi biterse kendiliğinden kutuya geçer.
 - **Araştırma**: 2026 web arama aracında yanlış "kaynak alınamadı" uyarısı giderildi, kaynak kayıtları yazılır; haber araştırması ölçeği (izole/karantina sayıları, kapanan kurumların tam listesi) ve kurumların olaya özel açıklamalarını ister.
 
 ## 1.16.6 (5 Ekim 2026)
