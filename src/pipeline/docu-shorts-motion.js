@@ -43,7 +43,7 @@ export function pickMotion(segments, { opening = 3, max = 10 } = {}) {
  * uzunsa render son kareyi tutar. Bir klip üretilemezse o segment durağan kalır — bakiye bitti
  * hatası ise yukarı fırlatılır (kullanıcı bilsin).
  */
-export async function animateSegments(segments, { opening = 3, settings = {}, dir, ffmpeg = "ffmpeg", logFn = () => {} } = {}) {
+export async function animateSegments(segments, { opening = 3, settings = {}, dir, ffmpeg = "ffmpeg", logFn = () => {}, deps = {} } = {}) {
   if (settings.shortsMotion === false || (!settings.klingKey && !settings.replicateKey)) return segments;
   // Kling (doğrudan API) varsa o: açılış Kling 3.0, kalanı 2.5 Turbo. Yoksa Replicate.
   const kling = !!settings.klingKey;
@@ -55,6 +55,8 @@ export async function animateSegments(segments, { opening = 3, settings = {}, di
   const made = new Map();
   // Aynı anda en çok 2 istek: Replicate'in düşük bakiyeli hesabı dakikada ~6 istek, Kling deneme paketi 5 eşzamanlı görev alır.
   const queue = picks.slice();
+  // Reddedilen bir resmin yerine geçebilecek cümleler, aynı sırayla (önce açılış).
+  const spare = pickMotion(segments, { opening, max: segments.length }).filter((j) => !picks.includes(j));
   const work = async () => {
     while (queue.length) {
       const i = queue.shift();
@@ -65,8 +67,8 @@ export async function animateSegments(segments, { opening = 3, settings = {}, di
           const prompt = motionPrompt({ motion: s.motion, picture: s.picturePrompt, say: s.say, opening: i < opening });
           made.set(s.abs, kling
             // Kling 3.0 is paid per second: the beat plus ~1 s of settling, nothing more.
-            ? await klingImageToVideo({ abs: s.abs, crop, prompt, duration: s.dur + 1, opening: i < opening, dir, settings, ffmpeg, logFn, cachedOnly: !!out.quota })
-            : await imageToVideo({ abs: s.abs, crop, prompt, duration: s.dur > 4.4 ? 10 : 5, dir, settings, ffmpeg, logFn, cachedOnly: !!out.quota }));
+            ? await (deps.kling || klingImageToVideo)({ abs: s.abs, crop, prompt, duration: s.dur + 1, opening: i < opening, dir, settings, ffmpeg, logFn, cachedOnly: !!out.quota })
+            : await (deps.replicate || imageToVideo)({ abs: s.abs, crop, prompt, duration: s.dur > 4.4 ? 10 : 5, dir, settings, ffmpeg, logFn, cachedOnly: !!out.quota }));
         }
         const c = made.get(s.abs);
         if (!c?.file || !c.dur) continue;
@@ -80,6 +82,16 @@ export async function animateSegments(segments, { opening = 3, settings = {}, di
           continue;
         }
         logFn(`Shorts hareketi: cümle ${i + 1} durağan kaldı (${String(e?.message || e).slice(0, 120)})`);
+        // Kling bazı resimleri (savaş, silah, tank) "risk control" diye reddediyor ve ücret almıyor: hareket hakkı
+        // boşa gitmesin, sıradaki uygun cümle canlansın (Yom Kippur Shorts, Ekim 2026: tanklı açılış iki kez reddedildi).
+        if (e?.moderation || /risk control|risk_control|content (?:policy|moderation)/i.test(String(e?.message || ""))) {
+          const next = spare.find((j) => !queue.includes(j) && !made.has(segments[j].abs) && segments[j].abs !== s.abs);
+          if (next !== undefined) {
+            spare.splice(spare.indexOf(next), 1);
+            queue.push(next);
+            logFn(`Shorts hareketi: yerine cümle ${next + 1} canlanacak`);
+          }
+        }
       }
     }
   };

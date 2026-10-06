@@ -94,3 +94,19 @@ test('opening motion (long video): at most two moving AI stills of the first cha
   const later = { scenes: [{ type: 'photo', chapter: 1, imagePrompt: 'A ship in a storm' }] };
   assert.equal(A.openingMotionTargets(later), 0, 'only the opening chapter');
 });
+
+test('a picture Kling refuses (risk control, no charge) hands its motion to the next fitting beat (Yom Kippur Short: the tank opening)', async () => {
+  const seg = (abs, extra = {}) => ({ kind: 'still', abs, dur: 3, say: 'x', motion: 'slow push-in', srcW: 2000, srcH: 3000, box: { x: 0, y: 0, w: 1, h: 1 }, ...extra });
+  const segs = [seg('tank.jpg'), seg('valley.jpg'), seg('clouds.jpg')];
+  const tried = [];
+  const kling = async ({ abs }) => {
+    tried.push(abs);
+    if (abs === 'tank.jpg') throw Object.assign(new Error('Kling kling-2.5-turbo: Failure to pass the risk control system'), { moderation: true });
+    return { file: `${abs}.mp4`, dur: 4, w: 720, h: 1280 };
+  };
+  const out = await M.animateSegments(segs, { opening: 1, settings: { klingKey: 'x', shortsMotionMax: 1 }, deps: { kling } });
+  assert.deepEqual(tried, ['tank.jpg', 'valley.jpg']);
+  assert.equal(out[0].kind, 'still');
+  assert.equal(out[1].animated, true);
+  assert.equal(out[2].kind, 'still', 'only one motion beat is bought');
+});
