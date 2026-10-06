@@ -162,7 +162,9 @@ export async function ffprobeDuration(ffprobe, file) {
 
 // ---------- network helpers ----------
 
-const UA = "NovaStudio/1.0 (kisisel video araci; iletisim: local)";
+// Wikimedia's file server answers 429 to every request from a User-Agent without a URL/contact (measured Oct 2026:
+// the old "NovaStudio/1.0 (kisisel video araci; iletisim: local)" got 429 on 100% of upload.wikimedia.org requests).
+export const UA = "NovaStudio/1.16 (personal documentary video tool; +https://commons.wikimedia.org/wiki/Commons:Reusing_content_outside_Wikimedia)";
 
 /**
  * GEÇİCİ HATADA YENİDEN DENE.

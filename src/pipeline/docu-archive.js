@@ -42,7 +42,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { readJson, writeJson, downloadFile, run, fetchJson } from "../util.js";
+import { readJson, writeJson, downloadFile, run, fetchJson, UA } from "../util.js";
 import { searchQuery, photoKey, kapaliSaglayicilar, geciciSaglayiciHatasi } from "./media.js";
 import { selectedProvenance, commonsMetadata, permissionUsable } from "./provenance.js";
 import { callVisionJSON } from "../llm.js";
@@ -577,7 +577,7 @@ const KLIP_EN_BUYUK = 200 * 1024 * 1024;
 const KLIP_INDIRME_MS = 4 * 60 * 1000;
 /** Bundan uzun kaynakta (saniye) dosya indirilmez, gereken bölüm uzaktan okunur. */
 const UZUN_KAYNAK = 120;
-const KLIP_UA = "NovaStudio/1.0 (kisisel video araci; iletisim: local)";
+const KLIP_UA = UA;
 /**
  * Klip indirmelerinin kimliği. upload.wikimedia.org iletişim bilgisi (URL ya da e-posta)
  * taşımayan kimliğe medya dosyasında 429 veriyor (ölçüldü: aynı istek, kimlikte bir URL

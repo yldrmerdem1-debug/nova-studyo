@@ -20,6 +20,7 @@ import { OPENINGS, SHORT_LOOKS, pickLook } from "./docu-shorts-looks.js";
 import { hookById } from "./docu-hooks.js";
 import { kunyeUret } from "./kunye.js";
 import { commonsMetadata } from "./provenance.js";
+import { UA, downloadFile, fetchJson } from "../util.js";
 import { animateSegments, motionDir } from "./docu-shorts-motion.js";
 
 const GENRES = ["documentary", "crime", "epic", "finance", "science", "inspire", "horror"];
@@ -196,14 +197,15 @@ export function pickShortMusic(lib, { mood = "curious", genre = "documentary", s
  * A Commons file the plan names exactly ("File:Cottingley Fairies 1.jpg"): fetched straight from the
  * Commons API (no picker), only when its licence is usable; 2000 px wide. Returns { rel, credit } or null.
  */
-export async function commonsPicture(title, { publicDir, fetchFn = (...a) => fetch(...a) } = {}) {
+export async function commonsPicture(title, { publicDir, fetchFn = null } = {}) {
   const t = clean(title).replace(/^(File|Image):/i, "");
   if (!t) return null;
   const api = `https://commons.wikimedia.org/w/api.php?action=query&titles=${encodeURIComponent("File:" + t)}&prop=imageinfo&iiprop=url|size|extmetadata&iiurlwidth=2000&format=json&origin=*`;
-  const ua = { headers: { "User-Agent": "NovaStudyo/1.16 (documentary shorts; contact via app)" } };
-  const r = await fetchFn(api, ua);
-  if (!r.ok) return null;
-  const page = Object.values((await r.json())?.query?.pages || {}).find((p) => p.imageinfo?.[0]);
+  // Hız sınırı (429) geçicidir: sorgu ve indirme util'in ortak soğumalı yeniden denemesinden geçer (Ekim 2026:
+  // tek denemede Hürmüz Shorts'unun üç Commons fotoğrafı düşüyor, plan ücretli arşiv seçicisine kayıyordu).
+  const ua = { headers: { "User-Agent": UA } };
+  const data = fetchFn ? await (async () => { const r = await fetchFn(api, ua); return r.ok ? r.json() : null; })() : await fetchJson(api, { timeoutMs: 20000, deneme: 4 }).catch(() => null);
+  const page = Object.values(data?.query?.pages || {}).find((p) => p.imageinfo?.[0]);
   if (!page) return null;
   const ii = page.imageinfo[0];
   const meta = commonsMetadata(ii, page.title);
@@ -212,10 +214,14 @@ export async function commonsPicture(title, { publicDir, fetchFn = (...a) => fet
   const rel = `build/s/commons-${hash(page.title)}.jpg`;
   const abs = path.join(publicDir, rel);
   if (!fs.existsSync(abs)) {
-    const img = await fetchFn(url, ua);
-    if (!img.ok) return null;
     fs.mkdirSync(path.dirname(abs), { recursive: true });
-    fs.writeFileSync(abs, Buffer.from(await img.arrayBuffer()));
+    if (fetchFn) {
+      const img = await fetchFn(url, ua);
+      if (!img.ok) return null;
+      fs.writeFileSync(abs, Buffer.from(await img.arrayBuffer()));
+    } else {
+      try { await downloadFile(url, abs, { expect: "image" }); } catch { return null; }
+    }
   }
   return { rel, credit: { provider: "wikimedia", file: rel, url, sourceUrl: url, ...meta } };
 }
