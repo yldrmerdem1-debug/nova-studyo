@@ -329,7 +329,7 @@ export const VignettePulseFx: React.FC<OverlayProps> = ({ f, fps, hits, gain = 1
 /* ------------------------------------------------------------- scan lines */
 
 export const ScanFx: React.FC<OverlayProps> = ({ f, fps }) => {
-  const bar = ((f * 7) % 1500) - 300;
+  // No refresh bar sweeping the frame: the user rejects any band crawling over the picture (Oct 2026).
   const o = interpolate(f, [0, 0.25 * fps], [0, 1], clamp);
   return (
     <AbsoluteFill style={{ pointerEvents: 'none', opacity: o }}>
@@ -340,7 +340,6 @@ export const ScanFx: React.FC<OverlayProps> = ({ f, fps }) => {
           backgroundImage: 'repeating-linear-gradient(90deg, rgba(255,40,40,0.05) 0 1px, rgba(40,255,90,0.05) 1px 2px, rgba(60,110,255,0.05) 2px 3px)',
         }}
       />
-      <div style={{ position: 'absolute', left: 0, right: 0, top: bar, height: 220, background: 'linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.07) 60%, rgba(255,255,255,0) 100%)', mixBlendMode: 'screen' }} />
       <AbsoluteFill style={{ background: 'radial-gradient(ellipse 75% 70% at 50% 50%, rgba(0,0,0,0) 70%, rgba(0,0,0,0.4) 100%)' }} />
     </AbsoluteFill>
   );

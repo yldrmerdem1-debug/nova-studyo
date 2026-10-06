@@ -2136,15 +2136,16 @@ const PhotoBody: React.FC<Common & { scene: PhotoScene }> = ({ scene, genre, dur
 };
 
 /**
- * The finance photo furniture, by the story's era (script.era). A camcorder /
- * trading-terminal HUD (REC, a volume readout, a scanning line) over a 1929
- * archive photo is an anachronism the viewer sees at once: stories before 1980
- * get a newsreel film gate instead. No era (old scripts, demos) keeps the HUD.
+ * The finance photo furniture, by the story's era (script.era): stories before
+ * 1980 get a newsreel film gate. Modern stories get nothing — the photo is the
+ * picture. (Oct 2026, Hormuz: the old terminal HUD — corner brackets, a fake
+ * REC / VOL readout and an accent line sweeping down every photo for 8 minutes —
+ * the user: "sürekli bir sarı şerit aşağı gidip ekranı tarıyor, hiç güzel değil".)
  */
 export const HUD_FROM_YEAR = 1980;
-const EraHud: React.FC<{ genre: Genre }> = ({ genre }) => {
+const EraHud: React.FC<{ genre: Genre }> = () => {
   const era = useLook().eraStart;
-  return era !== undefined && era < HUD_FROM_YEAR ? <NewsreelGate /> : <FinanceHud genre={genre} />;
+  return era !== undefined && era < HUD_FROM_YEAR ? <NewsreelGate /> : null;
 };
 
 /**
@@ -2172,51 +2173,6 @@ const NewsreelGate: React.FC = () => {
       <div style={{ position: 'absolute', left: 0, right: 0, top: 0, height: 8 + Math.abs(wy) * 3, background: 'rgba(0,0,0,0.85)' }} />
       {scratch > 0.74 ? <div style={{ position: 'absolute', top: 0, bottom: 0, left: sx, width: 2, background: `rgba(240,236,224,${(0.16 + (scratch - 0.74) * 0.6).toFixed(3)})` }} /> : null}
       <AbsoluteFill style={{ background: `rgba(255,248,230,${((1 - flicker) * 0.3).toFixed(3)})`, mixBlendMode: 'screen' }} />
-    </AbsoluteFill>
-  );
-};
-
-/** Corner brackets, a scanning line and a data readout — finance photos feel "on a terminal" (modern stories only: EraHud). */
-const FinanceHud: React.FC<{ genre: Genre }> = ({ genre }) => {
-  const f = useCurrentFrame();
-  const scan = (f * 9) % 1200;
-  const corner = (s: React.CSSProperties) => (
-    <div style={{ position: 'absolute', width: 70, height: 70, borderColor: genre.accent, borderStyle: 'solid', ...s }} />
-  );
-  return (
-    <AbsoluteFill style={{ pointerEvents: 'none' }}>
-      {corner({ left: 60, top: 60, borderWidth: '4px 0 0 4px' })}
-      {corner({ right: 60, top: 60, borderWidth: '4px 4px 0 0' })}
-      {corner({ left: 60, bottom: 60, borderWidth: '0 0 4px 4px' })}
-      {corner({ right: 60, bottom: 60, borderWidth: '0 4px 4px 0' })}
-      <div
-        style={{
-          position: 'absolute',
-          left: 0,
-          right: 0,
-          top: scan - 60,
-          height: 2,
-          background: `${genre.accent}88`,
-          boxShadow: `0 0 20px ${genre.accent}`,
-        }}
-      />
-      <div
-        style={{
-          position: 'absolute',
-          right: 90,
-          top: 90,
-          fontFamily: FONT.plexMono,
-          fontSize: 22,
-          color: genre.accent,
-          opacity: 0.8,
-          textAlign: 'right',
-          lineHeight: 1.5,
-        }}
-      >
-        REC ● {String(Math.floor(f / 30)).padStart(2, '0')}:{String(f % 30).padStart(2, '0')}
-        <br />
-        VOL {(4.2 + Math.sin(f / 7) * 0.6).toFixed(2)}M
-      </div>
     </AbsoluteFill>
   );
 };

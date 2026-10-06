@@ -187,7 +187,7 @@ export const FX_CATALOG: Record<FxKind, FxInfo> = {
   },
   'scan-lines': {
     id: 'scan-lines',
-    desc: 'Seen on a monitor: fine scan lines, an aperture-grille sheen and a slow refresh bar.',
+    desc: 'Seen on a monitor: fine scan lines and an aperture-grille sheen (no moving bar).',
     intensity: 1,
     layer: 'frame',
     genres: ['finance', 'science', 'crime'],
