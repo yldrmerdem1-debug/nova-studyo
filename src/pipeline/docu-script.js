@@ -26,6 +26,7 @@ import { TONES, DURATIONS } from "../config.js";
 import { callJSON } from "../llm.js";
 import { readJson, writeJson, DATA_DIR } from "../util.js";
 import { hookCandidates, hookPromptLines, hookById, readHookHistory, recordHook } from "./docu-hooks.js";
+import { readRhetoricHistory, recordRhetoric, rhetoricLines, rhetoricPlan } from "./docu-rhetoric.js";
 
 /** Efektif anlatım hızı (kelime/dk) — v3 duraklamaları ve sahne nefesleri dahil. Ölçüldü: 80 kelime → 39 sn. */
 export const DOCU_WPM = { tr: 120, en: 140 };
@@ -1501,6 +1502,7 @@ function chapterPrompt({ i, bible, plan, written, lang }) {
     after.length ? `SONRAKİ BÖLÜMLERİN OLGULARI (şimdiden verme): ${after.join("; ")}` : "",
     prev?.length ? `ÖNCEKİ BÖLÜMÜN SON SATIRLARI (kaldığı yerden, aynı cümleyi tekrarlamadan devam et):\n${prev.slice(-3).map((s) => `- ${stripTags(s.say)}`).join("\n")}` : "",
     !first && opener ? `Soğuk açılış (bölüm 1) böyleydi: "${stripTags(opener.say)}"${opener.text ? ` · ekrandaki kanca: "${opener.text}"` : ""}` : "",
+    ...rhetoricLines(bible.rhetoric, i, n),
     lang === "en" ? "Write every on-screen text and narration in English." : "",
   ].filter(Boolean).join("\n");
 }
@@ -1584,6 +1586,10 @@ export async function runDocuScript(job, research, usage, logFn, opts = {}) {
     });
     if (!hookById(bible.openingLogic)) bible.openingLogic = hookCands[0]?.id;
     recordHook(opts.hookDir ?? DATA_DIR, { id: bible.openingLogic, topic: job.topic, tone: hookTone });
+    // Vuruculuk + tek izleyici çağrısı (docu-rhetoric.js). Yalnızca YENİ planda: kayıtlı bir plana alan eklemek
+    // bölümlerin önbellek anahtarını değiştirir ve devam eden işi baştan yazdırırdı.
+    bible.rhetoric = rhetoricPlan({ topic: job.topic, chapters: bible.chapters.length, history: readRhetoricHistory(opts.hookDir ?? DATA_DIR) });
+    recordRhetoric(opts.hookDir ?? DATA_DIR, { topic: job.topic, punches: bible.rhetoric.perChapter.flat(), cta: bible.rhetoric.cta, ctaPlace: bible.rhetoric.ctaPlace });
     store.putBible(bible);
   }
   const bibleKey = sha1(bible);
