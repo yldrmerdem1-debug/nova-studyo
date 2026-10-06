@@ -1,5 +1,20 @@
 # Nova Studyo — Sürüm Notları
 
+## 1.16.8 (6 Ekim 2026)
+
+Dört uzun video + dört Shorts'tan (Hürmüz, Irkutsk, Yom Kippur, Nvidia) öğrenilenler: önce gerçek görsel, temiz ekran, çeşitli vurgu.
+
+- **Adıyla Commons**: senarist bir sahneye tam Wikimedia Commons dosya adını yazabilir (`commons: "File:..."`). Dosya arama ve ücretli seçici olmadan, lisansı kontrol edilerek doğrudan alınır; yoksa ya da lisansı uygun değilse sahne her zamanki aramasına döner. Güncel olaylarda (ABD Donanması/DVIDS, hükümet, ajans, NASA) ve ünlü tarihî fotoğraflarda doğru kare budur. Aynı dosya iki sahneye verilmez (Yom Kippur'da kanal geçişi fotoğrafı üç kez tekrar ediyordu).
+- **Wikimedia indirmeleri**: eski User-Agent her upload.wikimedia.org isteğinde 429 alıyordu; artık başvuru adresli UA, 429'da site başına ortak soğuma, 5xx/ağ hatasında geri çekilerek yeniden deneme.
+- **Görselsiz kart süresi**: grafik, sayı, açıklayıcı şema, arayüz kartı en fazla ~18 sn anlatım taşır. Daha uzun satırda kurgu yönetmeni cihazı reddeder, konu planı şemayı atlar; satır fotoğrafıyla kalır (Irkutsk'ta üç maddelik şema boş karede 28 sn durmuştu).
+- **Finans görünümü**: ekranı tarayan sarı şerit, köşe çerçeveleri ve sahte REC/VOL göstergesi kaldırıldı; 1980 sonrası hikâyelerde dönem şeridi çıkmaz.
+- **Açılış**: haber ve finans için "durum özeti" açılışı (konuyu ilk iki cümlede adıyla söyler, kanca konunun kendi en güçlü gerçeğidir) ilk aday; haber/finansta slam parçalı açılış önerilmez.
+- **Vurgu çeşitliliği**: 69 vurgu cihazı (her bölüme 2, videodan videoya döner) ve izleyiciye **tek** çağrı (beğen/abone) — videoda yalnızca bir kez, başta ya da sonda; 50 farklı çağrı kalıbı.
+- **Shorts: önce gerçek görsel**: planın en az üçte ikisi gerçek fotoğraf; AI oranı üçte biri aşarsa uyarı. Ledger görünümü neon yeşil yerine kehribar.
+- **Shorts: keskin kare**: dikey kare görselin tam yüksekliğinden kesildiği için 720 px'ten kısa Commons dosyası kullanılmaz (550 px'lik 1973 taraması 6 kat büyüyordu); planlayıcıya ~1500 px dosya seçmesi söylenir.
+- **Shorts: konuya yakın kesim**: büyük bir resimde küçük kalan konu (gece çekiminin altındaki Kremlin) tam yükseklik yerine konuya yakın kesilir, en az 1400 px (en çok ~1.4 kat büyütme). Üçte ikisi boş gökyüzü olan kareler bitti.
+- **Shorts: yüzde rakam yok**: büyük rakam (1992, $96.2B) yakın portrede yüzün üstüne düşmesin diye planlayıcı o cümlede rakam yazmaz.
+
 ## 1.16.7 (6 Ekim 2026)
 
 Model düzeni: kurgu Opus, araştırma GPT 6.1, görsel analiz gpt-6-luna.
