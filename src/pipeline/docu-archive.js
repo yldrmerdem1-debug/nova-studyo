@@ -1019,6 +1019,37 @@ export function openingMotionTargets(script, { max = 2, within = 6 } = {}) {
  * @param aiOnly dönem denetiminin iki kez reddettiği sahne/kareler (sahne indeksi ya da "i-mk"):
  *        hiç aranmaz (seçici ücreti yok), AI görseline kalır (docu-era-audit.js ERA_AI_AFTER).
  */
+/**
+ * A Commons file the script names exactly ("File:Stena Impero 2019-07-21 02.jpg"): fetched straight from
+ * the Commons API, no search and no picker, only when its licence is usable (the same rule as every
+ * archive pick). Saved like an archive pick (2560 px ceiling). Returns { file, imgW, imgH, credit },
+ * { reason } when the file exists but cannot be used, or null when there is no such file.
+ */
+export async function commonsFile(title, { publicDir, buildPrefix, ffmpeg = "ffmpeg", deps = {} }) {
+  const t = String(title || "").trim().replace(/^(File|Image):/i, "");
+  if (!t) return null;
+  const api = `https://commons.wikimedia.org/w/api.php?action=query&titles=${encodeURIComponent("File:" + t)}&prop=imageinfo&iiprop=url|size|mime|extmetadata&iiurlwidth=2560&format=json`;
+  const data = await (deps.fetchJson || fetchJson)(api, { timeoutMs: 20000, deneme: 4 });
+  const page = Object.values(data?.query?.pages || {}).find((p) => p.imageinfo?.[0]);
+  if (!page) return null;
+  const ii = page.imageinfo[0];
+  if (ii.mime && !/^image\/(jpeg|png|webp|tiff|gif)/i.test(ii.mime)) return { reason: `görsel değil (${ii.mime})` };
+  const meta = commonsMetadata(ii, page.title);
+  if (!meta.permissionVerified) return { reason: `lisans uygun değil (${meta.lisans || "belirsiz"})` };
+  const url = ii.thumburl || ii.url;
+  const rel = `${buildPrefix}/cm-${hash(page.title)}.jpg`;
+  const hedef = path.join(publicDir, rel);
+  if (!fs.existsSync(hedef)) {
+    fs.mkdirSync(path.dirname(hedef), { recursive: true });
+    const raw = `${hedef}.bin`;
+    await (deps.download || downloadFile)(url, raw, { timeoutMs: 60000, expect: "image" });
+    try { await (deps.run || run)(ffmpeg, ["-y", "-i", raw, "-frames:v", "1", "-vf", OLCEK, "-q:v", "2", hedef], { timeoutMs: 60000 }); } finally { fs.rmSync(raw, { force: true }); }
+  }
+  const b = fs.existsSync(hedef) ? imageSize(fs.readFileSync(hedef)) : null;
+  const kayit = { provider: "wikimedia", url, sourceUrl: url, ...meta, file: rel };
+  return { file: rel, ...(b ? { imgW: b.w, imgH: b.h } : {}), credit: { ...selectedProvenance(kayit), ...kayit, modifications: DOCU_MODS } };
+}
+
 export async function resolveArchive(docu, { dir, publicDir, buildPrefix, settings, usage, logFn = () => {}, isCancelled = () => false, onProgress = () => {}, deps = {}, rejected = null, aiOnly = null }) {
   const reddedilen = new Set([...(rejected || [])].filter(Boolean).map((u) => photoKey(u)));
   const yalnizAi = new Set([...(aiOnly || [])].map(String));
@@ -1100,7 +1131,43 @@ export async function resolveArchive(docu, { dir, publicDir, buildPrefix, settin
     p && typeof p === "object" && (p.source === "archive" || p.source === "stock") && p.search && (s.type === "montage" || p.media === "video")
       ? { s: { type: "photo", source: p.source, search: p.search, say: s.say, mood: s.mood, imagePrompt: p.prompt, ...(p.media ? { media: p.media } : {}), _kare: p }, i: `${i}-m${k}` }
       : null).filter(Boolean));
+  /*
+   * ADIYLA COMMONS (Ekim 2026: Hürmüz, Irkutsk, Yom Kippur, Nvidia videoları elle böyle yapıldı). Güncel bir
+   * olayda doğru kare çoğu zaman Commons'ta adıyla bellidir: ABD Donanması/DVIDS, hükümet ve ajans
+   * fotoğrafları. Senaryo `commons: "File:..."` yazdıysa arama ve (ücretli) seçici atlanır, o dosya alınır.
+   * Dosya yoksa ya da lisansı uygun değilse sahne her zamanki aramasına düşer. Aynı dosya ikinci bir
+   * sahneye verilmez (Yom Kippur: kanal geçişi fotoğrafı üç sahnede tekrar ediyordu).
+   */
+  const adiyla = new Set();
+  const adiylaDosya = new Set();
+  for (let i = 0; i < script.scenes.length; i++) {
+    const s = script.scenes[i];
+    const ad = String(s.commons || "").trim();
+    if (!ad || !ARCHIVE_TYPES.has(s.type) || yalnizAi.has(String(i))) continue;
+    const k = ad.toLowerCase().replace(/^(file|image):/, "").replace(/_/g, " ");
+    if (adiylaDosya.has(k)) { logFn(`Commons dosyası ikinci kez istendi, bu sahne arama yapacak: ${ad}`); continue; }
+    try {
+      const got = await commonsFile(ad, { publicDir, buildPrefix, ffmpeg: settings.ffmpegPath || "ffmpeg", deps });
+      if (!got?.file) { logFn(`Commons dosyası kullanılamadı (${got?.reason || "yok"}), sahne aranacak: ${ad}`); continue; }
+      if (reddedildi(got.credit?.url) || reddedildi(got.credit?.sayfa)) { logFn(`Commons dosyası daha önce reddedildi, sahne aranacak: ${ad}`); continue; }
+      s.image = got.file;
+      s.archived = true;
+      if (got.imgW > 0 && got.imgH > 0) {
+        s.imgW = got.imgW;
+        s.imgH = got.imgH;
+        if (ODAK_TIPLER.has(s.type) && !s.focus && got.imgW / got.imgH < DIKEY_ORAN) s.focus = [0.5, 0.3];
+      }
+      credits[`scene-${i}`] = got.credit;
+      adiyla.add(i);
+      adiylaDosya.add(k);
+    } catch (e) {
+      if (isCancelled()) throw new Error("cancelled");
+      logFn(`Commons dosyası alınamadı (${String(e?.message || e).slice(0, 80)}), sahne aranacak: ${ad}`);
+    }
+  }
+  if (adiyla.size) logFn(`Senaryonun adıyla istediği ${adiyla.size} Commons dosyası doğrudan alındı (arama ve seçici yok)`);
   const targets = [...script.scenes.map((s, i) => ({ s, i })), ...montajKareleri]
+    .filter(({ i }) => !adiyla.has(i))
     .filter(({ s }) => (s.source === "archive" || s.source === "stock") && s.search && ARCHIVE_TYPES.has(s.type))
     .map((t) => {
       const temel = hash(`${t.s.search}|${stripTags(t.s.say)}`);

@@ -373,6 +373,7 @@ const SCENES_SCHEMA = {
           source: { type: "string", enum: ["archive", "stock", "ai"], description: "Görselin kaynağı: archive = gerçek arşiv fotoğrafı, stock = ücretsiz genel atmosfer fotoğrafı, ai = üretilir (en fazla ~15)" },
           bg: { type: "string", enum: ["prev"], description: "words/slam: yeni görsel yerine önceki sahnenin fotoğrafı" },
           search: { type: "string", description: "source=archive ise İNGİLİZCE arşiv arama sorgusu: özel isim + yer + yıl ('Apollo 13 crew 1970 portrait', 'Topkapi Palace treasury'). 3-6 kelime." },
+          commons: { type: "string", description: "source=archive ve tam adını BİLDİĞİN bir Wikimedia Commons dosyası bu anı gösteriyorsa: 'File:...' (ör. 'File:Stena Impero 2019-07-21 02.jpg'). Emin değilsen boş bırak; search yine dolu olsun." },
           // ---- kurgu cihazları (SAHNE DİLİ'ndeki KURGU CİHAZLARI) ----
           paper: { type: "string", description: "headline: gazetenin adı (THE OREGONIAN)" },
           headline: { type: "string", description: "headline: manşet, gazetenin dilinde, 2-8 kelime" },
@@ -489,6 +490,8 @@ export function sourceRule(job) {
     "- archive ve stock sahnelerde de imagePrompt yaz: uygun fotoğraf çıkmazsa sahne onunla AI'a düşer (motorun AI tavanı aşılırsa önceki fotoğrafa).",
     "- montage kareleri de gerçek olabilir: imagePrompts girdisini {\"prompt\":\"...\",\"source\":\"archive\"|\"stock\",\"search\":\"...\"} yaz; gerçek karşılığı olamayan kare düz metin (AI) kalır.",
     "- name/role (isim kartı) yalnızca source \"archive\" sahnelerde: AI'ın çizdiği yüzün altına gerçek bir kişinin adı yazılmaz.",
+    // Ekim 2026 (Hürmüz, Irkutsk, Yom Kippur, Nvidia): en iyi videolarda karelerin çoğu Commons'tan ADIYLA seçildi.
+    "- commons: güncel olaylarda (ABD Donanması/DVIDS, hükümet, ajans, NASA fotoğrafı) ve ünlü tarihî fotoğraflarda doğru kare çoğu zaman Commons'ta adıyla bellidir. Tam dosya adını biliyorsan commons alanına 'File:...' yaz: seçici atlanır, o dosya lisansı kontrol edilerek alınır. Bilmiyorsan uydurma; search her zaman dolu kalsın (dosya yoksa onunla aranır). Aynı dosyayı iki sahneye yazma: ikinci sahne arama yapar.",
   ].join("\n");
 }
 

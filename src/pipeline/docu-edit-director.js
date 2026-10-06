@@ -82,7 +82,7 @@ export const MAX_DEVICES = 20;
 /** Görseli değiştirilebilecek sahneler (sayaç, grafik, slam, başlık, montaj zaten birer cihaz). */
 const CONVERTIBLE = new Set(["photo", "words"]);
 /** Cihaz görsel alanları: görselsiz cihaza çevrilen sahneden atılır. */
-const PICTURE_FIELDS = ["imagePrompt", "imagePrompts", "cast", "source", "search", "media", "image", "images", "clips", "imgW", "imgH", "video", "videoStart", "videoDur", "videoW", "videoH", "heldBg", "archived", "layers", "depth", "focus", "bg", "fullBleed", "natural"];
+const PICTURE_FIELDS = ["imagePrompt", "imagePrompts", "cast", "source", "search", "commons", "media", "image", "images", "clips", "imgW", "imgH", "video", "videoStart", "videoDur", "videoW", "videoH", "heldBg", "archived", "layers", "depth", "focus", "bg", "fullBleed", "natural"];
 /** Eski tipe özgü alanlar: her dönüşümde atılır. */
 const TYPE_FIELDS = ["text", "keyword", "word", "sub", "from", "to", "label", "prefix", "suffix", "decimals", "year", "points", "name", "role", "caption", "kicker", "title", "at",
   "paper", "headline", "date", "translation", "region", "places", "route", "line", "items", "links", "doc", "highlight", "redact", "stamp", "events", "span", "left", "right", "mode", "quote", "who", "when", "fromScene",
