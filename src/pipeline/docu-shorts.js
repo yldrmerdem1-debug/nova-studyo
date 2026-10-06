@@ -9,6 +9,7 @@
 //
 //   import { makeDocuShort } from "./docu-shorts.js"
 //   await makeDocuShort({ jobDir, settings, logFn })  -> { file, mode: "teaser"|"cut", hook, title, description, ... }
+import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -16,6 +17,9 @@ import { callJSON } from "../llm.js";
 import { animateSegments, motionDir } from "./docu-shorts-motion.js";
 import { SHORT_LOOKS, inkTag, keyTag, lookStyles, pickLook, slamTags } from "./docu-shorts-looks.js";
 import { DARK_CLIP, darkestFrame, describePictures, newVerticalPicture, periodFit, pictureAssets, planPictureTeaser, renderPictureTeaser, sizeOf, storyYear } from "./docu-shorts-pictures.js";
+
+/** One Short is one ffmpeg encode: cap x264 below the core count (test/kodlayici-bellek: no uncapped libx264), leave two cores for the machine. */
+const SHORT_THREADS = String(Math.max(2, os.cpus().length - 2));
 
 export const SHORT_MIN = 40;
 export const SHORT_MAX = 58;
@@ -191,7 +195,7 @@ export function renderShort({ video, start, end, assFile, out, ffmpeg = "ffmpeg"
     `[bg][fg]overlay=0:(H-h)/2-40,subtitles='${esc(assFile)}':fontsdir='${esc(fontsDir)}',fade=t=out:st=${(dur - 0.5).toFixed(2)}:d=0.5,format=yuv420p[v]`,
   ].join(";");
   const af = `afade=t=in:d=0.25,afade=t=out:st=${(dur - 0.8).toFixed(2)}:d=0.8`;
-  const args = ["-y", "-hide_banner", "-loglevel", "error", "-ss", start.toFixed(2), "-t", dur.toFixed(2), "-i", video, "-filter_complex", vf, "-map", "[v]", "-map", "0:a?", "-af", af, "-c:v", "libx264", "-preset", "medium", "-crf", "19", "-r", "30", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", out];
+  const args = ["-y", "-hide_banner", "-loglevel", "error", "-ss", start.toFixed(2), "-t", dur.toFixed(2), "-i", video, "-filter_complex", vf, "-map", "[v]", "-map", "0:a?", "-af", af, "-c:v", "libx264", "-threads", SHORT_THREADS, "-preset", "medium", "-crf", "19", "-r", "30", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", out];
   const r = spawnSync(ffmpeg, args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
   if (r.status !== 0) throw new Error(`Shorts render başarısız: ${String(r.stderr || r.error?.message || "").slice(-400)}`);
   return out;
@@ -568,7 +572,7 @@ export function renderTeaser({ video, segments, voiceFile, musicFile, thumbFile,
   place(sfxIn.whoosh, whooshAt, 0.32, "w");
   place(sfxIn.hit, hitAt, 0.55, "h");
   parts.push(`${mix.join("")}amix=inputs=${mix.length}:duration=first:normalize=0,loudnorm=I=-14:TP=-1.5:LRA=11[aout]`);
-  args.push("-filter_complex", parts.join(";"), "-map", "[v]", "-map", "[aout]", "-t", total.toFixed(2), "-c:v", "libx264", "-preset", "medium", "-crf", "19", "-r", "30", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart", out);
+  args.push("-filter_complex", parts.join(";"), "-map", "[v]", "-map", "[aout]", "-t", total.toFixed(2), "-c:v", "libx264", "-threads", SHORT_THREADS, "-preset", "medium", "-crf", "19", "-r", "30", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart", out);
   const r = spawnSync(ffmpeg, args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
   if (r.status !== 0) throw new Error(`Teaser render başarısız: ${String(r.stderr || r.error?.message || "").slice(-500)}`);
   return out;

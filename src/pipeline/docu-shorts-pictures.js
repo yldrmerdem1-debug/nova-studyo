@@ -18,6 +18,9 @@ import { openAIImagesProvider } from "./openai-images.js";
 import { donemYili, hikayeDonemi } from "./docu-archive.js";
 import { SHORT_LOOKS, flashColour, pictureFilter } from "./docu-shorts-looks.js";
 
+/** One Short is one ffmpeg encode: cap x264 below the core count (test/kodlayici-bellek: no uncapped libx264), leave two cores for the machine. */
+const SHORT_THREADS = String(Math.max(2, os.cpus().length - 2));
+
 const W = 1080;
 const H = 1920;
 const STILL = /\.(jpe?g|png|webp)$/i;
@@ -443,7 +446,7 @@ export function renderPictureTeaser({ segments, voiceFile, musicFile, thumbFile,
   place(sfxIn.whoosh, whooshAt, 0.28, "w");
   place(sfxIn.hit, hitAt, 0.5, "h");
   parts.push(`${mix.join("")}amix=inputs=${mix.length}:duration=first:normalize=0,loudnorm=I=-14:TP=-1.5:LRA=11[aout]`);
-  args.push("-filter_complex", parts.join(";"), "-map", "[v]", "-map", "[aout]", "-t", total.toFixed(2), "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-r", "30", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart", out);
+  args.push("-filter_complex", parts.join(";"), "-map", "[v]", "-map", "[aout]", "-t", total.toFixed(2), "-c:v", "libx264", "-threads", SHORT_THREADS, "-preset", "medium", "-crf", "18", "-r", "30", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart", out);
   const r = spawnSync(ffmpeg, args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
   if (r.status !== 0) throw new Error(`Shorts render başarısız: ${String(r.stderr || r.error?.message || "").slice(-600)}`);
   return out;
