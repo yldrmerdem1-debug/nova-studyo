@@ -143,7 +143,10 @@ test('cutaways: only climax picture lines, cut on spoken content words, never on
   const w = guns.wordTimes.find((x) => Math.abs(x.t - at[0] - 0.04) < 1e-6);
   assert.ok(w && w.word.replace(/\W/g, '').length >= 4, `cuts on a content word (${w?.word})`);
   assert.ok(at[0] >= 1.06 && at[0] <= guns.voiceDur - 1);
+  // In the hook (first 45 s) every picture line of 3.5 s+ gets a cutaway; later only the climax lines do.
   const plan = I.planInserts({ scenes: [chart, guns, person] });
-  assert.deepEqual(plan.map((p) => p.i), [1]);
-  assert.match(plan[0].prompts[0], /same moment/);
+  assert.deepEqual(plan.map((p) => p.i), [0, 1]);
+  assert.match(plan[1].prompts[0], /same moment/);
+  const late = I.planInserts({ scenes: [{ type: 'photo', dur: 60, say: 'x' }, chart, guns, person] });
+  assert.deepEqual(late.map((p) => p.i), [2], 'after the hook a calm line keeps one picture');
 });

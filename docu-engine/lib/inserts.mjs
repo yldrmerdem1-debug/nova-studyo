@@ -73,6 +73,10 @@ export function insertMoments(s, n) {
   return out.sort((x, y) => x - y).map((t) => +Math.max(0, t - 0.04).toFixed(3));
 }
 
+/** The hook's cutaway window and how many of its lines get one. */
+export const OPENING_SEC = 45;
+export const OPENING_MAX = 3;
+
 const VIEWS = [
   'A closer view of the same moment: faces, hands and detail, a different angle',
   'A wide view of the same moment: the scale of it, smoke and distance',
@@ -91,6 +95,19 @@ export function planInserts(script, { max } = {}) {
     .filter(({ s, score }) => insertable(s) && climaxLine(s) && score >= 3)
     .sort((a, b) => b.score - a.score || (b.s.voiceDur ?? 0) - (a.s.voiceDur ?? 0) || a.i - b.i)
     .slice(0, cap);
+  /*
+   * THE HOOK IS CUT FAST (Oct 2026 study: MagnatesMedia ~40 picture changes a minute in its first three minutes,
+   * ColdFusion and Moon close behind). A picture line that starts in the first OPENING_SEC seconds and lasts
+   * 3.5 s or more gets a cutaway too — whatever it says — up to OPENING_MAX lines, on top of the climax ones.
+   */
+  let t = 0;
+  const starts = scenes.map((s) => { const at = t; t += Math.max(Number(s.dur) || 0, (s.voiceDur ?? 0) + 0.4); return at; });
+  const taken = new Set(picked.map((p) => p.i));
+  const opening = scenes
+    .map((s, i) => ({ s, i, score: insertScore(s) }))
+    .filter(({ s, i }) => !taken.has(i) && starts[i] < OPENING_SEC && insertable(s) && (s.voiceDur ?? 0) >= 3.5)
+    .slice(0, OPENING_MAX);
+  picked.push(...opening);
   const out = [];
   for (const { s, i } of picked.sort((a, b) => a.i - b.i)) {
     const at = insertMoments(s, (s.voiceDur ?? 0) >= 6 ? 2 : 1);
