@@ -54,3 +54,16 @@ test('alignment without tags: offsets match the plain text again', () => {
   assert.equal(u.characters.join(''), 'He left. Gone.');
   assert.equal(u.character_start_times_seconds[0], text.indexOf('He') / 10);
 });
+
+test('quiet budget: a hushed voice is an effect — at most 15% of lines, never two in a row, one whisper per film; the rest read clear', async () => {
+  const { directLines, QUIET_SHARE } = await import('../docu-engine/lib/voice-director.mjs');
+  const scenes = Array.from({ length: 40 }, (_, i) => ({ chapter: Math.floor(i / 10), mood: i % 7 === 3 ? 'reveal' : 'tension', say: `${i % 3 === 0 ? '[whispers]' : '[quietly]'} Line number ${i} of the story goes on here.` }));
+  const out = directLines(scenes, { model: 'eleven_v4' });
+  const Q = /quiet|hush|whisper|soft|low|slow/i;
+  const quiet = out.map((d) => Q.test((d.text.match(/^\[[^\]]*\]/) || [''])[0]));
+  assert.ok(quiet.filter(Boolean).length <= Math.max(2, Math.round(40 * QUIET_SHARE)));
+  assert.ok(quiet[0], 'the film still opens low');
+  assert.ok(!quiet.some((q, i) => q && quiet[i + 1]), 'never two quiet lines in a row');
+  assert.equal(out.filter((d) => /^\[whispers\]/.test(d.text)).length, 1);
+  assert.ok(out.filter((d) => !/^\[/.test(d.text)).length >= 30, 'most lines in the clear narrator voice');
+});

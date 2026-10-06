@@ -105,10 +105,57 @@ export function directLine(scene, { model = 'eleven_v4', first = false, chapterE
  */
 export function directLines(scenes, { model = 'eleven_v4', chapterOf = (s) => s?.chapter ?? 0, punctuation = true } = {}) {
   let prevTag = '';
-  return scenes.map((s, i) => {
+  const lines = scenes.map((s, i) => {
     const next = scenes[i + 1];
     const d = directLine(s, { model, first: i === 0, chapterEnd: !next || chapterOf(next) !== chapterOf(s), prevTag, punctuation });
     prevTag = d.tag;
+    return d;
+  });
+  return isTagModel(model) ? budgetQuiet(lines, scenes, chapterOf) : lines;
+}
+
+/*
+ * QUIET BUDGET. A narrator speaks clearly and with presence; the hushed voice is an effect, kept
+ * for a few moments. The Black Death film had 42% of its lines tagged quietly / whispers / hushed /
+ * slowly (mostly the writer's own tags) and the whole narration sounded whispered — the user: "sürekli
+ * kısık sesle anlatıyor, belli yerlerde böyle yapmalı, full yaparsa tuhaf durur".
+ * At most QUIET_SHARE of the lines (at least 2) keep a quiet colour, never two in a row, chosen by
+ * where it means most: the film's first line, chapter ends, reveals, dread. Whispers once per film.
+ * Every other quiet tag — the writer's too — is dropped: that line is read in the clear narrator voice.
+ */
+export const QUIET_SHARE = 0.15;
+const QUIET = /quiet|hush|whisper|soft|low|murmur|slow|breath/i;
+export function budgetQuiet(lines, scenes = [], chapterOf = (s) => s?.chapter ?? 0) {
+  const tagOf = (t) => (String(t).match(TAG_AT_START) || [''])[0].trim();
+  const quiet = lines.map((d) => QUIET.test(tagOf(d.text)));
+  const budget = Math.max(2, Math.round(lines.length * QUIET_SHARE));
+  const score = (i) => {
+    const s = scenes[i] || {};
+    const next = scenes[i + 1];
+    if (i === 0) return 100;
+    if (!next || chapterOf(next) !== chapterOf(s)) return 80;
+    if (s.mood === 'reveal') return 60;
+    if (s.mood === 'dread') return 50;
+    return 10;
+  };
+  const keep = new Set();
+  const order = lines.map((_, i) => i).filter((i) => quiet[i]).sort((a, b) => score(b) - score(a) || a - b);
+  for (const i of order) {
+    if (keep.size >= budget) break;
+    if (keep.has(i - 1) || keep.has(i + 1)) continue;
+    keep.add(i);
+  }
+  let whispered = false;
+  return lines.map((d, i) => {
+    if (!quiet[i]) return d;
+    const tag = tagOf(d.text);
+    const body = d.text.slice(d.text.indexOf(tag) + tag.length).trim();
+    if (!keep.has(i)) return { ...d, text: body, tag: '' };
+    // One whisper per film; the others keep a quiet colour without whispering.
+    if (/whisper/i.test(tag)) {
+      if (whispered) return { ...d, text: `[quietly] ${body}`, tag: '[quietly]' };
+      whispered = true;
+    }
     return d;
   });
 }
