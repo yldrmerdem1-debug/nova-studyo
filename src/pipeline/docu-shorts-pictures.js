@@ -367,7 +367,34 @@ export function verticalCrop(w, h, box = { x: 0, y: 0, w: 1, h: 1 }) {
  * Sound as before: the new narration, the film's music under it, a hit on each slammed word, a whoosh on
  * the later cuts, -14 LUFS.
  */
-export function renderPictureTeaser({ segments, voiceFile, musicFile, thumbFile, assFile, out, total, sfx = {}, slamAt = [], ffmpeg = "ffmpeg", fontsDir = "C:/Windows/Fonts", look: lookId = null, musicStart = 0, musicGain = 0.22 }) {
+/** A still at least this long gets a punch-in cut. */
+export const PUNCH_MIN_DUR = 2.8;
+
+/**
+ * PUNCH-IN (Oct 2026 study: the top channels change the picture every ~1.5 s in a hook; a Short held one picture
+ * per sentence, 3-5 s). A still of PUNCH_MIN_DUR s or more becomes two shots: the first 55 % as framed, then a hard
+ * cut ~1.35x closer on the same subject. Only when the closer cut is really closer (a big enough picture —
+ * verticalCrop never goes under 1400 px, so it stays sharp); clips and small pictures are left alone.
+ */
+export function punchInSegments(segments) {
+  const out = [];
+  for (const g of segments || []) {
+    if (g?.kind !== "still" || !(g.dur >= PUNCH_MIN_DUR) || !g.srcW || !g.srcH || g.punch) { out.push(g); continue; }
+    const b = g.box || { x: 0, y: 0, w: 1, h: 1 };
+    const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+    const bw = b.w / 1.35, bh = b.h / 1.35;
+    const box2 = { x: Math.max(0, Math.min(1 - bw, cx - bw / 2)), y: Math.max(0, Math.min(1 - bh, cy - bh / 2)), w: bw, h: bh };
+    const c1 = verticalCrop(g.srcW, g.srcH, b);
+    const c2 = verticalCrop(g.srcW, g.srcH, box2);
+    if (c2.h > c1.h * 0.85) { out.push(g); continue; }
+    const d1 = +(g.dur * 0.55).toFixed(3);
+    out.push({ ...g, dur: d1 }, { ...g, dur: +(g.dur - d1).toFixed(3), box: box2, punch: true });
+  }
+  return out;
+}
+
+export function renderPictureTeaser({ segments: given, voiceFile, musicFile, thumbFile, assFile, out, total, sfx = {}, slamAt = [], ffmpeg = "ffmpeg", fontsDir = "C:/Windows/Fonts", look: lookId = null, musicStart = 0, musicGain = 0.22 }) {
+  const segments = punchInSegments(given);
   const esc = (p) => String(p).replace(/\\/g, "/").replace(/:/g, "\\:").replace(/'/g, "\\'");
   const args = ["-y", "-hide_banner", "-loglevel", "error"];
   const parts = [];
@@ -427,12 +454,15 @@ export function renderPictureTeaser({ segments, voiceFile, musicFile, thumbFile,
   }
   const cuts = [];
   let t = 0;
-  for (const g of segments) {
+  // A punch-in is a cut inside the same picture: no whoosh on it (one whoosh per new picture, as before).
+  const quiet = new Set();
+  segments.forEach((g, k) => {
     t += g.dur;
     cuts.push(t);
-  }
+    if (segments[k + 1]?.punch) quiet.add(cuts.length - 1);
+  });
   const openEnd = slamAt.length ? slamAt.at(-1) + 0.3 : 0;
-  const whooshAt = cuts.slice(0, -1).filter((c) => c > openEnd).map((c) => Math.max(0, c - 0.28));
+  const whooshAt = cuts.slice(0, -1).filter((c, k) => c > openEnd && !quiet.has(k)).map((c) => Math.max(0, c - 0.28));
   const hitAt = [...(slamAt.length ? slamAt : [0]), ...(hasEnd ? [cuts.at(-1)] : [])];
   const place = (inIdx, times, gain, tag) => {
     if (inIdx == null || !times.length) return;

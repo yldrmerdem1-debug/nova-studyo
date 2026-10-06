@@ -295,3 +295,20 @@ test('a quantity is never split across captions: "half | a dozen hospitals" woul
   assert.ok(lines.some((l) => /half a dozen/.test(l)), lines.join(' | '));
   assert.ok(lines.some((l) => /two hundred/.test(l)), lines.join(' | '));
 });
+
+test('Shorts punch-in: a long still is cut in two, the second closer on its subject; small pictures, clips and short beats stay one shot; time is unchanged', async () => {
+  const P = await import('../src/pipeline/docu-shorts-pictures.js');
+  const big = { kind: 'still', abs: 'a.jpg', dur: 4, srcW: 6000, srcH: 4000, box: { x: 0.3, y: 0.2, w: 0.4, h: 0.6 } };
+  const small = { kind: 'still', abs: 'b.jpg', dur: 4, srcW: 1600, srcH: 1000, box: { x: 0.3, y: 0.2, w: 0.4, h: 0.6 } };
+  const clip = { kind: 'clip', abs: 'c.mp4', dur: 4, srcW: 720, srcH: 1280 };
+  const short = { ...big, abs: 'd.jpg', dur: 2 };
+  const out = P.punchInSegments([big, small, clip, short]);
+  assert.equal(out.length, 5);
+  assert.equal(out[1].punch, true);
+  assert.ok(Math.abs(out[0].dur + out[1].dur - 4) < 1e-6);
+  const c1 = P.verticalCrop(big.srcW, big.srcH, out[0].box);
+  const c2 = P.verticalCrop(big.srcW, big.srcH, out[1].box);
+  assert.ok(c2.h < c1.h * 0.85 && c2.h >= P.ZOOM_MIN_H, 'closer but still sharp');
+  assert.deepEqual(out.slice(2).map((g) => g.abs), ['b.jpg', 'c.mp4', 'd.jpg']);
+  assert.equal(P.punchInSegments(out).length, 5, 'never punched twice');
+});
