@@ -247,7 +247,7 @@ export async function planTeaser({ cues, title = "", screens = [], llm = callJSO
       lines,
       "",
       `Write a NEW vertical Short (${TEASER_WORDS[0]}-${TEASER_WORDS[1]} words of narration, about 45-55 seconds) whose only job is to make the viewer watch the full documentary:`,
-      "- the opening is the hook: three short spoken fragments with a rhythm, like 'A recipe. A street. And a betrayal.' — each names one concrete thing from THIS story (an object, a place, a number, a person), the third is the twist; its three words are slammed on screen exactly as the narrator says them, each over a picture of that thing, so they must be words the viewer instantly connects to the story",
+      "- the opening is the hook: three short spoken fragments with a rhythm, like 'A recipe. A street. And a betrayal.' — each names one concrete thing from THIS story (an object, a place, a number, a person), the third is the twist; its three words are slammed on screen exactly as the narrator says them, each over a picture of that thing, so they must be words the viewer instantly connects to the story. A serious story (real deaths, an unconfirmed news event, a tragedy) slams facts — a place, a date, a number — never fear words like DEATH or KILLER",
       "- then the beats: 3-5 of the documentary's most striking, concrete moments (numbers, names, reversals), each one raising the stakes",
       "- never give away the ending or the answer; tease it",
       "- last beat: a short call to the full documentary on the channel (e.g. 'The full story is on the channel.')",

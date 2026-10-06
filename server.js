@@ -275,6 +275,13 @@ app.post("/api/shorts", async (req, res) => {
   const rot = (keys, used) => keys.find((k) => !used.slice(0, Math.max(1, keys.length - 1)).includes(k)) || keys[prev.length % keys.length];
   const pick = (v, keys, used) => (keys.includes(v) ? v : rot(keys, used));
   const opening = pick(req.body?.opening, Object.keys(OPENINGS), prev.map((m) => m.opening));
+  // The opening's logic (docu-hooks.js catalog) inside that shape: never one of the last six Shorts'.
+  const { HOOKS } = await import("./src/pipeline/docu-hooks.js");
+  const shapeOf = { fragments: "triple", question: "question", number: "number", quote: "quote", statement: "statement" };
+  const usedLogic = new Set(prev.slice(0, 6).map((m) => m.logic));
+  const fits = HOOKS.filter((h) => h.short && shapeOf[h.short] === opening);
+  const logicPool = fits.filter((h) => !usedLogic.has(h.id));
+  const logic = (logicPool.length ? logicPool : fits)[prev.length % Math.max(1, (logicPool.length ? logicPool : fits).length)]?.id || null;
   const format = pick(req.body?.format, Object.keys(SHORT_FORMATS), []);
   const titlePattern = pick(req.body?.titlePattern, Object.keys(TITLE_PATTERNS), prev.map((m) => m.titlePattern));
   const look = SHORT_LOOKS[req.body?.look] ? req.body.look : null;
@@ -284,7 +291,7 @@ app.post("/api/shorts", async (req, res) => {
   try {
     const settings = getSettings();
     await makeStandaloneShort({
-      topic, angle: String(req.body?.angle || "").slice(0, 500), opening, format, titlePattern, look, recentLooks: prev.slice(0, 2).map((m) => m.look),
+      topic, angle: String(req.body?.angle || "").slice(0, 500), opening, logic, format, titlePattern, look, recentLooks: prev.slice(0, 2).map((m) => m.look),
       voiceId: /^[A-Za-z0-9]{10,40}$/.test(String(req.body?.voiceId || "")) ? req.body.voiceId : null,
       dir: path.join(STANDALONE_DIR, slug), settings, usage: { input: 0, output: 0 },
       logFn: (m) => { entry.log.push(String(m)); if (entry.log.length > 200) entry.log.shift(); },

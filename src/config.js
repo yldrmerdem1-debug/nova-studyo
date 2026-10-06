@@ -38,6 +38,9 @@ export const DEFAULT_SETTINGS = {
   visionModel: "gpt-6-luna",
   // Senarist: "claude-opus-5-5" (plan Opus + bölümler Sonnet) ya da "gpt-6.1-sol" (ikisi de GPT 6.1).
   docuWriterModel: "claude-opus-5-5",
+  // AI görselleri: "openai" (GPT Image API) | "replicate" | "manual" (ChatGPT'de elle, API kredisi harcamaz:
+  // eksikler <iş>/gorsel-kutusu/LISTE.txt'e yazılır, 01.png… bırakılınca devam eder).
+  docuImageProvider: "openai",
   // Görsel analizde OpenAI'ye giden küçük resim ayrıntısı: auto (soluk filigran ve yazı okunur).
   openaiVisionDetail: "auto",
   useWebSearch: true,

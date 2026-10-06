@@ -24,7 +24,8 @@ import crypto from "node:crypto";
 import path from "node:path";
 import { TONES, DURATIONS } from "../config.js";
 import { callJSON } from "../llm.js";
-import { readJson, writeJson } from "../util.js";
+import { readJson, writeJson, DATA_DIR } from "../util.js";
+import { hookCandidates, hookPromptLines, hookById, readHookHistory, recordHook } from "./docu-hooks.js";
 
 /** Efektif anlatım hızı (kelime/dk) — v3 duraklamaları ve sahne nefesleri dahil. Ölçüldü: 80 kelime → 39 sn. */
 export const DOCU_WPM = { tr: 120, en: 140 };
@@ -226,6 +227,23 @@ function rankingPlan({ minutes, words, scenes }) {
     chapterWords,
     chapterScenes,
   };
+}
+
+/** The writer picks one of the offered opening logics (docu-hooks.js). */
+function withOpeningLogic(schema, cands) {
+  if (!cands?.length) return schema;
+  return {
+    ...schema,
+    properties: { ...schema.properties, openingLogic: { type: "string", enum: cands.map((h) => h.id), description: "Seçilen giriş mantığının id'si (GİRİŞ MANTIĞI listesinden, konunun tonuna en uygun olan)" } },
+    required: [...(schema.required || []), "openingLogic"],
+  };
+}
+
+/** Bölüm 1'in açılış talimatı: seçilen giriş mantığı; yoksa (eski plan) türün varsayılan açılışı. */
+export function openingRule(bible, g) {
+  const h = hookById(bible?.openingLogic);
+  if (!h) return `ilk sahne ${g.write.openers.join(" veya ")} — ${g.write.coldOpen}`;
+  return `GİRİŞ MANTIĞI "${h.ad}": ${h.how} (Türün varsayılan açılışını değil BUNU uygula; ilk sahne tipi bu mantığa uyan ${[...new Set([...g.write.openers, "photo", "words"])].join(" / ")}.)`;
 }
 
 function bibleSchema(plan) {
@@ -1469,7 +1487,7 @@ function chapterPrompt({ i, bible, plan, written, lang }) {
     "",
     `UZUNLUK (ZORUNLU): toplam ${target} kelime anlatım (etiketler hariç, en az ${min}); ${lo}-${hi} sahne. Kelime hedefi sahne sayısından önemlidir: sahneler az kalırsa satırları uzat.`,
     first
-      ? `AÇILIŞ (ilk 30 sn): ilk sahne ${g.write.openers.join(" veya ")} — ${g.write.coldOpen} Kanca ("${bible.hookWord}") ilk ~8 sn içinde düşsün. İlk 4 sahneden biri title: videonun adı "${bible.title}" (~20 sn içinde). Vaadi ("${bible.promise}") ilk ~30 sn içinde, yani anlatımın ilk ~55 kelimesinde söyle; merkez soruyu sezdir: "${bible.centralQuestion}".`
+      ? `AÇILIŞ (ilk 30 sn): ${openingRule(bible, g)} Kanca ("${bible.hookWord}") ilk ~8 sn içinde düşsün. İlk 4 sahneden biri title: videonun adı "${bible.title}" (~20 sn içinde). Vaadi ("${bible.promise}") ilk ~30 sn içinde, yani anlatımın ilk ~55 kelimesinde söyle; merkez soruyu sezdir: "${bible.centralQuestion}".`
       : plan.ranking
         ? `MADDE #${ch.rank}: ${ch.item}${ch.place ? ` — ${ch.place}` : ""}${ch.year ? `, ${ch.year < 0 ? `MÖ ${-ch.year}` : ch.year}` : ""}. Sıra kartını (dev #${ch.rank}, maddenin adı, yer ve yıl) motor koyar: anlatıcı sıra numarasını ve maddenin başlığını SÖYLEMEZ, title sahnesi yazma. İlk satır doğrudan maddenin en çarpıcı olgusu.`
         : `Bölüm kartını ("BÖLÜM ${i + 1} — ${ch.title}") motor koyar: anlatıcı bölüm başlığını söylemez, title sahnesi yazma. İlk satır giriş kancasını yapar.`,
@@ -1517,6 +1535,9 @@ export async function runDocuScript(job, research, usage, logFn, opts = {}) {
   else {
     guard();
     const n = plan.chapters;
+    // Giriş mantığı: konunun tonuna uyan, kanalda son kullanılmamış adaylar (docu-hooks.js).
+    const hookTone = plan.news ? "news" : plan.ranking ? "ranking" : job.docuGenre || "documentary";
+    const hookCands = hookCandidates({ tone: hookTone, topic: job.topic, history: readHookHistory(opts.hookDir ?? DATA_DIR) });
     bible = await llm({
       ...(bibleModel ? { model: bibleModel } : {}),
       system: [editorBrief(job), job.docuGenre ? genreBrief(job.docuGenre) : ""].filter(Boolean).join("\n\n"),
@@ -1530,6 +1551,7 @@ export async function runDocuScript(job, research, usage, logFn, opts = {}) {
         ...(plan.ranking ? rankingBibleRules(plan) : []),
         ...(plan.news ? newsBibleRules() : []),
         plan.ranking ? "Aşağıdaki uzun form kuralları her MADDENİN içinde de geçerli:" : "",
+        ...hookPromptLines(hookCands),
         "UZUN FORM YAPISI (MagnatesMedia / Netflix belgesel kurgusu):",
         "- centralQuestion: videonun taşıdığı tek büyük soru; izleyici cevabı için sonuna kadar kalır, SON bölüm cevaplar.",
         "- stakes: ne kaybedilebilirdi, neden önemli. promise: ilk 30 sn içinde söylenecek vaat. hookWord: soğuk açılışın kancası; son bölüm ona geri döner.",
@@ -1540,7 +1562,7 @@ export async function runDocuScript(job, research, usage, logFn, opts = {}) {
         job.docuGenre ? `genre MUTLAKA "${job.docuGenre}" olacak (kanal sahibi seçti); görsel dili de bu stile göre kur.` : "Önce hikâyenin ruhuna göre genre seç (yalnızca konu türüne göre değil: bir tarih hikâyesi aslında bir suç dosyası ya da bir insanın yükselişi olabilir).",
         "Görsel dil hem döneme hem stile uysun: 1600ler için yağlı boya tablo, 1970ler için grenli film fotoğrafı, suç için soğuk flaşlı delil fotoğrafı, uzay için NASA arşivi ve teleskop görüntüsü, biyografi için sıcak aile fotoğrafı.",
       ].join("\n"),
-      schema: bibleSchema(plan),
+      schema: withOpeningLogic(bibleSchema(plan), hookCands),
       maxTokens: 16000,
       // Yapı planı en önemli karar: yüksek efor. llm.js bunu output_config.effort'a
       // taşıdığında etkin; taşımadığı sürece yok sayılır (zararsız).
@@ -1560,6 +1582,8 @@ export async function runDocuScript(job, research, usage, logFn, opts = {}) {
         return errors;
       },
     });
+    if (!hookById(bible.openingLogic)) bible.openingLogic = hookCands[0]?.id;
+    recordHook(opts.hookDir ?? DATA_DIR, { id: bible.openingLogic, topic: job.topic, tone: hookTone });
     store.putBible(bible);
   }
   const bibleKey = sha1(bible);

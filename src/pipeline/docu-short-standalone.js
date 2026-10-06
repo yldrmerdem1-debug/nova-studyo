@@ -17,6 +17,7 @@ import { resolveArchive } from "./docu-archive.js";
 import { describePictures, newVerticalPicture, renderPictureTeaser, sizeOf } from "./docu-shorts-pictures.js";
 import { beatStarts, buildTeaserAss, newPictureStyle, numberEnd, shortVoiceText, slamTimes, slamWord, speakTeaser } from "./docu-shorts.js";
 import { OPENINGS, SHORT_LOOKS, pickLook } from "./docu-shorts-looks.js";
+import { hookById } from "./docu-hooks.js";
 import { kunyeUret } from "./kunye.js";
 import { commonsMetadata } from "./provenance.js";
 import { animateSegments, motionDir } from "./docu-shorts-motion.js";
@@ -124,7 +125,8 @@ export async function researchShort({ topic, angle = "", settings = {}, usage = 
 }
 
 /** Claude: the Short's narration, its opening and one picture per sentence. */
-export async function planShort({ topic, angle = "", research, opening = "triple", format = "story", titlePattern = "who", llm = callJSON, settings = {}, usage = null, logFn = () => {} }) {
+export async function planShort({ topic, angle = "", research, opening = "triple", logic = null, format = "story", titlePattern = "who", llm = callJSON, settings = {}, usage = null, logFn = () => {} }) {
+  const hook = logic ? hookById(logic) : null;
   const plan = await llm({
     system: "You write and picture-edit viral, accurate YouTube Shorts for an English history/mystery/finance channel. Return only the requested JSON.",
     user: [
@@ -136,6 +138,8 @@ export async function planShort({ topic, angle = "", research, opening = "triple
       "Write a 45-55 s vertical Short (115-140 words of narration in total) that people watch to the end and share:",
       `- SHAPE: ${SHORT_FORMATS[format] || SHORT_FORMATS.story}`,
       `- OPENING (${opening}): ${OPENINGS[opening] || OPENINGS.triple}. No context first: the first spoken words ARE the strangest concrete fact of the subject. It lands in the first 2 seconds and stops the scroll.`,
+      ...(hook ? [`- OPENING LOGIC "${hook.ad}" (this Short's own way in — Turkish note, write it in the Short's language): ${hook.how}`] : []),
+      "- TONE: a serious story (real deaths, an unconfirmed news event, a tragedy) opens credibly — slammed words carry facts (a place, a date, a number), never fear words like DEATH, KILLER, DOOM.",
       "- then 6-9 sentences: rising stakes, concrete numbers, names and one detail nobody knows; the last sentence is a payoff or twist that rewards watching (never 'follow for more').",
       "- LOOP: the last sentence leads naturally back into the first (a viewer who keeps watching hears the opening again and it still makes sense).",
       `- TITLE: never the subject's name alone, never hashtags. Pattern for this Short: ${TITLE_PATTERNS[titlePattern] || TITLE_PATTERNS.who}. Write 3 titles (two in this pattern, one free), each a curiosity gap the Short closes, max 60 characters, true to the facts; pick the strongest as title.`,
@@ -220,7 +224,7 @@ export async function commonsPicture(title, { publicDir, fetchFn = (...a) => fet
  * @returns meta {file, title, description, credits, look, opening, ...}
  */
 export async function makeStandaloneShort({
-  topic, angle = "", opening = "triple", format = "story", titlePattern = "who", look: lookIn = null, recentLooks = [], dir, settings = {}, usage = null, logFn = () => {},
+  topic, angle = "", opening = "triple", logic = null, format = "story", titlePattern = "who", look: lookIn = null, recentLooks = [], dir, settings = {}, usage = null, logFn = () => {},
   ffmpeg, libraryRoot, llm = callJSON, research: researchIn = null, speak = speakTeaser, newPicture = newVerticalPicture, voiceId = null,
 }) {
   const ff = ffmpeg || settings.ffmpegPath || "ffmpeg";
@@ -238,7 +242,7 @@ export async function makeStandaloneShort({
   let plan = read("plan.json");
   if (!plan) {
     logFn("Shorts planı yazılıyor...");
-    plan = await planShort({ topic, angle, research, opening, format, titlePattern, llm, settings, usage, logFn });
+    plan = await planShort({ topic, angle, research, opening, logic, format, titlePattern, llm, settings, usage, logFn });
     save("plan.json", plan);
   }
   const look = lookIn && SHORT_LOOKS[lookIn] ? lookIn : pickLook({ genre: plan.genre, recent: recentLooks, seed: parseInt(hash(topic), 16) });
@@ -420,7 +424,7 @@ export async function makeStandaloneShort({
   const media = { ...credits };
   if (aiCount) media.ai = { provider: "ai", file: "ai", all: aiCount === assets.length };
   const kunye = kunyeUret(media, { dil: "en" });
-  const meta = { file: out, topic, look, opening, format, titlePattern, title: clean(plan.title), titles: (plan.titles || []).map(clean), description: clean(plan.description), hook: plan.hook, genre: plan.genre, mood: plan.mood, narration: text, credits: kunye.metin || "", aiPictures: aiCount, archivePictures: assets.length - aiCount, motionClips: clips, motionQuota: !!moving.quota, beats: beats.map((b, k) => ({ say: b.say, picture: assets[k].generated ? "ai" : assets[k].rel })) };
+  const meta = { file: out, topic, look, opening, logic, format, titlePattern, title: clean(plan.title), titles: (plan.titles || []).map(clean), description: clean(plan.description), hook: plan.hook, genre: plan.genre, mood: plan.mood, narration: text, credits: kunye.metin || "", aiPictures: aiCount, archivePictures: assets.length - aiCount, motionClips: clips, motionQuota: !!moving.quota, beats: beats.map((b, k) => ({ say: b.say, picture: assets[k].generated ? "ai" : assets[k].rel })) };
   save("short.json", meta);
   logFn(`Shorts hazır: ${out}`);
   return meta;

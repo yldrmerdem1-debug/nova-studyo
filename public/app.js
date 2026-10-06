@@ -2064,6 +2064,9 @@ function renderSettings(main) {
         <div>
           <label class="field-label">SENARİST</label>
           <select id="sDocuWriter">${[["claude-opus-5-5","Opus 5.5 · plan Opus, bölümler Sonnet"],["gpt-6.1-sol","GPT 6.1 · plan ve bölümler GPT"]].map(([v,l])=>`<option value="${v}" ${(s.docuWriterModel||"claude-opus-5-5")===v?"selected":""}>${l}</option>`).join("")}</select>
+          <label class="field-label" style="margin-top:10px">AI GÖRSELLERİ</label>
+          <select id="sDocuImageProvider">${[["openai","OpenAI API (GPT Image) · otomatik"],["manual","ChatGPT'de elle · API kredisi yok"],["replicate","Replicate (FLUX)"]].map(([v,l])=>`<option value="${v}" ${(s.docuImageProvider||"openai")===v?"selected":""}>${l}</option>`).join("")}</select>
+          <div class="hint">"ChatGPT'de elle": Nova eksik görselleri işin klasöründe gorsel-kutusu/LISTE.txt'e numaralı yazar ve durur; ChatGPT'de üretip 01.png, 02.png… diye bırakınca "Kaldığı yerden devam et". OpenAI bakiyesi biterse de kendiliğinden bu kutuya geçer.</div>
           <div class="hint">Belgesel senaryosunu kim yazsın. Kurgu, sanat yönetmeni ve konu kimliği her durumda Opus 5.5; araştırma ve genel işler GPT 6.1; görsel analiz gpt-6-luna (OpenAI hata verirse Claude devralır).</div>
         </div>
         <div>
@@ -2253,6 +2256,7 @@ function renderSettings(main) {
       shortsMotion: $("#sShortsMotion").checked,
       docuVoiceModel: $("#sDocuVoiceModel").value,
       docuWriterModel: $("#sDocuWriter").value,
+      docuImageProvider: $("#sDocuImageProvider").value,
       docuShortsVoiceModel: $("#sShortsVoiceModel").value,
       docuOpeningMotion: $("#sDocuOpenMotion").checked,
       docuDepthLayers: $("#sDocuDepth").checked,

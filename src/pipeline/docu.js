@@ -101,12 +101,14 @@ export function docuMissingKeys(settings, { seeded = false } = {}) {
   if (!settings.anthropicKey && !seeded) missing.push("Anthropic");
   if (!settings.elevenKey) missing.push("ElevenLabs");
   // Görsel için biri yeter: GPT Image (OpenAI) varsayılan, Replicate yedek.
-  if (!settings.openaiKey && !settings.replicateKey) missing.push("OpenAI (GPT Image) veya Replicate");
+  if (settings.docuImageProvider !== "manual" && !settings.openaiKey && !settings.replicateKey) missing.push("OpenAI (GPT Image) veya Replicate");
   return missing;
 }
 
 /** GPT Image varsa o, yoksa Replicate FLUX; ayar ("docuImageProvider") ikisini de zorlayabilir. */
 export function docuImageProvider(settings) {
+  // "manual": AI stills made by hand in ChatGPT (no API credit) — docu-engine/lib/image-inbox.mjs.
+  if (settings.docuImageProvider === "manual") return "manual";
   if (settings.docuImageProvider === "replicate" && settings.replicateKey) return "replicate";
   if (settings.docuImageProvider === "openai" && settings.openaiKey) return "openai";
   return settings.openaiKey ? "openai" : "replicate";

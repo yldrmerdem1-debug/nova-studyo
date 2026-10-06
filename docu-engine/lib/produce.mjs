@@ -49,6 +49,7 @@ import { VOICE_CHAIN_VERSION, applySpace, panVariant, processVoice, widenBed } f
 import { placeTimeline } from '../src/timeline.js';
 import { openingEnd } from '../src/opening/plan.js';
 import { COLLAGE_GENRES, deriveStyle } from '../src/effects/variety.js';
+import { addNeed, inboxFileFor, pad as padNo, writeList } from './image-inbox.mjs';
 
 export const ENGINE_DIR = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -589,6 +590,16 @@ export async function produce(scriptIn, o) {
 
   const WORK = o.workDir;
   const PUBLIC = o.publicDir ?? join(WORK, 'public');
+  /*
+   * CHATGPT IMAGE INBOX (image-inbox.mjs): imageProvider "manual" — or an OpenAI "no balance" answer —
+   * lists the stills still missing in <job>/gorsel-kutusu/LISTE.txt and stops after the image stage;
+   * stills dropped there (01.png …) are taken on the next run. Same cache keys as OpenAI stills.
+   */
+  const INBOX = join(WORK, '..', 'gorsel-kutusu');
+  const MANUAL = IMG === 'manual';
+  const OAI_KEYS = IMG === 'openai' || MANUAL;
+  let imgQuota = false;
+  let manualImages = 0;
   const BUILD = o.buildPrefix ?? `build/${id}`;
   const CACHE = o.cacheDir ?? join(ENGINE_DIR, 'public');
   const OUT = o.output ?? join(WORK, 'out', `${id}.mp4`);
@@ -1061,7 +1072,7 @@ export async function produce(scriptIn, o) {
     cast = cast.filter((n) => script.cast?.[n]);
     const people = cast.map((n) => `${n}: ${script.cast?.[n] ?? ''}`).join('; ');
     // Replicate keeps its historical cache key, so FLUX videos made before GPT Image still hit their cache.
-    const baseKey = hash(`${IMG === 'openai' ? 'oai|' : ''}img|${prompt}|${people}|${STYLE}`);
+    const baseKey = hash(`${OAI_KEYS ? 'oai|' : ''}img|${prompt}|${people}|${STYLE}`);
     const base = `${BUILD}/img-${baseKey}.jpg`;
     if (fileOk(join(PUBLIC, base))) return base;
     /*
@@ -1074,7 +1085,7 @@ export async function produce(scriptIn, o) {
     const withRef = [];
     const refFiles = [];
     if (!faceless) {
-      for (const n of IMG === 'openai' ? cast : cast.slice(0, 1)) {
+      for (const n of MANUAL ? [] : IMG === 'openai' ? cast : cast.slice(0, 1)) {
         const f = await refFor(n);
         if (f) {
           withRef.push(n);
@@ -1086,9 +1097,26 @@ export async function produce(scriptIn, o) {
     const lost = faceless ? [] : (IMG === 'openai' ? cast : cast.slice(0, 1)).filter((n) => !withRef.includes(n));
     const file = lost.length ? `${BUILD}/img-${hash(`${baseKey}|noref:${lost.join(',')}`)}.jpg` : base;
     if (fileOk(join(PUBLIC, file))) return file;
+    const dropped = inboxFileFor(INBOX, file);
+    if (dropped) {
+      writeAtomic(join(PUBLIC, file), toJpg(readFileSync(dropped)));
+      log(`görsel kutusundan alındı: ${basename(dropped)} → ${basename(file)}`);
+      return file;
+    }
+    const waitInbox = () => {
+      const n = addNeed(INBOX, { file, prompt: `${prompt}.${describe(cast)} ${STYLE} Wide 16:9 cinematic documentary still.` });
+      manualImages++;
+      return Object.assign(new Error(`görsel ${padNo(n)} ChatGPT görsel kutusunda bekleniyor`), { manualImage: true });
+    };
+    if (MANUAL || imgQuota) throw waitInbox();
     const inWords = cast.filter((n) => !withRef.includes(n));
     log(`görsel: ${prompt.slice(0, 70)}${cast.length ? `  [${cast.join(', ')}]` : ''}${lost.length ? ` (referanssız: ${lost.join(', ')})` : ''}`);
-    return generate(file, async () => {
+    // No balance: this still and every later one go to the ChatGPT inbox instead of stopping the video.
+    const generated = (make) => generate(file, make).catch((e) => {
+      if (e.quota && IMG === 'openai') { imgQuota = true; throw waitInbox(); }
+      throw e;
+    });
+    return generated(async () => {
       if (IMG === 'openai') {
         const hold = withRef.length ? ` Keep exactly the same face, age, hair and build as the ${withRef.length > 1 ? 'people' : 'person'} in the reference image${withRef.length > 1 ? 's' : ''}.` : '';
         return openaiImage({
@@ -1310,6 +1338,7 @@ export async function produce(scriptIn, o) {
       img.streak = 0;
       return f;
     } catch (e) {
+      if (e.manualImage) return null;
       // No credit is not a per-image problem: stop instead of filling a whole video with fallbacks.
       // Except in an archive-led video, where AI pictures are seasoning: the scene borrows a real frame.
       if (e.quota && archiveLed) {
@@ -1403,7 +1432,7 @@ export async function produce(scriptIn, o) {
   /** Already paid for (same key as sceneImage): counts toward the cap but is never the one cut — a re-render costs nothing. */
   const aiCached = (prompt, cast = []) => {
     const people = cast.filter((n) => script.cast?.[n]).map((n) => `${n}: ${script.cast?.[n] ?? ''}`).join('; ');
-    return fileOk(join(PUBLIC, `${BUILD}/img-${hash(`${IMG === 'openai' ? 'oai|' : ''}img|${prompt}|${people}|${STYLE}`)}.jpg`));
+    return fileOk(join(PUBLIC, `${BUILD}/img-${hash(`${OAI_KEYS ? 'oai|' : ''}img|${prompt}|${people}|${STYLE}`)}.jpg`));
   };
   const aiWanted = () => script.scenes.reduce((n, sc) => n + (sc.imagePrompt && !sc.image && !sc.bg ? 1 : 0)
     + (sc.imagePrompts ?? []).filter((p) => !(typeof p === 'object' && p?.image)).length, 0);
@@ -1792,6 +1821,11 @@ export async function produce(scriptIn, o) {
    */
   const voiced = script.scenes.filter((s) => s.say);
   // v4: the voice director performs every line knowing its neighbours (opening, punch lines, questions, chapter ends, reveals).
+  // Stills waiting in the ChatGPT inbox: stop here with the list (voice and render would be wasted).
+  if (manualImages) {
+    const left = writeList(INBOX);
+    throw Object.assign(new Error(`${left} görsel ChatGPT'den bekleniyor — ${join(INBOX, 'LISTE.txt')} içindeki tarifleri ChatGPT'de üret, aynı klasöre numarasıyla (01.png, 02.png …) kaydet ve "Kaldığı yerden devam et". Yapılan her şey korunur.`), { manualImages: left });
+  }
   const directed = V4 ? directLines(voiced, { model: MODEL }) : null;
   const lines = voiced.map((scene, k) => {
     const mood = MOODS[scene.mood ?? 'curious'] ?? MOODS.curious;
