@@ -37,7 +37,7 @@ const REPEAT_WINDOW = 30;
 export const QA_KINDS = ["text_overflow", "broken", "mismatch", "anachronism", "repeat", "bad_crop"];
 const KIND_TR = {
   text_overflow: "yazı taşması", broken: "bozuk/boş kare", mismatch: "anlatımla uyuşmayan görsel", anachronism: "dönem hatası",
-  repeat: "yakın tekrar", bad_crop: "kötü kırpma", black: "siyah kare", freeze: "donmuş görüntü", silence: "uzun sessizlik", loudness: "ses yüksekliği",
+  repeat: "tekrar eden görsel", bad_crop: "kötü kırpma", black: "siyah kare", freeze: "donmuş görüntü", silence: "uzun sessizlik", loudness: "ses yüksekliği",
 };
 
 const clock = (sec) => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, "0")}`;
@@ -220,6 +220,29 @@ function frameLine(k, x) {
   return `#${k} ${clock(x.t)} sahne ${x.row.scene === null ? "-" : x.row.scene + 1} · ${kind}${src}${ann}${say ? ` — "${say.length > 110 ? `${say.slice(0, 107)}…` : say}"` : ""}`;
 }
 
+/**
+ * Aynı resim dosyasının uzak tekrarları: [{row, first, count}] — ikinci ve sonraki kullanımlar. Bölüm kartı,
+ * önceki kareyi taşıyan yazı sahnesi ve videonun son sahnesinin açılış karesine dönüşü (kapanış) sayılmaz.
+ */
+export function farRepeats(rows, { minGap = REPEAT_WINDOW } = {}) {
+  const own = (rows || []).filter((x) => x?.s && !isCard(x.s) && x.s.image && !x.s.heldBg && x.s.bg !== "prev");
+  const last = own.at(-1);
+  const seen = new Map();
+  const out = [];
+  for (const x of own) {
+    const k = String(x.s.image);
+    const prev = seen.get(k);
+    if (!prev) { seen.set(k, { first: x, n: 1, lastRow: x }); continue; }
+    prev.n++;
+    const gap = x.start - prev.lastRow.start;
+    // Kapanış: son sahne açılışın (ilk dakika) resmine bir kez döner — bilinçli çerçeve.
+    const bookend = x === last && prev.n === 2 && prev.first.start < 60;
+    if (gap >= minGap && !bookend) out.push({ row: x, first: prev.first, count: prev.n });
+    prev.lastRow = x;
+  }
+  return out;
+}
+
 function visionPrompt(script, batchLines) {
   return [
     `Bir YouTube belgeselinin render edilmiş videosunu teslimden önce denetliyorsun ("${script.title || ""}"${script.era ? `, hikâyenin dönemi: ${script.era}` : ""}).`,
@@ -231,7 +254,7 @@ function visionPrompt(script, batchLines) {
     "- mismatch: görsel anlatımla AÇIKÇA uyuşmuyor (yanlış kişi, yer, nesne, olay). Atmosfer/ara plan kareleri serbesttir.",
     "- anachronism: hikâyenin dönemine ait olmayan insan yapımı şey (modern uçak/araba/telefon/ekran/kıyafet).",
     "- repeat: aynı çekim/fotoğraf kısa arayla (birkaç kare içinde) yeniden görünüyor (aynı sahnenin fazladan karesi ve bölüm kartının arkasındaki resim sayılmaz).",
-    "- bad_crop: yüz/baş kesilmiş, konu kadrajın dışında kalmış, aşırı büyütülmüş pikselli tarama.",
+    "- bad_crop: yüz/baş kesilmiş, konu kadrajın dışında kalmış, aşırı büyütülmüş pikselli tarama. İSİM KARTI (alt yazıda kişi adı) olan karede o kişinin yüzü kadrajda değilse (yalnızca başının üstü, gövdesi ya da arkadaki dekor görünüyorsa) bad_crop, high.",
     "Stilize grafikler BİLEREK böyledir, onları bozuk sayma: bölüm kartı (\"BÖLÜM n\"), sayaç, grafik, harita, gazete manşeti, dedektif panosu, belge, zaman çizelgesi, alıntı kartı, bölünmüş ekran; film greni, duotone renk, vinyet, ışık sızması, siyaha geçiş.",
     "severity: high = izleyici hemen fark eder/yanıltıcı, medium = belirgin, low = küçük.",
     "",
@@ -309,6 +332,12 @@ export async function qaVideo({ video, script, placed, settings = {}, usage, log
       if (!row || f.dur < 5) continue;
       add({ scene: row.scene, time: +f.start.toFixed(2), kind: "freeze", severity: f.dur >= 8 ? "high" : "medium", detail: `${f.dur.toFixed(1)} sn donmuş görüntü`, fix: fixFor("freeze", row.s), source: "ffmpeg" });
     }
+
+    /* ---- uzak tekrar (senaryodan, ücretsiz) ----
+     * Aynı resim DOSYASI dakikalar arayla yeniden: Nvidia videosunda (Ekim 2026) Nasdaq fotoğrafı beş sahnede
+     * kullanılmıştı; dHash penceresi yalnızca yakın tekrarı görüyordu. Açılış karesine son sahnede dönmek serbest.
+     */
+    for (const x of farRepeats(rows)) add({ scene: x.row.scene, time: +x.row.start.toFixed(2), kind: "repeat", severity: x.count >= 3 ? "high" : "medium", detail: `Aynı fotoğraf ${x.count}. kez (ilk: sahne ${x.first.scene === null ? "-" : x.first.scene + 1}, ${Math.round(x.row.start - x.first.start)} sn önce)`, fix: fixFor("repeat", x.row.s), source: "script" });
 
     /* ---- yakın tekrar (dHash, ücretsiz) ---- */
     let hashes = [];

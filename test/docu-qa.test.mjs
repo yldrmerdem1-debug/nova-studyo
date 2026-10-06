@@ -290,3 +290,15 @@ test('fix plan: only medium/high "repick" issues, one per scene, at most 12', ()
   assert.equal(plan.length, 12);
   assert.deepEqual(plan.slice(0, 2).map((p) => p.scene), [1, 10]);
 });
+
+test('far repeats: the same picture file minutes apart is caught (Nvidia: Nasdaq photo in five scenes); the closing return to the opening picture is not', async () => {
+  const Q = await import('../src/pipeline/docu-qa.js');
+  const row = (i, image, start, extra = {}) => ({ s: { type: 'photo', image, ...extra }, start, end: start + 8, scene: i, r: i });
+  const rows = [
+    row(0, 'a.jpg', 5), row(1, 'nasdaq.jpg', 20), row(2, 'b.jpg', 40), row(3, 'nasdaq.jpg', 120),
+    row(4, 'c.jpg', 200), row(5, 'nasdaq.jpg', 290), row(6, 'b.jpg', 300, { bg: 'prev' }), row(7, 'a.jpg', 460),
+  ];
+  const far = Q.farRepeats(rows);
+  assert.deepEqual(far.map((x) => [x.row.scene, x.count]), [[3, 2], [5, 3]]);
+  assert.ok(!far.some((x) => x.row.scene === 7), 'closing bookend allowed');
+});
