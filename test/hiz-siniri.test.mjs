@@ -15,7 +15,9 @@
 // Canlı ölçüm (40 sorgu, 4 eşzamanlı, Wikimedia): 9/40 -> 31/40 başarılı.
 import http from "node:http";
 import fs from "node:fs";
-import { fetchJson } from "../src/util.js";
+import os from "node:os";
+import path from "node:path";
+import { downloadFile, fetchJson } from "../src/util.js";
 
 let hata = 0;
 const kontrol = (ad, ok, not = "") => {
@@ -101,6 +103,40 @@ for (const [ad, kod] of [["404 bulunamadi", 404], ["401 gecersiz anahtar", 401],
   kontrol("surekli 429'da pes ediliyor", patladi);
   kontrol("deneme sayisina uyuluyor", istekler.length === 2, String(istekler.length));
   s.close();
+}
+
+// ---------- 7. Dosya indirme de 429'da bekleyip tekrar deniyor ----------
+// Ekim 2026: upload.wikimedia.org orijinal fotoğrafta 429 verdi, tek denemede fotoğraf kayboluyordu.
+{
+  const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(2000, 1)]);
+  const planla = (plan) => {
+    let sira = 0;
+    const istekler = [];
+    const s = http.createServer((req, res) => {
+      const durum = plan[Math.min(sira++, plan.length - 1)];
+      istekler.push(durum);
+      if (durum === 200) { res.writeHead(200, { "content-type": "image/jpeg" }); res.end(jpeg); }
+      else { res.writeHead(durum, durum === 429 ? { "retry-after": "1" } : {}); res.end(""); }
+    });
+    return new Promise((r) => s.listen(0, "127.0.0.1", () => r({ s, port: s.address().port, istekler })));
+  };
+  const hedef = path.join(os.tmpdir(), `nova-hiz-${process.pid}.jpg`);
+  {
+    const { s, port, istekler } = await planla([429, 200]);
+    const n = await downloadFile(`http://127.0.0.1:${port}/f.jpg`, hedef, { expect: "image" });
+    kontrol("indirme 429 sonrasi tamamlaniyor", n === jpeg.length && fs.existsSync(hedef), String(n));
+    kontrol("indirmede iki istek", istekler.length === 2, String(istekler.length));
+    s.close();
+  }
+  {
+    const { s, port, istekler } = await planla([404, 404]);
+    const t0 = Date.now();
+    let patladi = false;
+    try { await downloadFile(`http://127.0.0.1:${port}/yok.jpg`, hedef); } catch { patladi = true; }
+    kontrol("indirmede 404 hemen dusuyor (tek istek)", patladi && istekler.length === 1 && Date.now() - t0 < 500, `${istekler.length} istek`);
+    s.close();
+  }
+  fs.rmSync(hedef, { force: true });
 }
 
 // ---------- 6. Kaynak çökmesi kullanıcıya bildiriliyor ----------

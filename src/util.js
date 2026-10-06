@@ -275,12 +275,36 @@ export function isRasterImage(buf) {
   return false;
 }
 
-export async function downloadFile(url, dest, { headers = {}, timeoutMs = 60000, maxBytes = 300 * 1024 * 1024, expect } = {}) {
+/**
+ * Dosya indirme de hız sınırına takılır (Ekim 2026, Hürmüz: upload.wikimedia.org orijinal dosyada
+ * art arda 429 verdi, tek denemede fotoğraf kayboldu). Sorgulardaki gibi: 429 o siteye ortak
+ * soğuma kurar, 5xx/ağ hatası artan beklemeyle tekrar denenir; 404/403 hemen düşer.
+ */
+export async function downloadFile(url, dest, { headers = {}, timeoutMs = 60000, maxBytes = 300 * 1024 * 1024, expect, deneme = 4 } = {}) {
+  const host = hostOf(url);
+  for (let i = 0; ; i++) {
+    await sogumayiBekle(host);
+    try {
+      return await downloadOnce(url, dest, { headers, timeoutMs, maxBytes, expect, host });
+    } catch (e) {
+      const gecici = e.gecici || e.name === "AbortError" || e.name === "TypeError";
+      if (!gecici || i >= deneme - 1) throw e;
+      if (!/429/.test(e.message)) await uyku(800 * Math.pow(2, i) + Math.floor(Math.random() * 300));
+    }
+  }
+}
+
+async function downloadOnce(url, dest, { headers, timeoutMs, maxBytes, expect, host }) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const res = await fetch(url, { headers: { "User-Agent": UA, ...headers }, signal: ctrl.signal, redirect: "follow" });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (res.status === 429) {
+      // Retry-After yoksa 5 sn: 1,5 sn'lik varsayılan Wikimedia'nın dosya sunucusunda yetmedi.
+      sogumaKur(host, Number(res.headers.get("retry-after")) || 5);
+      throw Object.assign(new Error("HTTP 429"), { gecici: true });
+    }
+    if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status}`), { gecici: GECICI_HTTP(res.status) });
     const buf = Buffer.from(await res.arrayBuffer());
     if (buf.length > maxBytes) throw new Error("dosya çok büyük");
     if (buf.length < 1000) throw new Error("dosya çok küçük/bozuk");
