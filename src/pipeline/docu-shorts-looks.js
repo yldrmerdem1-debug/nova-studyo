@@ -36,10 +36,11 @@ export const SHORT_LOOKS = {
     slamFont: "Linux Libertine G", slamSize: 170, slam: "carved", slamInk: "#e8b64f", slamAngle: 0, slamSpacing: 8,
     flash: "warm", grade: "colorbalance=rs=0.07:gs=0.02:bs=-0.06,eq=contrast=1.10:saturation=0.82", grain: 8, vignette: "PI/4", push: 0.05, genres: ["epic"],
   },
-  // A ledger: condensed DIN numerals, green, a terminal-dark slab under the slam. Crisp, cool.
+  // A ledger: condensed DIN numerals, amber, a near-black slab under the slam. Crisp, cool.
+  // (Was neon green on a dark-green slab — the user, Oct 2026: "yeşil siyah çok dandik durmuş".)
   ledger: {
-    name: "Ledger", font: "Bahnschrift", capSize: 112, upper: true, bold: 1, ink: "#ffffff", key: "#19e07a", capStyle: "outline",
-    slamFont: "Bahnschrift", slamSize: 160, slam: "box", slamInk: "#19e07a", slamBox: "#06140e", slamAngle: 0,
+    name: "Ledger", font: "Bahnschrift", capSize: 112, upper: true, bold: 1, ink: "#ffffff", key: "#ffb020", capStyle: "outline",
+    slamFont: "Bahnschrift", slamSize: 160, slam: "box", slamInk: "#ffb020", slamBox: "#0b0b0d", slamAngle: 0,
     flash: "white", grade: "colorbalance=bs=0.05:gs=0.03,eq=contrast=1.08:saturation=0.85", grain: 5, vignette: "PI/5", push: 0.06, genres: ["finance"],
   },
   // Noir: italic serif in sentence case, a blood-red keyword, slams glowing out of black. Hard mono.

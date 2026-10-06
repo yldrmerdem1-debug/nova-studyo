@@ -145,6 +145,7 @@ export async function planShort({ topic, angle = "", research, opening = "triple
       `- TITLE: never the subject's name alone, never hashtags. Pattern for this Short: ${TITLE_PATTERNS[titlePattern] || TITLE_PATTERNS.who}. Write 3 titles (two in this pattern, one free), each a curiosity gap the Short closes, max 60 characters, true to the facts; pick the strongest as title.`,
       "- HOOK label (on screen after the opening): 3-6 words that ADD to the title, never repeat it.",
       "- plain spoken English, short sentences, no hashtags, emojis or stage directions in the narration.",
+      "- REAL PICTURES FIRST: viewers scroll past a Short that looks AI-made. At least two thirds of the pictures are real photographs, footage stills, maps or documents of THIS story (news photos, official/government photos, satellite images, archive); for current events name exact Wikimedia Commons files (commons) where you know them (US military/DVIDS and government photos are public domain; many news-agency photos are CC BY). AI only for a moment no camera could have caught, and never two AI pictures in a row in the opening.",
       "- EVERY sentence gets ONE picture that shows exactly what it says. A real person, place, ship, building, document or object that was photographed or painted: source archive with a precise search. Only where no real picture can exist (before photography, a reconstruction, an anonymous moment): source ai, never showing a real person's face.",
       "- before photography the archive still has the period's own pictures: paintings, engravings, woodcuts, chronicles, maps of the event or the place (Brueghel's drawing of the 1564 dancers for a dancing mania) — search for those before choosing ai.",
       "- never a modern book cover, a museum label or a modern scholar's portrait as a picture: show what the sentence is about.",
@@ -325,6 +326,8 @@ export async function makeStandaloneShort({
     } else assets.push(assets.at(-1) || null);
   }
   if (assets.some((a) => !a)) throw new Error("Shorts: bazı cümlelerin görseli yok");
+  // Gerçek görsel payı (kullanıcı, Ekim 2026: "fazla AI kullanınca kaçırıyor, görsel gerçeklik göstermek önemli").
+  if (assets.length && aiCount / assets.length > 1 / 3) logFn(`Shorts UYARI: görsellerin %${Math.round((aiCount / assets.length) * 100)}'i AI — gerçek fotoğraf/görüntü az; planda commons dosyası ya da daha kesin arşiv araması gerekli`);
   // Where the subject sits in each archive picture (the 9:16 crop is centred on it).
   const real = assets.filter((a) => a.archive && !a.box);
   if (real.length) {
