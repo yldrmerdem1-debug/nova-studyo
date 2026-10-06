@@ -28,6 +28,7 @@ import { readJson, writeJson, DATA_DIR } from "../util.js";
 import { hookCandidates, hookPromptLines, hookById, readHookHistory, recordHook } from "./docu-hooks.js";
 import { readRhetoricHistory, recordRhetoric, rhetoricLines, rhetoricPlan } from "./docu-rhetoric.js";
 import { catalogQueries, commonsCatalogFor, catalogPromptBlock } from "./docu-commons-catalog.js";
+import { numbersIn, spokenHas } from "./docu-edit-director.js";
 
 /** Efektif anlatım hızı (kelime/dk) — v3 duraklamaları ve sahne nefesleri dahil. Ölçüldü: 80 kelime → 39 sn. */
 export const DOCU_WPM = { tr: 120, en: 140 };
@@ -1177,9 +1178,33 @@ function markYears(scenes) {
  * Video geneli son geçiş (düzleştirilmiş sahneler üzerinde).
  * @returns notlar (günlüğe ve senaryo istatistiğine yazılır)
  */
+/**
+ * EKRANDAKİ SAYI = ANLATICININ SÖYLEDİĞİ. Irkutsk videosunda (Ekim 2026) anlatıcı "nearly two hundred" derken sayaç
+ * 189 gösterdi; kanal sahibi: "200 diyor 189 çıkıyor". Sayacın rakamı satırda söylenmiyorsa ve satırda %20 yakın bir
+ * rakam söyleniyorsa sayaç o rakamı gösterir (motor onu söylendiği kelimeye oturtur). Yıl sayaçları ve hiç rakam
+ * söylenmeyen satırlar olduğu gibi kalır. Dönen: düzeltilen sayaç sayısı.
+ */
+export function alignCountersToSpeech(scenes, lang = "tr") {
+  let n = 0;
+  for (const s of scenes || []) {
+    if (s?.type !== "counter" || s.year || !Number.isFinite(Number(s.to))) continue;
+    const to = Number(s.to);
+    const nums = numbersIn(stripTags(s.say), lang === "en" ? "en" : "tr").filter((x) => x > 0);
+    if (!nums.length || spokenHas(nums, to)) continue;
+    const near = nums.map((x) => ({ x, d: Math.abs(x - to) / Math.max(Math.abs(to), 1e-9) })).filter((c) => c.d <= 0.2).sort((a, b) => a.d - b.d)[0];
+    if (!near) continue;
+    s.to = near.x;
+    if (Number.isInteger(near.x)) delete s.decimals;
+    n++;
+  }
+  return n;
+}
+
 export function finalizeScenes(scenes, { job, plan, castKeys = [], intensity = [] }) {
   const lang = langOf(job);
   const notes = enforceGlobalQuotas(scenes, { minutes: plan.minutes, lang, intensity });
+  const said = alignCountersToSpeech(scenes, lang);
+  if (said) notes.push(`${said} sayaç anlatımda söylenen rakama eşitlendi`);
   if ((job.docuSource || "archive") === "archive") {
     const moved = collapseArchiveSearches(scenes);
     if (moved) notes.push(`${moved} tekrar eden arşiv sorgusu AI'a çevrildi`);
