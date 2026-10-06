@@ -48,7 +48,7 @@ import { klingImageToVideo } from './kling.mjs';
 import { VOICE_CHAIN_VERSION, applySpace, panVariant, processVoice, widenBed } from './sound-craft.mjs';
 import { placeTimeline } from '../src/timeline.js';
 import { openingEnd } from '../src/opening/plan.js';
-import { COLLAGE_GENRES, deriveStyle } from '../src/effects/variety.js';
+import { COLLAGE_GENRES, deriveStyle, isLowResStill } from '../src/effects/variety.js';
 import { addNeed, inboxFileFor, pad as padNo, writeList } from './image-inbox.mjs';
 
 export const ENGINE_DIR = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -2008,7 +2008,10 @@ export async function produce(scriptIn, o) {
   if (o.inserts !== false) {
     const plan = planInserts(script);
     let made = 0;
-    await pool(plan, CONC, async (p) => {
+    // A collage genre shows a small or odd-shaped still as a print on a board, where cutaways are never drawn:
+    // no new pictures for those (they would be paid for and never seen). Irkutsk remake, Oct 2026.
+    const boardOnly = (sc) => COLLAGE_GENRES.has(script.genre) && isLowResStill(sc.imgW, sc.imgH);
+    await pool(plan.filter((p) => !boardOnly(script.scenes[p.i])), CONC, async (p) => {
       const sc = script.scenes[p.i];
       const ins = [];
       for (let k = 0; k < p.at.length; k++) {

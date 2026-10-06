@@ -350,6 +350,8 @@ const picHash = (s: string) => { let h = 2166136261; for (let i = 0; i < s.lengt
  */
 const collageOn = (g: Genre, s: PhotoScene) =>
   g.collage && !s.natural && !s.fullBleed &&
+  // A line with cutaways is full frame: the board never draws them (Irkutsk remake showed one print for 28 s).
+  !(s.inserts?.length && !(s.video ? isLowResClip(s.videoW, s.videoH) : isLowRes(s.imgW, s.imgH))) &&
   (!!s.images?.length || (s.video ? isLowResClip(s.videoW, s.videoH) : isLowRes(s.imgW, s.imgH)) || picHash(String(s.video ?? s.image ?? '')) % 3 === 0);
 
 export interface Impact {
