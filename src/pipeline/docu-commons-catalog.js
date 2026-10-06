@@ -148,6 +148,8 @@ export function catalogPromptBlock(catalog, ch, opts) {
     "COMMONS KATALOĞU — bu konunun Wikimedia Commons'ta GERÇEKTEN var olan, lisansı uygun, yüksek çözünürlüklü dosyaları:",
     catalogLines(list),
     "Bir archive sahnesini TAM gösteren dosya buradaysa commons alanına dosya adını AYNEN yaz (\"File:...\"); search yine dolu kalsın. Listede yoksa commons yazma, uydurma. Aynı dosyayı iki sahneye yazma (yalnızca videonun açılış karesine son sahnede dönmek serbest). Kişi adı kartı (name) taşıyan sahnede o kişinin portresini seç.",
+    // Ekim 2026: elle yapılan Irkutsk videosunda güneşli turist fotoğrafları karanlık hikâyenin tonunu öldürdü; kanal sahibi Nova'nın eski atmosferik kurgusunu tercih etti.
+    "Katalog KANIT içindir: hikâyenin kişileri, belgeleri, olayın kendisi, olayın geçtiği yerin tanıklığı. Atmosfer/ruh satırları (gerilim, bekleyiş, karanlık) katalogdan doldurulmaz: onlara hikâyenin tonunda imagePrompt yaz (motor üretir, hareket verir). Karanlık bir hikâyede parlak kartpostal/turist manzarası ASLA.",
   ].join("\n");
 }
 
