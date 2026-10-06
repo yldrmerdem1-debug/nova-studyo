@@ -53,6 +53,9 @@ for (const f of dosyalar) {
   const s = new Set();
   for (const m of kaynak[f].matchAll(/export\s+(?:async\s+)?function\s+([a-zA-Z_$][\w$]*)/g)) s.add(m[1]);
   for (const m of kaynak[f].matchAll(/export\s+(?:const|let|var|class)\s+([a-zA-Z_$][\w$]*)/g)) s.add(m[1]);
+  // `export { sizeOf }` / `export { a as b }` listesi de dışa açar (Ekim 2026: docu-shorts-pictures.js yanlış alarm veriyordu).
+  for (const m of kaynak[f].matchAll(/export\s*\{([^}]*)\}(?!\s*from)/g))
+    for (const p of m[1].split(",")) { const ad = p.trim().split(/\s+as\s+/).pop().trim(); if (ad) s.add(ad); }
   disaAcilan[f] = s;
   for (const ad of s) if (!sahibi.has(ad)) sahibi.set(ad, f);
 }
@@ -97,6 +100,9 @@ let bulunan = 0;
 for (const f of dosyalar) {
   for (const m of temiz[f].matchAll(/(^|[^.\w$])([a-zA-Z_$][\w$]*)\s*\(/g)) {
     const ad = m[2];
+    // Nesne metodu TANIMI (`async imageToVideo(prompt, ...) {`) çağrı değildir (collage.js sağlayıcı nesneleri).
+    const sonrasi = temiz[f].slice(m.index + m[0].length - 1, m.index + m[0].length + 300);
+    if (/^\([^()]*\)\s*\{/.test(sonrasi)) continue;
     const nereden = sahibi.get(ad);
     if (!nereden || nereden === f) continue;          // yabancı bir ad değil
     if (iceriAlinan[f].has(ad) || kendi[f].has(ad)) continue;  // erişilebilir
