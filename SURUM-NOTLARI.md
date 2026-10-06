@@ -1,5 +1,17 @@
 # Nova Studyo — Sürüm Notları
 
+## 1.16.10 (6 Ekim 2026)
+
+Beş büyük kanalın (MagnatesMedia, LEMMiNO, Johnny Harris, ColdFusion, Moon) kurgusu saniye saniye incelendi; bulunanlar.
+
+- **Kanca geri geldi**: haber ve finans artık her seferinde düz "durum özeti"yle açılmıyor (o giriş "slam, gizem yok" diyordu ve kancaları köreltti). İlk aday çarpıcı ama net girişler arasında döner; yeni **fragman merdiveni** açılışı: gerçek bir an ya da söz → konu adıyla → "bu, X'in hikâyesi" → 2-3 büyüyen fragman. Hikâye bir insanla ve onu tanıtan tuhaf bir ayrıntıyla başlar.
+- **Ekrandaki sayı = söylenen sayı**: anlatıcı "nearly two hundred" derken sayaç 189 göstermez; söylenen rakama eşitlenir ve o kelimeye oturur.
+- **Açılış hızlı kesilir**: ilk 45 saniyedeki resim satırlarına da ara plan gelir (en çok 3) — büyük kanallar açılışta 1,5 saniyede bir kesiyor.
+- **Doruk hareketi**: açılıştan sonra en gergin iki AI karesi de hareket eder (Kling 2.5 Turbo 720p, klip başı 1,5 birim; Ayarlar: docuClimaxMotionMax, 0 = kapalı).
+- **Görsel ton**: Commons katalogu kanıt içindir (kişi, belge, olay); atmosfer satırları hikâyenin tonunda üretilir. Karanlık hikâyeye parlak turist fotoğrafı yok.
+- **Shorts — zoom kesme**: 2,8 sn'den uzun fotoğraf ikiye bölünür, ikinci yarısı konuya yakın sert bir kesme; yeni görsel gerekmeden tempo neredeyse iki katı. Altyazı ve rakamlar kelimelerinde kalır.
+- **Shorts planı**: gerçek fotoğraf kanıt için, ruh için tonunda atmosfer.
+
 ## 1.16.9 (6 Ekim 2026)
 
 Yom Kippur videosunun yolu (kanal sahibi: "mükemmel olmuş") Nova'nın kendi yolu oldu.

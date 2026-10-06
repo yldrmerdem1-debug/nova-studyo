@@ -1,6 +1,6 @@
 {
   "name": "nova-studio",
-  "version": "1.16.9",
+  "version": "1.16.10",
   "description": "Nova StÃ¼dyo â€” YouTube iÃ§in uzun metraj video fabrikasÄ± (araÅŸtÄ±rma â†’ senaryo â†’ medya â†’ seslendirme â†’ altyazÄ± â†’ render â†’ SEO)",
   "author": "Erdem",
   "main": "electron/main.js",
