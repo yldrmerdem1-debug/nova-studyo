@@ -72,6 +72,9 @@ export const DEFAULT_SETTINGS = {
   // (açılış alçak ve sakin, vurucu satır kararlı, soru meraklı, bölüm sonu yumuşak; duyguya göre
   // sürekli kararlılık; satırlar arası bağlam). eleven_v3: eski okuma ve önbellekteki sesler.
   docuVoiceModel: "eleven_v4",
+  // Kanal sesi (Ekim 2026, kanal sahibinin seçimi): tarih = Brian, gündem/haber = David Castlemore,
+  // finans = Michael C. Vincent. Stüdyoda stil seçilince bu ses gelir (ses hesapta varsa); elle değiştirilebilir.
+  docuStyleVoices: { epic: "nPczCjzI2devNBz1zQrb", news: "XjLkpWUlnhS8i7gGz3lZ", finance: "uju3wxzG5OhpWcoi3SMy" },
   docuShortsVoiceModel: "eleven_v4",
   // Uzun video 2.5D derinlik katmanları (kişi kesme + silme): sahne başına ücretli Replicate çağrısı.
   docuDepthLayers: false,

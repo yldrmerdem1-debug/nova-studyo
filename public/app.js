@@ -912,6 +912,9 @@ function renderForm(main) {
         delete state.form.docuFormat;
         if (b.dataset.stil) state.form.docuGenre = b.dataset.stil; else delete state.form.docuGenre;
       }
+      // Kanalın sesi: stil seçilince ayarlardaki sesi (tarih Brian, gündem David, finans Michael) — hesapta varsa.
+      const kanalSesi = state.settings?.docuStyleVoices?.[b.dataset.stil];
+      if (kanalSesi && (state.elevenVoices || []).some((v) => v.id === kanalSesi)) state.form.elevenVoiceId = kanalSesi;
       refresh();
     }));
     kutu.querySelectorAll("[data-docu]").forEach((b) => b.addEventListener("click", async () => {
@@ -1771,9 +1774,13 @@ async function renderGundem(main) {
         guidance: `${p.angle}\n\nThe question millions are asking: ${p.question}\nWhat happened: ${p.story}\nThumbnail line: ${p.thumbnail}\nNEVER claim: ${p.neverSay}`,
       });
       delete state.form.docuGenre;
+      // Haber kanalının sesi (ayarlardaki docuStyleVoices.news) ve uzun süre: gündem videosu da kısa çıkmasın.
+      const haberSesi = state.settings?.docuStyleVoices?.news;
+      if (haberSesi && (state.elevenVoices || []).some((v) => v.id === haberSesi)) state.form.elevenVoiceId = haberSesi;
+      if (["test", "kisa", "standart"].includes(state.form.durationPreset)) state.form.durationPreset = "detayli";
       state.showForm = true;
       location.hash = "#studio";
-      toast("Gündem belgeseli formu dolduruldu — sesi seçip başlatın");
+      toast("Gündem belgeseli formu dolduruldu — haber kanalının sesi seçildi, başlatabilirsiniz");
     }));
     $$("[data-short]", picksBox).forEach((b) => b.addEventListener("click", () => {
       const p = r.picks[+b.dataset.short];
