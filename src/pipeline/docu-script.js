@@ -104,11 +104,11 @@ export const DOCU_GENRES = [
     id: "epic", ad: "Epik Tarih / Savaş", when: "imparatorluk, savaş, fetih, kuşatma, büyük tarihî figürler; bronz-altın, savaş davulları, koro",
     write: {
       openers: ["title", "photo", "montage"],
-      coldOpen: "Yavaş, geniş açılış: ufuk, sur, ordu; bir ilan gibi tek cümle ('[slowly] Bin yıllık surlar... yirmi bir yaşında bir sultan...'), davullar. Başlık erken gelir.",
+      coldOpen: "Yavaş, geniş açılış: ufuk, sur, ordu; bir ilan gibi tek cümle ('[slowly] Bin yıllık surlar... yirmi bir yaşında bir sultan...'), davullar. Ya da olayın İLK ANI, saatiyle ve tarihiyle ('Saat ikiyi gösterirken, 6 Ekim 1973'te, sirenler çalmaya başladı' — Yom Kippur videosu, kanal sahibi: 'mükemmel'): o günün sessizliği, ardından iki cephede saldırı. Konunun adı ilk 30 sn'de, başlık erken gelir.",
       stance: "Görkemli ve ölçülü, tarihçi ağzı; kısa hükümler. Kahramanlaştırmadan büyüklüğü ve bedelini hissettir.",
       tags: ["[slowly]", "[confident]", "[dramatic]", "[serious]"],
       moods: "ana duygular tension · triumph · sad; reveal dönüm anında; curious yalnızca açılışta",
-      mix: "geniş planlar, harita ve tablo arşivleri, ordu/gemi/asker sayıları için counter (yıl sayacı yapma, yılı söyle), dönüm noktasında slam",
+      mix: "geniş planlar, harita ve tablo arşivleri, ordu/gemi/asker sayıları için counter (yıl sayacı yapma, yılı söyle), dönüm noktasında slam. Yom Kippur videosunun kalıbı (kanal sahibi 'mükemmel' dedi): baştan sona GERÇEK dönem fotoğrafları (Commons katalogundan adıyla); bir kişi ilk göründüğünde isim kartı, rolü yıllarıyla ('President of Egypt, 1970–1981'); yeni bir yere ya da güne geçen arşiv fotoğrafına kısa basılı etiket caption 'YER · TARİH' ('BAR LEV LINE · 1970', 'MOUNT HERMON · OCTOBER 1973'; her 4-6 sahnede bir, anlatımı tekrar etmez, bilgi ekler); iki tarafın gücü bars ile (1.200 tank / 180 tank); kritik günlerin akışı timeline ile; liderin gerçek sözü bir kez quote kartıyla; bedel (kayıplar) bars ile; kapanış açılıştaki tarihe döner (savaş 6 Ekim'de başladı, sekiz yıl sonra yine 6 Ekim'de bitti)",
       remap: {},
     },
   },
