@@ -17,7 +17,7 @@ const L = (id, ad, how, tones, short = null) => ({ id, ad, how, tones: tones ===
 
 export const HOOKS = [
   L("scene-promise", "Sahne + vaat", "Bir yer ve an kur (mevsim, nehir, sabah), ölçeği tek cümleyle büyüt, sonra izleyiciye cevabı vaat et: 'Midsummer, 1812. A river in Lithuania… By the end, one thin line will tell you where half a million men went.' Sakin, şok kelime yok.", ["epic", "documentary", "science", "inspire", "whatif"], "statement"),
-  L("slam-fragments", "Üç parça + slam", "Üç kısa sözlü parça, ritimli; her biri bu hikâyeden somut bir şey (nesne, yer, sayı), üçüncüsü dönüş. Kelimeleri ekrana çakılır. Konu gerçekten sert/aksiyonsa kullan; ciddi haber/trajedide KULLANMA.", ["crime", "epic", "horror", "finance", "whatif"], "fragments"),
+  L("slam-fragments", "Üç parça + slam", "Üç kısa sözlü parça, ritimli; her biri bu hikâyeden somut bir şey (nesne, yer, sayı), üçüncüsü dönüş. Kelimeleri ekrana çakılır. Konu gerçekten sert/aksiyonsa kullan; ciddi haber/trajedide ve bilgi isteyen haber/finans konularında KULLANMA.", ["crime", "epic", "horror", "whatif"], "fragments"),
   L("one-question", "Tek soru", "Videonun merkez sorusunu doğrudan, sade bir cümleyle sor ve bir an sus. Soru cevabı merak ettirmeli, retorik olmamalı.", "*", "question"),
   L("ending-first", "Sondan başla", "Hikâyenin sonucunu ilk cümlede ver (kimin kazandığını, neyin battığını) ve asıl soruyu 'ama nasıl?' diye aç. Seyirci sonu bilir, yolu merak eder.", ["documentary", "crime", "epic", "finance", "inspire"], "statement"),
   L("ordinary-morning", "Sıradan bir sabah", "Her şeyin değişmesinden hemen önceki sıradan anı anlat: bir kişinin rutin sabahı, sakin bir sokak. Felaket söylenmez, sezdirilir.", ["documentary", "crime", "horror", "news", "epic"], "statement"),
@@ -65,6 +65,7 @@ export const HOOKS = [
   L("witness", "Tanık", "Olayı gören gerçek bir tanığın (kaynaklı) cümlesiyle aç; sonra o cümlenin neden önemli olduğu.", ["crime", "news", "epic", "horror"], "quote"),
   L("anniversary", "Yıl dönümü", "Bugünkü bir yıl dönümünden ya da tarihten geçmişe köprü kur.", ["epic", "news", "documentary"], "statement"),
   L("odds", "İhtimal", "Olayın ihtimalini söyleyerek aç ('milyonda bir') ve yine de olduğunu ekle.", ["science", "whatif", "finance", "crime"], "number"),
+  L("state-of-play", "Durum özeti", "Haber spikeri netliğiyle aç: ŞU AN ne oluyor (tek açık cümle, en önemli doğrulanmış rakam ve tarihle), bu izleyiciye neden dokunuyor (fiyat, güvenlik, günlük hayat), ve videonun neyi açıklayacağı ('İşte ne oldu, neden önemli ve sırada ne var'). Parçalı ritim, slam, gizem kurma YOK: insanlar bilgilenmek için açtı.", ["news", "finance", "science", "documentary"], "statement"),
   L("question-chain", "Soru zinciri", "Üç kısa soruyu art arda sor; üçüncüsü videonun asıl sorusu. Slam yok, sadece merak.", ["news", "documentary", "science", "whatif", "crime"], "fragments"),
 ];
 
@@ -94,11 +95,14 @@ export function hookCandidates({ tone = "documentary", topic = "", history = [],
   const fresh = pool.filter((h) => !recent.has(h.id));
   if (fresh.length >= Math.min(n, 3)) pool = fresh;
   const seed = seedOf(topic);
-  return pool
+  const informative = (tone === "news" || tone === "finance") && !short ? HOOKS.find((h) => h.id === "state-of-play") : null;
+  const ranked = pool
     .map((h, i) => ({ h, k: (seedOf(h.id) ^ seed) + i }))
     .sort((a, b) => (a.k % 997) - (b.k % 997))
-    .slice(0, n)
-    .map((x) => x.h);
+    .map((x) => x.h)
+    .filter((h) => h !== informative);
+  // Haber/finans (Ekim 2026, kullanıcı: "bilgilendirici olmalı, insanlar bilgilenmek istiyor"): durum özeti hep ilk aday.
+  return (informative ? [informative, ...ranked] : ranked).slice(0, n);
 }
 
 export const hookById = (id) => HOOKS.find((h) => h.id === id) || null;

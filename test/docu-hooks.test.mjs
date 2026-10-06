@@ -9,9 +9,9 @@ process.env.NOVA_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'nova-hooks-test-'
 const H = await import('../src/pipeline/docu-hooks.js');
 const S = await import('../src/pipeline/docu-script.js');
 
-test('hooks: fifty different opening logics, every tone has a real choice, ids unique', () => {
-  assert.equal(H.HOOKS.length, 50);
-  assert.equal(new Set(H.HOOKS.map((h) => h.id)).size, 50);
+test('hooks: fifty-one different opening logics, every tone has a real choice, ids unique', () => {
+  assert.equal(H.HOOKS.length, 51);
+  assert.equal(new Set(H.HOOKS.map((h) => h.id)).size, 51);
   for (const t of ['documentary', 'crime', 'epic', 'science', 'inspire', 'finance', 'horror', 'news', 'ranking', 'whatif']) {
     assert.ok(H.hookCandidates({ tone: t, topic: 'x' }).length >= 6, t);
   }
@@ -32,4 +32,12 @@ test('hooks: the history is kept, and chapter one is told to open with the chose
   const g = { write: { openers: ['montage'], coldOpen: 'Montaj: 5-7 makro detay' } };
   assert.match(S.openingRule({ openingLogic: 'scene-promise' }, g), /Sahne \+ vaat/);
   assert.match(S.openingRule({}, g), /Montaj: 5-7 makro detay/, 'an older plan keeps its genre opening');
+});
+
+test('hooks: news and finance explainers always get the informative state-of-play opening first, never slam fragments', () => {
+  for (const tone of ['news', 'finance']) {
+    const c = H.hookCandidates({ tone, topic: 'strait of hormuz', n: 6 }).map((h) => h.id);
+    assert.equal(c[0], 'state-of-play', tone);
+    assert.ok(!H.hookCandidates({ tone, topic: 'strait of hormuz', n: 60 }).some((h) => h.id === 'slam-fragments'), tone);
+  }
 });
