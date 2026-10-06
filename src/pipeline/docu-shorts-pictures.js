@@ -280,7 +280,7 @@ export async function planPictureTeaser({ cues, title = "", catalog: all, year =
       `- every picture must belong to the story's time${year != null ? ` (${year < 0 ? `${-year} BC` : year})` : ""}: no present-day photos or footage`,
       "- a real person the sentence is about gets THEIR archive portrait (find it by the description or by the narration over it); a portrait may come back once when the story returns to that person; otherwise never the same picture twice",
       `- if nothing in the archive shows a sentence, use "new" and write newPrompt (at most ${maxNew} new pictures in the whole Short) — only for scenes without a real, named person: places, objects, crowds, anonymous figures; never a likeness of a real person`,
-      "- a sentence with a striking number or date: put it in figure (it is printed big on the picture when said)",
+      "- a sentence with a striking number or date: put it in figure (it is printed big on the picture when said) — but never on a close portrait of a person: the number is printed mid-frame and would sit on the face (Yeltsin, Oct 2026); the narration says it there.",
     ].join("\n"),
     schema: PIC_SCHEMA,
     model: settings.docuShortsModel || "claude-sonnet-5-5",
@@ -334,18 +334,27 @@ export async function newVerticalPicture({ prompt, dir, settings, style = "" }) 
 }
 
 /** The 9:16 window of a w x h picture around its subject box (pixels), never outside the picture. */
+/** The closest a Short cuts into a picture: 1400 px tall, so the 1920 px frame enlarges it at most ~1.4x. */
+export const ZOOM_MIN_H = 1400;
+
 export function verticalCrop(w, h, box = { x: 0, y: 0, w: 1, h: 1 }) {
-  let cw = Math.round((h * 9) / 16);
-  let ch = h;
+  // A small subject in a big picture (the Kremlin along the bottom of a 4000 px night shot) is cut
+  // closer instead of from the full height, which left two thirds of the Short empty sky. Only as far
+  // as the picture stays sharp: the cut is never under 1400 px tall (at most ~1.4x enlarged).
+  const bh = Math.max(0.05, Math.min(1, box.h ?? 1));
+  const zoomH = Math.round(h * Math.min(1, bh * 1.4));
+  const zoomed = zoomH < h && h > ZOOM_MIN_H;
+  let ch = zoomed ? Math.max(ZOOM_MIN_H, zoomH) : h;
+  let cw = Math.round((ch * 9) / 16);
   if (cw > w) {
     cw = w;
     ch = Math.min(h, Math.round((w * 16) / 9));
   }
   const cx = (box.x + box.w / 2) * w;
   // A face or a figure sits in the upper part of the frame, where the eye goes first.
-  const cy = (box.y + Math.min(box.h, 0.5) * 0.45) * h;
+  const cy = zoomed ? (box.y + bh / 2) * h : (box.y + Math.min(box.h, 0.5) * 0.45) * h;
   const x = Math.round(Math.max(0, Math.min(w - cw, cx - cw / 2)));
-  const y = Math.round(Math.max(0, Math.min(h - ch, cy - ch * 0.38)));
+  const y = Math.round(Math.max(0, Math.min(h - ch, cy - ch * (zoomed ? 0.5 : 0.38))));
   return { x, y, w: cw - (cw % 2), h: ch - (ch % 2) };
 }
 

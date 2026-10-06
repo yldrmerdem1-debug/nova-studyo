@@ -207,6 +207,21 @@ test('picture Short: a 9:16 window around the subject, never outside the picture
   assert.ok(tall.w <= 2134 && tall.h <= 2880 && Math.abs(tall.w / tall.h - 9 / 16) < 0.01);
 });
 
+test('picture Short: a small subject in a big picture is cut closer, never past 1400 px (Kremlin, Oct 2026)', async () => {
+  const P = await import('../src/pipeline/docu-shorts-pictures.js');
+  // 6000x4000 night shot, the Kremlin along the bottom: the full-height cut was two thirds empty sky.
+  const k = P.verticalCrop(6000, 4000, { x: 0.3, y: 0.55, w: 0.5, h: 0.4 });
+  assert.equal(k.h, 2240, 'cut to the subject with a margin');
+  assert.ok(k.y <= 0.55 * 4000 && k.y + k.h >= 0.95 * 4000, 'the subject is inside the cut');
+  assert.ok(Math.abs(k.w / k.h - 9 / 16) < 0.01);
+  // A tiny box never cuts under 1400 px: the frame would be blown up and soft.
+  const tiny = P.verticalCrop(6000, 4000, { x: 0.5, y: 0.5, w: 0.05, h: 0.05 });
+  assert.equal(tiny.h, P.ZOOM_MIN_H);
+  // A picture already under 1400 px tall keeps its full height.
+  const small = P.verticalCrop(1536, 1024, { x: 0.4, y: 0.6, w: 0.2, h: 0.2 });
+  assert.equal(small.h, 1024);
+});
+
 test('picture Short planner (1929 Short): no present-day pictures in a period story, real people get their archive portrait, never an AI likeness', async () => {
   const P = await import('../src/pipeline/docu-shorts-pictures.js');
   const S = await import('../src/pipeline/docu-shorts.js');

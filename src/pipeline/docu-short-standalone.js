@@ -151,7 +151,7 @@ export async function planShort({ topic, angle = "", research, opening = "triple
       "- before photography the archive still has the period's own pictures: paintings, engravings, woodcuts, chronicles, maps of the event or the place (Brueghel's drawing of the 1564 dancers for a dancing mania) — search for those before choosing ai.",
       "- never a modern book cover, a museum label or a modern scholar's portrait as a picture: show what the sentence is about.",
       "- never picture a figure of speech literally; theories are said as theories, attributed.",
-      "- a sentence with a striking number or date: put it in figure (it is printed big when said).",
+      "- a sentence with a striking number or date: put it in figure (it is printed big when said). — but never on a close portrait of a person: the number is printed mid-frame and would sit on the face (Yeltsin, Oct 2026); the narration says it there.",
       "- MOTION: every picture except a real person's photograph or a document gets a motion line — what moves in it (smoke, water, crowds, flames, cloth, light) plus one slow camera move. The opening pictures are animated first: make them pictures with strong natural movement.",
     ].join("\n"),
     schema: SCHEMA,
