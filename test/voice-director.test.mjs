@@ -31,11 +31,11 @@ test('voice director: opening low and steady, punch lines firm, questions curiou
 
 test('voice director: the same colour twice in a row is said once (no tag on every line)', () => {
   const d = V.directLines([
-    { say: 'The first quiet line of the scene goes here.', mood: 'tension' },
-    { say: 'The second line in the very same tension goes here.', mood: 'tension' },
-    { say: 'A third tense line keeps going in the same way.', mood: 'tension' },
+    { say: 'The first line of the scene goes here, low and steady.', mood: 'curious' },
+    { say: 'The second line in the very same curiosity goes here.', mood: 'curious' },
+    { say: 'A third curious line keeps going in the same way.', mood: 'curious' },
   ], { model: 'eleven_v4' });
-  assert.match(d[1].text, /^\[quiet, tense\]/);
+  assert.match(d[1].text, /^\[curious\]/);
   assert.match(d[2].text, /^A third/, 'repeated colour drops its tag');
 });
 
