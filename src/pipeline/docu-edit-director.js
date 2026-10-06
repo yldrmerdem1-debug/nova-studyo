@@ -530,11 +530,35 @@ export function buildDevice(p, i, ctx, final = (k) => ctx.scenes[k]) {
   else for (const k of ["imagePrompts", "images", "clips", "depth", "layers", "fullBleed", "natural"]) delete out[k];
   delete out.annotate;
   Object.assign(out, { type: device }, f);
+  // Tek bir sayı ("22,325 tons", "$5,800", "38%") görselsiz stat kartında boş zeminde kalıyordu (Yom Kippur, Ekim 2026);
+  // sayaç olarak söylendiği anda sayar ve sanat yönetmeni altına ilgili fotoğrafı (related) koyar.
+  if (device === "stat") {
+    const c = statAsCounter(f);
+    if (c) { for (const k of ["value", "sub", "trend"]) delete out[k]; Object.assign(out, c); }
+  }
   // Görselsiz bir kart uzun bir anlatımı taşıyamaz: Irkutsk videosunda (Ekim 2026) üç maddelik bir şema
   // boş, karanlık bir karede 28 saniye durdu. Kart yalnızca kısa satıra; uzun satır fotoğrafla kalır.
   const sure = Number(s.voiceDur) > 0 ? s.voiceDur + 0.4 : estSceneSeconds(s, langOfScript(ctx.script));
   if (!keepPicture && device !== "annotate" && sure > LONG_CARD_SEC) return bad(`anlatım ~${Math.round(sure)} sn: görselsiz kart ${LONG_CARD_SEC} sn'den uzun ekranda kalmaz`);
   return { scene: out, keepPicture };
+}
+
+/** "22,325 tons" / "$5,800" / "38%" / "5.8 trillion" → sayaç alanları; "1 in 3" gibi oranlar ve aralıklar null (stat kalır). */
+export function statAsCounter({ value, label, sub } = {}) {
+  const m = String(value ?? "").trim().match(/^([^\d\s-]{0,3})\s*(\d[\d.,]*)\s*([%‰]|[\p{L}][\p{L} .]{0,18})?$/u);
+  if (!m) return null;
+  const [, pre, raw, suf = ""] = m;
+  if (/\bin\b|\bof\b|\/|–|-/.test(suf)) return null;
+  let num;
+  if (/^\d{1,3}([.,]\d{3})+$/.test(raw)) num = Number(raw.replace(/[.,]/g, ""));
+  else if (/^\d+[.,]\d{1,2}$/.test(raw)) num = Number(raw.replace(",", "."));
+  else if (/^\d+$/.test(raw)) num = Number(raw);
+  else return null;
+  if (!Number.isFinite(num) || num <= 0) return null;
+  const decimals = /^\d+[.,]\d{1,2}$/.test(raw) ? raw.split(/[.,]/)[1].length : 0;
+  // "%", "B", "M", "bn" sayıya bitişik; sözcük birim ("tons", "dolar") bir boşlukla.
+  const suffix = suf ? (/^([%‰]|[A-Z]{1,2}|bn|mn)$/.test(suf.trim()) ? suf.trim() : ` ${suf.trim()}`) : "";
+  return { type: "counter", from: 0, to: num, ...(pre ? { prefix: pre } : {}), ...(suffix ? { suffix } : {}), ...(decimals ? { decimals } : {}), label: sub ? `${label} · ${sub}` : label };
 }
 
 /**

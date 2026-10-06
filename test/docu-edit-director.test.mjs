@@ -443,3 +443,15 @@ test('a picture-less card never carries a long line (Irkutsk, Oct 2026: a 28 s e
   const short = one(infoScript('A country must notify the WHO within twenty-four hours.', { locale: 'en-US' }), { device: 'stat', value: '24 hours', label: 'to notify the WHO' });
   assert.equal(short.accepted.length, 1, JSON.stringify(short.rejected));
 });
+
+test('a single-number stat becomes a counter (counts on the spoken number, sits on a related picture; Yom Kippur "22,325 tons")', () => {
+  assert.deepEqual(D.statAsCounter({ value: '22,325 tons', label: 'airlift' }), { type: 'counter', from: 0, to: 22325, suffix: ' tons', label: 'airlift' });
+  assert.equal(D.statAsCounter({ value: '$96.2B', label: 'x' }).suffix, 'B');
+  assert.equal(D.statAsCounter({ value: '1 in 3', label: 'x' }), null, 'a ratio stays a stat');
+  const r = one(infoScript('A country must notify the WHO within twenty-four hours.', { locale: 'en-US' }), { device: 'stat', value: '24 hours', label: 'to notify the WHO' });
+  assert.equal(r.accepted.length, 1);
+  const sc = r.scenes[20];
+  assert.equal(sc.type, 'counter');
+  assert.equal(sc.to, 24);
+  assert.ok(!('value' in sc));
+});
