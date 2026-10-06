@@ -79,6 +79,8 @@ export function regionXY(region, lat, lon) {
 /** Cihazlar arası en kısa aralık (sn) ve 12 dakikalık videoda tavan. */
 export const MIN_GAP_SEC = 35;
 export const MAX_DEVICES = 20;
+/** A picture-less card (chart, explainer, counter...) holds the screen at most this long. */
+export const LONG_CARD_SEC = 18;
 /** Görseli değiştirilebilecek sahneler (sayaç, grafik, slam, başlık, montaj zaten birer cihaz). */
 const CONVERTIBLE = new Set(["photo", "words"]);
 /** Cihaz görsel alanları: görselsiz cihaza çevrilen sahneden atılır. */
@@ -528,6 +530,10 @@ export function buildDevice(p, i, ctx, final = (k) => ctx.scenes[k]) {
   else for (const k of ["imagePrompts", "images", "clips", "depth", "layers", "fullBleed", "natural"]) delete out[k];
   delete out.annotate;
   Object.assign(out, { type: device }, f);
+  // Görselsiz bir kart uzun bir anlatımı taşıyamaz: Irkutsk videosunda (Ekim 2026) üç maddelik bir şema
+  // boş, karanlık bir karede 28 saniye durdu. Kart yalnızca kısa satıra; uzun satır fotoğrafla kalır.
+  const sure = Number(s.voiceDur) > 0 ? s.voiceDur + 0.4 : estSceneSeconds(s, langOfScript(ctx.script));
+  if (!keepPicture && device !== "annotate" && sure > LONG_CARD_SEC) return bad(`anlatım ~${Math.round(sure)} sn: görselsiz kart ${LONG_CARD_SEC} sn'den uzun ekranda kalmaz`);
   return { scene: out, keepPicture };
 }
 

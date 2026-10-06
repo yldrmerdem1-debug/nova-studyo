@@ -28,7 +28,8 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { callJSON } from "../llm.js";
 import { readJson, writeJson, ROOT } from "../util.js";
-import { stripTags } from "./docu-script.js";
+import { stripTags, estSceneSeconds } from "./docu-script.js";
+import { LONG_CARD_SEC } from "./docu-edit-director.js";
 
 export const TOPIC_VERSION = "topic-bible-1";
 export const TOPIC_MODEL = "claude-opus-5-5";
@@ -949,6 +950,7 @@ export function applyTopicPlan(script, bible, { logFn = () => {} } = {}) {
   };
   const PICTURE = ["image", "images", "imgW", "imgH", "video", "videoStart", "videoDur", "videoW", "videoH", "imagePrompt", "imagePrompts", "search", "source", "media", "layers", "focus", "crop", "fit", "camera", "grade", "fx", "archived", "credit", "heldBg", "borrowed", "clips", "depth", "caption", "text", "keyword", "textStyle", "backdrop", "bg", "icons", "present", "aiFix"];
   const strip = (s) => Object.fromEntries(Object.entries(s).filter(([k]) => !PICTURE.includes(k)));
+  const lang = /^en/i.test(script.locale || "") ? "en" : "tr";
   let nEx = 0;
   let nUi = 0;
   let nIc = 0;
@@ -958,6 +960,9 @@ export function applyTopicPlan(script, bible, { logFn = () => {} } = {}) {
   for (const e of bible.explainers || []) {
     const hosts = e.steps.map((s) => at(s.scene, s.say));
     if (hosts.some((h) => h < 0)) { skipped++; continue; }
+    // Görselsiz şema uzun bir satırı taşımaz (Irkutsk, Ekim 2026: 28 sn boş karede üç madde): o satır fotoğrafıyla kalır.
+    const uzun = [...new Set(hosts)].find((h) => estSceneSeconds(scenes[h], lang) > LONG_CARD_SEC);
+    if (uzun !== undefined) { skipped++; logFn(`açıklayıcı şema atlandı: sahne ${uzun} ~${Math.round(estSceneSeconds(scenes[uzun], lang))} sn, görselsiz kart ${LONG_CARD_SEC} sn'den uzun kalmaz`); continue; }
     const steps = e.steps.map(({ label, detail, at: a, icon }) => ({ label, ...(detail ? { detail } : {}), ...(a ? { at: a } : {}), ...(icon ? { icon } : {}) }));
     const uniq = [...new Set(hosts)];
     for (const h of uniq) {
@@ -969,7 +974,7 @@ export function applyTopicPlan(script, bible, { logFn = () => {} } = {}) {
   }
   for (const c of bible.uiCards || []) {
     const h = at(c.scene, c.say);
-    if (h < 0 || scenes[h].type === "explainer") { skipped++; continue; }
+    if (h < 0 || scenes[h].type === "explainer" || estSceneSeconds(scenes[h], lang) > LONG_CARD_SEC) { skipped++; continue; }
     scenes[h] = { ...strip(scenes[h]), type: "ui-card", kind: c.kind, ...(c.title ? { title: c.title } : {}), ...(c.sub ? { sub: c.sub } : {}), rows: c.rows, ...(isInt(c.highlight) ? { highlight: c.highlight } : {}) };
     nUi++;
   }

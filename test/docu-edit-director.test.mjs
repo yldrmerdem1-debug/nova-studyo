@@ -434,3 +434,12 @@ test('split: every side shows a picture — a bare side takes the scene\'s own, 
   assert.equal(none.accepted.length, 0);
   assert.match(none.rejected[0].why, /kendi resmi de yok/);
 });
+
+test('a picture-less card never carries a long line (Irkutsk, Oct 2026: a 28 s explainer on an empty frame)', () => {
+  const long = 'First, independent testing of her own samples, with the methods published. Second, the World Health Organization: under the International Health Regulations, a country must notify it within twenty-four hours of assessing an event that could become a global concern, and pneumonic plague is one of the diseases the rules single out. Third, the contacts: if no one else falls ill, the window for spread closes.';
+  const r = one(infoScript(long, { locale: 'en-US' }), { device: 'stat', value: '24 hours', label: 'to notify the WHO' });
+  assert.equal(r.accepted.length, 0);
+  assert.match(r.rejected[0].why, /görselsiz kart/);
+  const short = one(infoScript('A country must notify the WHO within twenty-four hours.', { locale: 'en-US' }), { device: 'stat', value: '24 hours', label: 'to notify the WHO' });
+  assert.equal(short.accepted.length, 1, JSON.stringify(short.rejected));
+});

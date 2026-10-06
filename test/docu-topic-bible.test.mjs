@@ -275,3 +275,20 @@ test('tasarım kapısı düzeltmeleri ve kare senaryosu', () => {
   assert.ok(st.scenes[0].wordTimes && !st.scenes[0].voice && !st.music);
   assert.equal(st.topic.motif, 'cipher');
 });
+
+test('görselsiz şema uzun satırı taşımaz (Irkutsk, Ekim 2026: 28 sn boş karede üç madde)', () => {
+  const s = load('documentary');
+  const b = T.fallbackBible(s);
+  const archived = { ...s, scenes: s.scenes.map((x, i) => (x.type === 'photo' ? { ...x, image: `build/a${i}.jpg`, archived: true, source: 'archive', imgW: 2400, imgH: 1500 } : x)) };
+  const ex = b.explainers[0];
+  const h = ex.steps[0].scene;
+  const long = 'word '.repeat(80).trim();
+  // the host line becomes 80 words (~30 s): the explainer must be skipped, the photo stays
+  const eng = { ...archived, scenes: archived.scenes.map((x, i) => (i === h ? { ...x, say: long } : x)) };
+  const bb = { ...b, explainers: [{ ...ex, steps: ex.steps.map((st) => (st.scene === h ? { ...st, say: long } : st)) }] };
+  const log = [];
+  const out = T.applyTopicPlan(eng, bb, { logFn: (m) => log.push(m) });
+  assert.notEqual(out.scenes[h].type, 'explainer');
+  assert.equal(out.scenes[h].type, eng.scenes[h].type, 'sahne kendi resmiyle kalır');
+  assert.ok(log.some((m) => /görselsiz kart/.test(m)));
+});
