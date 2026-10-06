@@ -27,6 +27,7 @@ import { callJSON } from "../llm.js";
 import { readJson, writeJson, DATA_DIR } from "../util.js";
 import { hookCandidates, hookPromptLines, hookById, readHookHistory, recordHook } from "./docu-hooks.js";
 import { readRhetoricHistory, recordRhetoric, rhetoricLines, rhetoricPlan } from "./docu-rhetoric.js";
+import { catalogQueries, commonsCatalogFor, catalogPromptBlock } from "./docu-commons-catalog.js";
 
 /** Efektif anlatım hızı (kelime/dk) — v3 duraklamaları ve sahne nefesleri dahil. Ölçüldü: 80 kelime → 39 sn. */
 export const DOCU_WPM = { tr: 120, en: 140 };
@@ -1455,7 +1456,7 @@ function storyBlock({ job, bible, research }) {
   ].filter((x) => x !== "").join("\n");
 }
 
-function chapterPrompt({ i, bible, plan, written, lang }) {
+function chapterPrompt({ i, bible, plan, written, lang, catalog = null }) {
   const n = bible.chapters.length;
   const ch = bible.chapters[i];
   const first = i === 0, last = i === n - 1;
@@ -1506,6 +1507,7 @@ function chapterPrompt({ i, bible, plan, written, lang }) {
     prev?.length ? `ÖNCEKİ BÖLÜMÜN SON SATIRLARI (kaldığı yerden, aynı cümleyi tekrarlamadan devam et):\n${prev.slice(-3).map((s) => `- ${stripTags(s.say)}`).join("\n")}` : "",
     !first && opener ? `Soğuk açılış (bölüm 1) böyleydi: "${stripTags(opener.say)}"${opener.text ? ` · ekrandaki kanca: "${opener.text}"` : ""}` : "",
     ...rhetoricLines(bible.rhetoric, i, n),
+    catalog?.length ? catalogPromptBlock(catalog, ch) : "",
     lang === "en" ? "Write every on-screen text and narration in English." : "",
   ].filter(Boolean).join("\n");
 }
@@ -1520,7 +1522,7 @@ function chapterPrompt({ i, bible, plan, written, lang }) {
 export async function runDocuScript(job, research, usage, logFn, opts = {}) {
   // chapterModel: bölümleri yazan model (Sonnet 5.5). Hikâye planı (bible) ayarlardaki modelle (Opus 5.5) — ruh planda.
   // bibleModel: hikâye planını yazan model (Senarist ayarı; boşsa ayarlardaki ana model).
-  const { dir = null, isCancelled = () => false, llm = callJSON, eleven = {}, chapterModel = null, bibleModel = null } = opts;
+  const { dir = null, isCancelled = () => false, llm = callJSON, eleven = {}, chapterModel = null, bibleModel = null, commonsCatalog = true } = opts;
   const plan = docuPlan(job);
   /** This chapter's word target (the ranking's intro is short and its number one long). */
   const cw = (i) => plan.chapterWords?.[i] ?? plan.wordsPerChapter;
@@ -1596,6 +1598,19 @@ export async function runDocuScript(job, research, usage, logFn, opts = {}) {
     store.putBible(bible);
   }
   const bibleKey = sha1(bible);
+  // Commons katalogu (docu-commons-catalog.js): gerçek hikâyede senarist sahnelere Commons'ta GERÇEKTEN var olan
+  // dosyaları adıyla seçer — Yom Kippur videosunun yolu. Ücretsiz API; ağ yoksa katalog boş kalır, iş sürer.
+  let catalog = [];
+  if (archive && commonsCatalog) {
+    try {
+      const queries = catalogQueries({ topic: job.topic, title: bible.title, research: fullResearch });
+      catalog = await commonsCatalogFor({ dir, queries, logFn, isCancelled });
+      if (catalog.length) logFn(`Commons katalogu: ${catalog.length} gerçek dosya (${queries.length} arama) — senarist sahnelere adıyla seçecek`);
+    } catch (e) {
+      if (e?.message === "cancelled" || isCancelled()) throw e;
+      logFn(`Commons katalogu kurulamadı (${String(e?.message || e).slice(0, 80)}); sahneler her zamanki gibi aranacak`);
+    }
+  }
   const castKeys = bible.cast.map((c) => c.key);
   const genre = bible.genre;
   const n = bible.chapters.length;
@@ -1637,7 +1652,7 @@ export async function runDocuScript(job, research, usage, logFn, opts = {}) {
     else {
       logFn(`Bölüm ${i + 1}/${n} kurgulanıyor: ${bible.chapters[i].title}`);
       ch = await callChapter({
-        i, user: chapterPrompt({ i, bible, plan, written, lang }),
+        i, user: chapterPrompt({ i, bible, plan, written, lang, catalog }),
         target: cw(i), min: Math.round(cw(i) * MIN_CHAPTER_RATIO), label: `Bölüm ${i + 1}`,
       });
       store.putChapter(i, bibleKey, ch);
@@ -1670,7 +1685,7 @@ export async function runDocuScript(job, research, usage, logFn, opts = {}) {
         min: Math.round(words[i] + add * 0.85),
         label: `Bölüm ${i + 1} uzatma`,
         user: [
-          chapterPrompt({ i, bible, plan, written, lang }),
+          chapterPrompt({ i, bible, plan, written, lang, catalog }),
           "",
           `BU BÖLÜM YAZILDI AMA KISA: ${words[i]} kelime. UZAT: en az ${add} kelime daha ekle (toplam ~${target} kelime).`,
           "Var olan sahneleri ve sırasını koru; araştırmadaki bu bölüme ait somut ayrıntılarla yeni sahneler ekle ya da satırları genişlet. Aynı kurallar geçerli. Tüm bölümü (bütün sahneleriyle) döndür.",
