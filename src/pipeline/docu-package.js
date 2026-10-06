@@ -392,6 +392,8 @@ async function planPackage(cands, { llm, model, usage, logFn, script, docu, seo,
     `3) recommended = index of the thumbnail you would publish first.`,
     `Rules for the thumbnails: one focal subject, huge contrast, ≤ 4 words readable at 320x180, a clear emotion, consistent channel branding (same fonts/colours come from the look automatically) but each thumbnail visibly different.`,
     `What wins clicks on this channel (the owner's taste): the punch style — 2-4 words in two short lines, the second line the payoff ("70 SHIPS. / ONE HILL."), one giant number when the story has one ("21" beside the face of the man who was 21), and the most IMPOSSIBLE or shocking picture in the video (a ship on top of a hill, a face at the moment of ruin) rather than a calm portrait. A real face, big, beats a crowd. Use circle only when the ringed detail is unmistakable; never ring a person the words are not about.`,
+    // Owner's rule (Oct 2026): Google Ads refused a plague thumbnail saying "IT NEVER LEFT"; neutral curiosity passes.
+    `Advertiser-friendly (the channel is monetised): no fear or panic claims, no graphic injury, no "outbreak/it's back/it never left" alarm about disease, war or disaster, no claim the video does not prove. Neutral curiosity sells and passes ad review: "WHAT HAPPENED?", "THE WAR NO ONE SAW COMING", "19 DAYS", "100 IN. 7 OUT.". The text must be true of the picture: never "THIS LAB" over a stock lab that is not the lab in the story.`,
     ...((docu?.format ?? script?.format) === "ranking" ? rankingPackageLines(docu?.ranking ? docu : script) : []),
   ].join("\n");
   return llm({
