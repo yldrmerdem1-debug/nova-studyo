@@ -280,15 +280,14 @@ test('görselsiz şema uzun satırı taşımaz (Irkutsk, Ekim 2026: 28 sn boş k
   const s = load('documentary');
   const b = T.fallbackBible(s);
   const archived = { ...s, scenes: s.scenes.map((x, i) => (x.type === 'photo' ? { ...x, image: `build/a${i}.jpg`, archived: true, source: 'archive', imgW: 2400, imgH: 1500 } : x)) };
-  const ex = b.explainers[0];
-  const h = ex.steps[0].scene;
-  const long = 'word '.repeat(80).trim();
-  // the host line becomes 80 words (~30 s): the explainer must be skipped, the photo stays
-  const eng = { ...archived, scenes: archived.scenes.map((x, i) => (i === h ? { ...x, say: long } : x)) };
-  const bb = { ...b, explainers: [{ ...ex, steps: ex.steps.map((st) => (st.scene === h ? { ...st, say: long } : st)) }] };
+  const h = b.explainers[0].steps[0].scene;
+  const ok = T.applyTopicPlan(archived, b, { logFn: () => {} });
+  assert.equal(ok.scenes[h].type, 'explainer', 'kısa satırda şema kurulur');
+  // aynı satır ~30 sn sürerse (uzun anlatım) şema kurulmaz, sahne kendi resmiyle kalır
+  const eng = { ...archived, scenes: archived.scenes.map((x, i) => (i === h ? { ...x, dur: 30 } : x)) };
   const log = [];
-  const out = T.applyTopicPlan(eng, bb, { logFn: (m) => log.push(m) });
+  const out = T.applyTopicPlan(eng, b, { logFn: (m) => log.push(m) });
   assert.notEqual(out.scenes[h].type, 'explainer');
-  assert.equal(out.scenes[h].type, eng.scenes[h].type, 'sahne kendi resmiyle kalır');
+  assert.equal(out.scenes[h].type, eng.scenes[h].type);
   assert.ok(log.some((m) => /görselsiz kart/.test(m)));
 });
