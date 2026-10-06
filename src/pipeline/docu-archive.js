@@ -995,6 +995,32 @@ export function atmosphereFootage(script, { max = 30, year = null } = {}) {
 // Word forms count: "snowy Siberia at dusk", "foggy harbour", "a test tube cracks", "flickering light" (Black Death
 // opening: "snowy" missed "snow" and no opening scene moved).
 const HAREKET = /\b(sea|ocean|waves?|surf|storm\w*|fire|flames?|smok\w*|fog\w*|mist\w*|rain\w*|snow\w*|blizzard|crowds?|march(?:ing)?|charg(?:e|ing)|battle|train|locomotive|steam\w*|ships?|sails?|river|waterfall|clouds?|horses?|cavalry|banners?|flags?|candles?|lanterns?|explosions?|dust\w*|wind\w*|torrent|crack(?:s|ing)?|shatter\w*|spill\w*|flicker\w*|sirens?|blue lights?|taiga)\b/i;
+/**
+ * Doruk hareketi: açılıştan sonra, hikâyenin en gergin anlarından en çok `max` AI karesi resimden videoya
+ * (ucuz model; motor scene.aiMotion === "climax" görünce Kling 2.5 Turbo 720p ister). Seçim: gerçek klibi ya da
+ * arşiv fotoğrafı olmayan, kişi/isim kartı taşımayan, hareket edebilecek bir şey gösteren (deniz, duman, kalabalık…)
+ * tension/dread/triumph sahneleri, en yüksek yoğunluklu bölümlerden; aynı bölümden ikisi değil.
+ */
+export function climaxMotionTargets(script, { max = 2, intensity = [] } = {}) {
+  const scenes = script?.scenes || [];
+  const cands = scenes
+    .map((s, i) => ({ s, i, ch: s.chapter ?? 0 }))
+    .filter(({ s, ch }) => ch > 0 && !s.aiMotion && ["photo", "words"].includes(s.type) && !s.video && !s.archived && s.imagePrompt
+      && !s.cast?.length && !s.name && !s.bg && !s.images?.length && !s.imagePrompts?.length && !s.annotate
+      && ["tension", "dread", "triumph"].includes(s.mood) && HAREKET.test(s.imagePrompt))
+    .sort((a, b) => (Number(intensity[b.ch]) || 0) - (Number(intensity[a.ch]) || 0) || b.ch - a.ch || a.i - b.i);
+  const used = new Set();
+  let n = 0;
+  for (const c of cands) {
+    if (n >= max) break;
+    if (used.has(c.ch)) continue;
+    c.s.aiMotion = "climax";
+    used.add(c.ch);
+    n++;
+  }
+  return n;
+}
+
 export function openingMotionTargets(script, { max = 2, within = 6 } = {}) {
   let n = 0;
   const scenes = script?.scenes || [];

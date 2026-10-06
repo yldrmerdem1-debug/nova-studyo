@@ -44,7 +44,7 @@ import { ensureFoley, libraryRoot, loadLibrary, musicHistoryFor, pickSfxPools, p
 import { applyBreath, applyEditGrammar } from './edit-grammar.mjs';
 import { planInserts } from './inserts.mjs';
 import { directLines, isV4, untagAlignment } from './voice-director.mjs';
-import { klingImageToVideo } from './kling.mjs';
+import { klingImageToVideo, KLING_CHEAP_MODEL } from './kling.mjs';
 import { VOICE_CHAIN_VERSION, applySpace, panVariant, processVoice, widenBed } from './sound-craft.mjs';
 import { placeTimeline } from '../src/timeline.js';
 import { openingEnd } from '../src/opening/plan.js';
@@ -1231,14 +1231,17 @@ export async function produce(scriptIn, o) {
   async function openingMotion(scene) {
     const what = String(scene.motion || scene.imagePrompt || '').trim().replace(/\.$/, '');
     const prompt = `${what}; natural movement in the scene (water, smoke, fire, cloth, crowds, light). One slow, deliberate cinematic camera push. Realistic physics, photographic, period-accurate, same lighting and grade as the first frame, no new objects or people appear, faces stay stable.`;
-    const key = hash(`i2v|${VIDEO_MODEL}|${scene.image}|${prompt}`);
+    // A climax shot (Nova's climaxMotionTargets) uses the cheap model: the opening is where Kling 3.0 pays off.
+    const climax = scene.aiMotion === 'climax' && KL_KEY;
+    const model = climax ? KLING_CHEAP_MODEL : VIDEO_MODEL;
+    const key = hash(`i2v|${model}|${scene.image}|${prompt}`);
     const rel = `${BUILD}/i2v-${key}.mp4`;
     const abs = join(PUBLIC, rel);
     if (!fileOk(abs)) {
-      log(`açılış hareketi: ${basename(scene.image)} → ${VIDEO_MODEL.split('/').pop()}`);
+      log(`${climax ? 'doruk' : 'açılış'} hareketi: ${basename(scene.image)} → ${model.split('/').pop()}`);
       const uri = 'data:image/jpeg;base64,' + readFileSync(join(PUBLIC, scene.image)).toString('base64');
       if (KL_KEY) {
-        writeAtomic(abs, await klingImageToVideo({ key: KL_KEY, image: uri, prompt, negative: NEGATIVE, duration: 5, resolution: o.klingOpeningResolution || '1080p', model: VIDEO_MODEL, taskId: `nova-op-${key}`, logFn: log, isCancelled: cancelled }));
+        writeAtomic(abs, await klingImageToVideo({ key: KL_KEY, image: uri, prompt, negative: NEGATIVE, duration: 5, resolution: climax ? (o.klingResolution || '720p') : (o.klingOpeningResolution || '1080p'), model, taskId: `nova-op-${key}`, logFn: log, isCancelled: cancelled }));
       } else {
         const input = /kling/.test(VIDEO_MODEL)
           ? { start_image: uri, prompt, duration: 5, negative_prompt: NEGATIVE }

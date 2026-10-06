@@ -817,3 +817,21 @@ test('a name card aims the camera at the face the picker reports (Yom Kippur: Sa
   assert.equal(r.script.scenes[0].name, 'Anwar Sadat');
   assert.deepEqual(arch.yuzOf({ faceX: 2, faceY: 0.5 }), null, 'an impossible position is ignored');
 });
+
+test('climax motion: up to two tense AI shots that can move, one per chapter, never a person or the opening (cheap model)', () => {
+  const sc = (chapter, mood, imagePrompt, extra = {}) => ({ type: 'photo', chapter, mood, imagePrompt, say: 'x', ...extra });
+  const script = { scenes: [
+    sc(0, 'tension', 'stormy sea at night'),
+    sc(1, 'tension', 'smoke over the burning harbour'),
+    sc(1, 'dread', 'fog rolling over the trenches'),
+    sc(2, 'calm', 'quiet river at dawn'),
+    sc(2, 'tension', 'crowds marching in the rain'),
+    sc(3, 'tension', 'a general at his desk', { name: 'Dayan' }),
+    sc(3, 'triumph', 'flags in the wind', { archived: true, image: 'x.jpg' }),
+  ] };
+  assert.equal(arch.climaxMotionTargets(script, { max: 2 }), 2);
+  const marked = script.scenes.map((s, i) => (s.aiMotion ? i : -1)).filter((i) => i >= 0);
+  assert.deepEqual(marked, [1, 4]);
+  assert.equal(script.scenes[1].aiMotion, 'climax');
+  assert.equal(arch.climaxMotionTargets({ scenes: [sc(1, 'tension', 'fire')] }, { max: 0 }), 0, 'max 0 turns it off');
+});

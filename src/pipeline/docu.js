@@ -24,7 +24,7 @@ import { runResearch } from "./script.js";
 import { runDocuScript, novaView, DOCU_GENRES, docuScriptStats, docuElevenNeed, dedupeNameCards, stripChapterCards, LENGTH_GATE } from "./docu-script.js";
 import { checkpoint, renderRevision, publishRevision, validScript, readCheckpoint, invalidateCheckpoints } from "./checkpoints.js";
 import { renderSeoMarkdown } from "./seo.js";
-import { atmosphereFootage, openingMotionTargets, resolveArchive } from "./docu-archive.js";
+import { atmosphereFootage, openingMotionTargets, climaxMotionTargets, resolveArchive } from "./docu-archive.js";
 import { directEdit, sanitizeDevices, placeAnnotations } from "./docu-edit-director.js";
 import { artDirect, applyArtPlan } from "./docu-art-director.js";
 import { topicBible, applyTopicPlan } from "./docu-topic-bible.js";
@@ -737,6 +737,9 @@ export async function runDocuJob({ jobId, job, dir, usage, saveUsage, isCancelle
   if (settings.docuOpeningMotion !== false && (settings.klingKey || settings.replicateKey)) {
     const moving = openingMotionTargets(engineDocu);
     if (moving) log2(`Açılış: ${moving} sahne resimden videoya çevrilecek (gerçek klibi yok)`);
+    // Doruk anları da hareket edebilir (ucuz model, varsayılan en çok 2; Ayarlar: docuClimaxMotionMax, 0 = kapalı).
+    const doruk = climaxMotionTargets(engineDocu, { max: Number.isFinite(+settings.docuClimaxMotionMax) ? +settings.docuClimaxMotionMax : 2, intensity: engineDocu.intensity || [] });
+    if (doruk) log2(`Doruk: ${doruk} gergin sahne resimden videoya (Kling 2.5 Turbo 720p)`);
   }
   const engineFile = path.join(workDir, "engine-script.json");
   writeJson(engineFile, engineDocu);
