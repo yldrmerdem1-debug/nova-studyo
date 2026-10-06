@@ -167,6 +167,9 @@ async function dosyaOzeti(ffmpeg, file, out) {
 
 // ---------- görme kararı ----------
 
+/** Seçicinin bildirdiği yüz konumu [x, y] (0-1); geçersizse null. */
+export const yuzOf = (k) => (Number.isFinite(k?.faceX) && Number.isFinite(k?.faceY) && k.faceX >= 0 && k.faceX <= 1 && k.faceY >= 0 && k.faceY <= 1 ? [+k.faceX.toFixed(2), +k.faceY.toFixed(2)] : null);
+
 const PICK_SCHEMA = {
   type: "object",
   properties: {
@@ -176,8 +179,10 @@ const PICK_SCHEMA = {
       type: "boolean",
       description: "İsim kartındaki kişi seçilen fotoğrafın açık ana konusu mu (yüzü görünür)? İsim kartı yoksa ya da seçim 0 ise true.",
     },
+    faceX: { type: "number", description: "İsim kartı varsa: seçilen fotoğrafta o kişinin yüzünün YATAY konumu, 0 (sol kenar) – 1 (sağ kenar). Yoksa 0.5." },
+    faceY: { type: "number", description: "İsim kartı varsa: seçilen fotoğrafta o kişinin yüzünün DİKEY konumu, 0 (üst kenar) – 1 (alt kenar). Yoksa 0.35." },
   },
-  required: ["choice", "reason", "namedPersonIsMainSubject"],
+  required: ["choice", "reason", "namedPersonIsMainSubject", "faceX", "faceY"],
   additionalProperties: false,
 };
 
@@ -407,7 +412,8 @@ function pickPromptBase(scene, n) {
       `Bu fotoğrafın altına İSİM KARTI basılacak: ${ad}.`,
       `Bu kişi fotoğrafın açık ANA KONUSU olmalı ve yüzü görünmeli. Doğru adaylar arasında o kişinin yüzü net olanı tercih et.`,
       `Seçtiğin karede kişi kalabalığın/grubun içinde, arka planda ya da küçük kalıyorsa (ya da kare bir mekânı/nesneyi gösteriyorsa) namedPersonIsMainSubject=false döndür — fotoğraf yine kullanılır ama isim kartı kaldırılır.`,
-    ] : [`Bu sahnede isim kartı yok: namedPersonIsMainSubject=true döndür.`]),
+      `Seçtiğin fotoğrafta bu kişinin YÜZÜNÜN konumunu ver: faceX (0 sol – 1 sağ), faceY (0 üst – 1 alt). Fotoğraf 16:9 kadraja kırpılınca kamera oraya yönelir; yüz kadraj dışında kalmaz.`,
+    ] : [`Bu sahnede isim kartı yok: namedPersonIsMainSubject=true, faceX=0.5, faceY=0.35 döndür.`]),
     `Hiçbiri gerçekten uymuyorsa 0 döndür — yanlış fotoğraf göstermek, AI ile canlandırmaktan KÖTÜDÜR.`,
   ].join("\n");
 }
@@ -1108,13 +1114,13 @@ export async function resolveArchive(docu, { dir, publicDir, buildPrefix, settin
       const sira = k.c ? liste.findIndex((a) => photoKey(a.url) === k.c) + 1 : 0;
       if (!k.c || sira > 0) {
         kayittanKarar++;
-        return { choice: sira, reason: k.r || "", namedPersonIsMainSubject: k.nm !== false, segment: k.seg || 1, kayittan: true };
+        return { choice: sira, reason: k.r || "", namedPersonIsMainSubject: k.nm !== false, segment: k.seg || 1, ...(Array.isArray(k.f) ? { faceX: k.f[0], faceY: k.f[1] } : {}), kayittan: true };
       }
     }
     const karar = await sor();
     const secim = Math.trunc(Number(karar?.choice) || 0);
     const c = liste[secim - 1];
-    if (c) m.sets[kume] = { c: photoKey(c.url), r: String(karar.reason || "").slice(0, 300), nm: karar.namedPersonIsMainSubject !== false, seg: Math.max(1, Math.trunc(Number(karar.segment) || 1)), at: Date.now() };
+    if (c) m.sets[kume] = { c: photoKey(c.url), r: String(karar.reason || "").slice(0, 300), nm: karar.namedPersonIsMainSubject !== false, seg: Math.max(1, Math.trunc(Number(karar.segment) || 1)), at: Date.now(), ...(yuzOf(karar) ? { f: yuzOf(karar) } : {}) };
     else for (const a of liste) m.bad[photoKey(a.url)] = Date.now();
     hafizaYaz(cacheKey, m);
     return karar;
@@ -1703,6 +1709,7 @@ export async function resolveArchive(docu, { dir, publicDir, buildPrefix, settin
               if (cOzet) hit.dhash = cOzet;
               // İsim kartı bu seçimde ANA KONU değilse fotoğraf kalır, kart kalkar (aşağıda).
               if (s.name) hit.namedMain = karar.namedPersonIsMainSubject !== false;
+              if (s.name && yuzOf(karar)) hit.face = yuzOf(karar);
             }
           } catch (e) {
             if (isCancelled() || String(e.message).includes("cancelled")) throw new Error("cancelled");
@@ -1733,6 +1740,9 @@ export async function resolveArchive(docu, { dir, publicDir, buildPrefix, settin
             s.imgH = hit.imgH;
             // Dikey/kareye yakın arşiv fotoğrafında kamera yüzün olduğu üst üçte bire
             // yönelsin; merkez kırpma başı kesiyordu. Senaryo odak verdiyse ona dokunulmaz.
+            // İsim kartında kamera kişinin YÜZÜNE yönelir (seçicinin bildirdiği konum): Yom Kippur'da Sadat'ın
+            // 1971 fotoğrafı yalnızca başının üstü görünecek şekilde kırpılmıştı.
+            if (ODAK_TIPLER.has(s.type) && !s.focus && s.name && Array.isArray(hit.face)) s.focus = hit.face;
             if (ODAK_TIPLER.has(s.type) && !s.focus && hit.imgW / hit.imgH < DIKEY_ORAN) s.focus = [0.5, 0.3];
           }
           if (s.name && hit.namedMain === false) {

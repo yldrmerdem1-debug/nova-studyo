@@ -806,3 +806,14 @@ test('scene eras: a story from 1338 to today judges each scene by its own time, 
   // A news explainer: chapters with no year are today.
   assert.equal(arch.sceneEras({ scenes: [{ chapter: 0, say: 'Today.' }] }, { now: 2026, news: true }).scenes[0].era, '2026');
 });
+
+test('a name card aims the camera at the face the picker reports (Yom Kippur: Sadat cropped to the top of his head)', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nova-arsiv-'));
+  const scenes = [photo('Anwar Sadat 1971 speech', 'Sadat wanted the Sinai back.', { name: 'Anwar Sadat', role: 'President of Egypt' })];
+  const r = await runArchive(dir, scenes, () => [cand('wikimedia', U.kontrol, { width: 1470, height: 1163 })], {
+    pickFn: () => ({ choice: 1, reason: 'test', namedPersonIsMainSubject: true, faceX: 0.48, faceY: 0.66 }),
+  });
+  assert.deepEqual(r.script.scenes[0].focus, [0.48, 0.66]);
+  assert.equal(r.script.scenes[0].name, 'Anwar Sadat');
+  assert.deepEqual(arch.yuzOf({ faceX: 2, faceY: 0.5 }), null, 'an impossible position is ignored');
+});
