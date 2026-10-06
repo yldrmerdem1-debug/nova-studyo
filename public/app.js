@@ -12,7 +12,7 @@ const state = {
   page: "studio",
   form: {
     topic: "", guidance: "", theme: "vox", tone: "varsayilan", language: "tr",
-    voiceId: "tr-TR-AhmetNeural", durationPreset: "standart", subtitleMode: "classic",
+    voiceId: "tr-TR-AhmetNeural", durationPreset: "detayli", subtitleMode: "classic",
     mediaMode: "manual", useWebSearch: true, visualStyle: "editorial", collageMode: "hibrit", mediaKind: "mixed",
     aiButce: 3, aiClips: 3, aiFill: 3, aiSupport: 'auto', aiSupportBudgetUsd: 20, transitions: "sinematik", ratio: "16:9", yaziModu: "vurgu", gorselDenetim: true,
   },
@@ -263,7 +263,7 @@ function voiceQuotaNote(f, p) {
 /** state.form'un başlangıç değerleriyle birebir aynı (satır 12-16) — ↺ bunu kullanır. */
 const FORM_DEFAULTS = {
   theme: "vox", tone: "varsayilan", language: "tr", voiceId: "tr-TR-AhmetNeural",
-  durationPreset: "standart", subtitleMode: "classic", mediaMode: "manual",
+  durationPreset: "detayli", subtitleMode: "classic", mediaMode: "manual",
   useWebSearch: true, visualStyle: "editorial", collageMode: "hibrit", mediaKind: "mixed",
   aiButce: 3, aiClips: 3, aiFill: 3, aiSupport: 'auto', aiSupportBudgetUsd: 20, transitions: "sinematik", ratio: "16:9", yaziModu: "vurgu", gorselDenetim: true,
 };
@@ -2364,7 +2364,7 @@ async function generateIdeas() {
       const idea = data.ideas[+b.dataset.n];
       state.form.topic = idea.title;
       state.form.theme = idea.theme || "belgesel";
-      state.form.durationPreset = idea.durationPreset || "standart";
+      state.form.durationPreset = idea.durationPreset || "detayli";
       $("#ideasDrawer").hidden = true;
       location.hash = "#studio";
       state.page = "studio"; render();

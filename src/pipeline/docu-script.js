@@ -581,7 +581,7 @@ export function docuScriptStats(docu, job) {
   const scenes = (docu?.scenes || []).filter((s) => !s.chapterCard);
   const estSeconds = estimateDocuSeconds(docu, lang);
   return {
-    targetMinutes: DURATIONS[job?.durationPreset]?.minutes || 8,
+    targetMinutes: DURATIONS[job?.durationPreset]?.minutes || 12,
     plannedWords: docu?.stats?.plannedWords ?? docuPlan(job || {}).words,
     actualWords: sceneWords(scenes),
     scenes: scenes.length,

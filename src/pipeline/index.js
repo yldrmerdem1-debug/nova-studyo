@@ -105,7 +105,7 @@ export function newJobFromRequest(body) {
     language: body.language === "en" ? "en" : "tr",
     voiceId: body.voiceId || (body.language === "en" ? "en-US-GuyNeural" : "tr-TR-AhmetNeural"),
     elevenVoiceId: body.elevenVoiceId || "",
-    durationPreset: Object.hasOwn(DURATIONS,body.durationPreset) ? body.durationPreset : "standart",
+    durationPreset: Object.hasOwn(DURATIONS,body.durationPreset) ? body.durationPreset : "detayli",
     visualStyle: body.mediaKind === 'director' ? 'editorial' : Object.hasOwn(VISUAL_STYLES,body.visualStyle) ? body.visualStyle : "editorial",
     collageMode: ["kapali", "hibrit", "acik"].includes(body.collageMode) ? body.collageMode : "hibrit",
     // Ana ekrandaki üretim modu:
