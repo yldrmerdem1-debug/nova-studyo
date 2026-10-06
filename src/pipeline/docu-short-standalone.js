@@ -146,7 +146,7 @@ export async function planShort({ topic, angle = "", research, opening = "triple
       `- TITLE: never the subject's name alone, never hashtags. Pattern for this Short: ${TITLE_PATTERNS[titlePattern] || TITLE_PATTERNS.who}. Write 3 titles (two in this pattern, one free), each a curiosity gap the Short closes, max 60 characters, true to the facts; pick the strongest as title.`,
       "- HOOK label (on screen after the opening): 3-6 words that ADD to the title, never repeat it.",
       "- plain spoken English, short sentences, no hashtags, emojis or stage directions in the narration.",
-      "- REAL PICTURES FIRST: viewers scroll past a Short that looks AI-made. At least two thirds of the pictures are real photographs, footage stills, maps or documents of THIS story (news photos, official/government photos, satellite images, archive); for current events name exact Wikimedia Commons files (commons) where you know them (US military/DVIDS and government photos are public domain; many news-agency photos are CC BY). AI only for a moment no camera could have caught, and never two AI pictures in a row in the opening.",
+      "- REAL PICTURES FIRST: viewers scroll past a Short that looks AI-made. At least two thirds of the pictures are real photographs, footage stills, maps or documents of THIS story (news photos, official/government photos, satellite images, archive); for current events name exact Wikimedia Commons files (commons) where you know them (US military/DVIDS and government photos are public domain; many news-agency photos are CC BY). AI only for a moment no camera could have caught, and never two AI pictures in a row in the opening. A Short is 1080x1920 and the picture is cut to its full height: name files at least ~1500 px tall (a 550 px scan is blown up six times and looks smeared); a small one only if nothing sharper shows the moment.",
       "- EVERY sentence gets ONE picture that shows exactly what it says. A real person, place, ship, building, document or object that was photographed or painted: source archive with a precise search. Only where no real picture can exist (before photography, a reconstruction, an anonymous moment): source ai, never showing a real person's face.",
       "- before photography the archive still has the period's own pictures: paintings, engravings, woodcuts, chronicles, maps of the event or the place (Brueghel's drawing of the 1564 dancers for a dancing mania) — search for those before choosing ai.",
       "- never a modern book cover, a museum label or a modern scholar's portrait as a picture: show what the sentence is about.",
@@ -194,10 +194,18 @@ export function pickShortMusic(lib, { mood = "curious", genre = "documentary", s
 }
 
 /**
- * A Commons file the plan names exactly ("File:Cottingley Fairies 1.jpg"): fetched straight from the
- * Commons API (no picker), only when its licence is usable; 2000 px wide. Returns { rel, credit } or null.
+ * Below this height a Commons file is too small for a Short: the 9:16 frame is cut from the picture's
+ * full height and blown up to 1920 px, so a 550 px scan comes out six times enlarged and smeared
+ * (Yom Kippur Shorts plan, Oct 2026: two 1973 tank scans of 309 and 446 px). 720 px = at most ~2.7x.
  */
-export async function commonsPicture(title, { publicDir, fetchFn = null } = {}) {
+export const SHORT_MIN_PICTURE_H = 720;
+
+/**
+ * A Commons file the plan names exactly ("File:Cottingley Fairies 1.jpg"): fetched straight from the
+ * Commons API (no picker), only when its licence is usable and it is tall enough for 9:16; 2000 px wide.
+ * Returns { rel, credit }, { small: heightPx } for a file too small for the frame, or null.
+ */
+export async function commonsPicture(title, { publicDir, fetchFn = null, minHeight = SHORT_MIN_PICTURE_H } = {}) {
   const t = clean(title).replace(/^(File|Image):/i, "");
   if (!t) return null;
   const api = `https://commons.wikimedia.org/w/api.php?action=query&titles=${encodeURIComponent("File:" + t)}&prop=imageinfo&iiprop=url|size|extmetadata&iiurlwidth=2000&format=json&origin=*`;
@@ -210,6 +218,7 @@ export async function commonsPicture(title, { publicDir, fetchFn = null } = {}) 
   const ii = page.imageinfo[0];
   const meta = commonsMetadata(ii, page.title);
   if (!meta.permissionVerified) return null;
+  if (ii.height && ii.height < minHeight) return { small: ii.height };
   const url = ii.thumburl || ii.url;
   const rel = `build/s/commons-${hash(page.title)}.jpg`;
   const abs = path.join(publicDir, rel);
@@ -271,7 +280,8 @@ export async function makeStandaloneShort({
     if (!c) continue;
     try {
       const got = await commonsPicture(c, { publicDir });
-      if (got) {
+      if (got?.small) logFn(`Shorts: Commons dosyası dikey kare için küçük (${got.small} px yüksek, 9:16'da ${(1920 / got.small).toFixed(1)} kat büyürdü), başka görsel aranacak: ${c}`);
+      else if (got) {
         fixed[k] = got.rel;
         credits[got.rel] = got.credit;
         mini.scenes[k].source = "fixed";
