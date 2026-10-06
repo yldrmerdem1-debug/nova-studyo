@@ -1,5 +1,20 @@
 # Nova Studyo — Sürüm Notları
 
+## 1.16.9 (6 Ekim 2026)
+
+Yom Kippur videosunun yolu (kanal sahibi: "mükemmel olmuş") Nova'nın kendi yolu oldu.
+
+- **Commons katalogu**: gerçek hikâyede senaryo yazılmadan önce konunun Wikimedia Commons arşivi taranır (araştırmadaki kişi, yer, operasyon adları; ücretsiz). Lisansı uygun, en az ~900 px dosyalar listelenir; her bölümün yazarı kendi konusuna en yakın dosyaları görür ve sahnelere ADIYLA seçer. Uydurma dosya adı yok, bulamadığı kareyi AI'a bırakmak yok.
+- **Tarih belgeseli kalıbı** (Epik Tarih): saatiyle ve tarihiyle açılış ("Saat ikiyi gösterirken, 6 Ekim 1973'te…"), kişi ilk göründüğünde rolü ve yıllarıyla isim kartı, yeni yere/güne geçen fotoğrafa "YER · TARİH" basılı etiket, iki tarafın gücü ve bedel için bar grafik, kritik günler için zaman çizelgesi, bir gerçek alıntı, açılıştaki tarihe dönen kapanış.
+- **Varsayılan süre 12 dk** (Detaylı): uzun video kısa çıkmasın; 8 dk altında reklam arası da konamıyordu.
+- **İsim kartında yüz**: arşiv seçicisi kişinin yüzünün fotoğraftaki yerini bildirir, kamera oraya yönelir (Sadat'ın fotoğrafı başının üstüne kırpılmıştı).
+- **Tek sayı = sayaç**: "22,325 tons" gibi tek sayılık kart boş zeminde kalmaz; söylendiği anda sayan sayaca döner, altına ilgili fotoğraf gelir.
+- **Ara planlar kolaj görünümlerinde de görünür**: ara planlı satır tam kadraj çizilir; panoda kalacak küçük baskıya ara plan üretilmez (parası ödenip görünmüyordu).
+- **Kalite denetimi**: aynı fotoğraf dosyası dakikalar arayla yeniden kullanılırsa yakalanır (Nvidia'da Nasdaq fotoğrafı beş kez); isim kartında yüzün kadrajda olup olmadığına da bakılır.
+- **Kanal sesleri**: stil seçilince kanalın sesi gelir — Epik Tarih Brian, Gündem David Castlemore, Finans Michael C. Vincent (Ayarlar: docuStyleVoices). Gündem radarından gelen konu da haber sesini ve uzun süreyi alır.
+- **Shorts hareketi**: Kling bir resmi (tank, silah) "risk control" diye reddederse hareket hakkı sıradaki uygun cümleye geçer; açılış hareketsiz kalmaz.
+- **Reklam dostu kapak**: korku/salgın iddiası yok ("IT NEVER LEFT" reddedilmişti), tarafsız merak ("WHAT HAPPENED?", "100 IN. 7 OUT."); yazı resimle tutarlı.
+
 ## 1.16.8 (6 Ekim 2026)
 
 Dört uzun video + dört Shorts'tan (Hürmüz, Irkutsk, Yom Kippur, Nvidia) öğrenilenler: önce gerçek görsel, temiz ekran, çeşitli vurgu.
