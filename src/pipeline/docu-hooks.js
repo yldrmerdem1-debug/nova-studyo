@@ -65,7 +65,10 @@ export const HOOKS = [
   L("witness", "Tanık", "Olayı gören gerçek bir tanığın (kaynaklı) cümlesiyle aç; sonra o cümlenin neden önemli olduğu.", ["crime", "news", "epic", "horror"], "quote"),
   L("anniversary", "Yıl dönümü", "Bugünkü bir yıl dönümünden ya da tarihten geçmişe köprü kur.", ["epic", "news", "documentary"], "statement"),
   L("odds", "İhtimal", "Olayın ihtimalini söyleyerek aç ('milyonda bir') ve yine de olduğunu ekle.", ["science", "whatif", "finance", "crime"], "number"),
-  L("state-of-play", "Durum özeti", "Haber spikeri netliğiyle aç: ŞU AN ne oluyor (tek açık cümle, en önemli doğrulanmış rakam ve tarihle), bu izleyiciye neden dokunuyor (fiyat, güvenlik, günlük hayat), ve videonun neyi açıklayacağı ('İşte ne oldu, neden önemli ve sırada ne var'). Parçalı ritim, slam, gizem kurma YOK: insanlar bilgilenmek için açtı.", ["news", "finance", "science", "documentary"], "statement"),
+  // Ekim 2026: eski hâli "slam, gizem YOK" diyordu ve haber/finans açılışlarını köreltti (kanal sahibi: "kanca mantığı gitmiş").
+  L("state-of-play", "Durum özeti", "İlk cümle bu olayın en çarpıcı, doğrulanmış ANI ya da rakamı (bir ölüm, bir fiyat, bir saat); hemen ardından haber netliğiyle ŞU AN ne oluyor (konunun adı, tarih), bu izleyiciye neden dokunuyor (fiyat, güvenlik, günlük hayat) ve videonun neyi açıklayacağı. Gerilim serbest; uydurma gizem ve abartı yok.", ["news", "finance", "science", "documentary"], "statement"),
+  // MagnatesMedia / Moon / ColdFusion açılışı (Ekim 2026 incelemesi): gerçek bir an ya da söz → konu adıyla → "bu, X'in hikâyesi" → 2-3 tırmanan fragman.
+  L("teaser-ladder", "Fragman merdiveni", "İlk 5-10 sn: bu hikâyenin gerçek, en çarpıcı anı ya da sözü (kaynaklı). Sonra konuyu adıyla söyle ('Bu, X'in akıl almaz hikâyesi'), ardından 2-3 kısa ve giderek büyüyen fragman ver — videoda neler göreceğiz, ama cevaplamadan ('Kurucusunu kovmaya kalkışmalarından… başladıkları her ilkeyi terk etmelerine'). Son cümle izleyiciye bağlar ('ve bu, hepimizi etkileyen bir hikâye'). Başlık ~30-45 sn'de.", ["news", "finance", "documentary", "crime", "epic", "science", "inspire", "whatif"], "statement"),
   L("question-chain", "Soru zinciri", "Üç kısa soruyu art arda sor; üçüncüsü videonun asıl sorusu. Slam yok, sadece merak.", ["news", "documentary", "science", "whatif", "crime"], "fragments"),
 ];
 
@@ -85,6 +88,9 @@ export function recordHook(dataDir, entry) {
 
 const seedOf = (s) => [...String(s || "")].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);
 
+/** Haber/finansın ilk adayı bunlardan biri: çarpıcı açılır, konuyu ~20 sn içinde netleştirir. */
+export const LEAD_NEWS = ["teaser-ladder", "state-of-play", "contradiction", "quote-open", "numbers-pair", "timestamp"];
+
 /**
  * Konunun tonuna uyan, kanalda son HOOK_MEMORY girişte kullanılmamış adaylar (en fazla n).
  * tone: tür id'si ya da "news" / "ranking" / "whatif". Konuya göre karışık sıra (aynı konu → aynı sıra).
@@ -95,14 +101,17 @@ export function hookCandidates({ tone = "documentary", topic = "", history = [],
   const fresh = pool.filter((h) => !recent.has(h.id));
   if (fresh.length >= Math.min(n, 3)) pool = fresh;
   const seed = seedOf(topic);
-  const informative = (tone === "news" || tone === "finance") && !short ? HOOKS.find((h) => h.id === "state-of-play") : null;
+  // Haber/finans: ilk aday hem çarpıcı hem net bir giriştir — ama hep aynısı değil (her video "durum özeti"yle açılınca
+  // kanca köreldi). Bu girişler arasından konuya göre biri, son kullanılanlar hariç.
+  const lead = (tone === "news" || tone === "finance") && !short
+    ? (() => { const ids = LEAD_NEWS.filter((id) => !recent.has(id)); const list = ids.length ? ids : LEAD_NEWS; return HOOKS.find((h) => h.id === list[seed % list.length]); })()
+    : null;
   const ranked = pool
     .map((h, i) => ({ h, k: (seedOf(h.id) ^ seed) + i }))
     .sort((a, b) => (a.k % 997) - (b.k % 997))
     .map((x) => x.h)
-    .filter((h) => h !== informative);
-  // Haber/finans (Ekim 2026, kullanıcı: "bilgilendirici olmalı, insanlar bilgilenmek istiyor"): durum özeti hep ilk aday.
-  return (informative ? [informative, ...ranked] : ranked).slice(0, n);
+    .filter((h) => h !== lead);
+  return (lead ? [lead, ...ranked] : ranked).slice(0, n);
 }
 
 export const hookById = (id) => HOOKS.find((h) => h.id === id) || null;

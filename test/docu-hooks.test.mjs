@@ -9,9 +9,9 @@ process.env.NOVA_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'nova-hooks-test-'
 const H = await import('../src/pipeline/docu-hooks.js');
 const S = await import('../src/pipeline/docu-script.js');
 
-test('hooks: fifty-one different opening logics, every tone has a real choice, ids unique', () => {
-  assert.equal(H.HOOKS.length, 51);
-  assert.equal(new Set(H.HOOKS.map((h) => h.id)).size, 51);
+test('hooks: fifty-two different opening logics, every tone has a real choice, ids unique', () => {
+  assert.equal(H.HOOKS.length, 52);
+  assert.equal(new Set(H.HOOKS.map((h) => h.id)).size, 52);
   for (const t of ['documentary', 'crime', 'epic', 'science', 'inspire', 'finance', 'horror', 'news', 'ranking', 'whatif']) {
     assert.ok(H.hookCandidates({ tone: t, topic: 'x' }).length >= 6, t);
   }
@@ -34,10 +34,15 @@ test('hooks: the history is kept, and chapter one is told to open with the chose
   assert.match(S.openingRule({}, g), /Montaj: 5-7 makro detay/, 'an older plan keeps its genre opening');
 });
 
-test('hooks: news and finance explainers always get the informative state-of-play opening first, never slam fragments', () => {
+test('hooks: news and finance lead with a striking-but-clear opening that rotates (not always state-of-play), never slam fragments', () => {
   for (const tone of ['news', 'finance']) {
-    const c = H.hookCandidates({ tone, topic: 'strait of hormuz', n: 6 }).map((h) => h.id);
-    assert.equal(c[0], 'state-of-play', tone);
+    const firsts = new Set(['strait of hormuz', 'plague in irkutsk', 'nvidia 6 trillion', 'gas prices record', 'iran war'].map((topic) => H.hookCandidates({ tone, topic, n: 6 })[0].id));
+    for (const id of firsts) assert.ok(H.LEAD_NEWS.includes(id), id);
+    assert.ok(firsts.size >= 2, 'the lead rotates across topics: ' + [...firsts].join(','));
     assert.ok(!H.hookCandidates({ tone, topic: 'strait of hormuz', n: 60 }).some((h) => h.id === 'slam-fragments'), tone);
   }
+  const used = H.LEAD_NEWS.slice(0, 5).map((id) => ({ id }));
+  assert.equal(H.hookCandidates({ tone: 'news', topic: 'x', history: used, n: 6 })[0].id, H.LEAD_NEWS[5], 'the recently used leads are skipped');
+  assert.match(H.hookById('teaser-ladder').how, /fragman/);
+  assert.doesNotMatch(H.hookById('state-of-play').how, /slam, gizem kurma YOK/);
 });
