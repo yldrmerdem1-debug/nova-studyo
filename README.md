@@ -1,45 +1,45 @@
-# Nova Stüdyo
+# Nova Studyo
 
-YouTube için uzun video ve Shorts fabrikası (Windows masaüstü uygulaması, Electron). Konu seçiminden yüklemeye hazır pakete kadar tek akış:
+A Windows desktop app (Electron) that produces long YouTube videos and Shorts in one pipeline:
 
-**araştırma → senaryo → görsel/arşiv → seslendirme → kurgu (belgesel motoru) → altyazı → render → kapak + başlık + açıklama**
+**research → script → pictures/archive → narration → edit (documentary engine) → captions → render → thumbnail + title + description**
 
-Sürüm: **1.16.29**
+Version: **1.16.29**
 
-## Neler yapar
+## What it does
 
-- **Uzun belgesel videolar** (tarih, haber, finans): bölümlü senaryo, gerçek arşiv fotoğrafları (Commons vb.), harita, sayaç, zaman çizelgesi, alıntı kartları, dönem müziği.
-- **Shorts**: uzun videonun teaser'ı, dikey kurgu, kendi kapağı.
-- **Belgesel motoru** (`docu-engine/`): Remotion tabanlı kurgu; görünüm (look) çeşitleri, açılış türleri, ses yönetmeni, kurgu eleştirmeni.
-- **Paketleme**: kapak (ChatGPT/OpenAI), başlık, açıklama, etiketler.
+- **Long documentary videos** (history, news, finance): chaptered scripts, real archive photos (Wikimedia Commons etc.), maps, counters, timelines, quote cards, period music.
+- **Shorts**: a teaser for the long video, vertical edit, its own cover.
+- **Documentary engine** (`docu-engine/`): Remotion-based editor with look variants, opening types, an audio director and an edit critic.
+- **Packaging**: thumbnail (OpenAI images), title, description, tags.
 
-## Klasörler
+## Folders
 
-| Klasör | İçerik |
+| Folder | Contents |
 |---|---|
-| `src/` | Uygulama ve iş akışı (pipeline) kodu |
-| `docu-engine/` | Belgesel kurgu/render motoru (Remotion) |
-| `electron/` | Masaüstü pencere |
-| `server.js` | Yerel sunucu ve API (`/api/jobs/...`) |
-| `test/` | Testler (`npm test`) |
-| `docs/` | Tasarım notları |
-| `SURUM-NOTLARI.md` | Sürüm geçmişi |
+| `src/` | App and pipeline code |
+| `docu-engine/` | Documentary edit/render engine (Remotion) |
+| `electron/` | Desktop window |
+| `server.js` | Local server and API (`/api/jobs/...`) |
+| `test/` | Tests (`npm test`) |
+| `docs/` | Design notes |
+| `SURUM-NOTLARI.md` | Release notes |
 
-## Kullandığı servisler (anahtarlar Ayarlar'dan girilir)
+## Services (keys are entered in Settings)
 
-Anthropic (Claude), OpenAI (görsel), ElevenLabs (seslendirme), Kling (hareketli çekim), Replicate, fal, Higgsfield, Pexels, Pixabay, Unsplash, Europeana. Anahtarlar `data/settings.json`'da tutulur ve **asla depoya konmaz**.
+Anthropic (Claude), OpenAI (images), ElevenLabs (narration), Kling (motion shots), Replicate, fal, Higgsfield, Pexels, Pixabay, Unsplash, Europeana. Keys live in `data/settings.json` and are **never committed**.
 
-## Kurulum
+## Install
 
-- **Hazır kurulum + kullanıcı verisi:** Releases sayfasındaki en yeni `yedek-...` sürümü.
-- **Adım adım geri kurma:** [GERI-YUKLEME.md](GERI-YUKLEME.md)
+- **Ready-made installer + user data:** the latest `yedek-...` release on the Releases page.
+- **Step-by-step restore:** [RESTORE.md](RESTORE.md)
 
-Kaynaktan çalıştırma:
+Run from source:
 
 ```bash
 npm install
 cd docu-engine && npm install && cd ..
-npm start          # uygulamayı aç
-npm test           # testler
-npm run dist       # Windows kurulum dosyası → dist/
+npm start          # open the app
+npm test           # tests
+npm run dist       # Windows installer → dist/
 ```
