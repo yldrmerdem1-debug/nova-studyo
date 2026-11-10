@@ -17,6 +17,16 @@ const bgr = (hex, a = "00") => {
   return `&H${a}${h.slice(4, 6)}${h.slice(2, 4)}${h.slice(0, 2)}`.toUpperCase();
 };
 
+/** The least colour a look's grade keeps (eq saturation); hue=s=0 (mono) counts as 0. */
+export const MIN_LOOK_SATURATION = 0.85;
+/** The eq saturation a look's grade leaves the picture (1 when it does not set one, 0 for hue=s=0). */
+export function lookSaturation(id) {
+  const g = String(SHORT_LOOKS[id]?.grade || "");
+  if (/hue=s=0(?![.\d])/.test(g)) return 0;
+  const m = g.match(/saturation=([\d.]+)/);
+  return m ? Number(m[1]) : 1;
+}
+
 export const SHORT_LOOKS = {
   // The channel's punch: Impact, yellow keyword, printed yellow boxes. For a fast, loud fact.
   punch: {
@@ -24,17 +34,19 @@ export const SHORT_LOOKS = {
     slamFont: "Impact", slamSize: 150, slam: "box", slamInk: "#111111", slamBox: "#ffd400", slamAngle: -3,
     flash: "white", grade: "eq=contrast=1.06:saturation=0.98", grain: 6, vignette: "PI/5", push: 0.07, genres: ["documentary"],
   },
-  // A case file: typewriter captions on dark tape, a red keyword, slams stamped and tilted. Cold, grainy.
+  // A case file: typewriter captions on dark tape, a red keyword, slams stamped and tilted. Cool, grainy — in colour.
+  // Every look keeps the picture's colour (saturation >= 0.85, MIN_LOOK_SATURATION): Dossier was 0.55 and Noir
+  // hue=s=0 (Gimli 20261028-9ff721 / Kartal Yuvası 950730, 29 Oct 2026: the channel measured saturation 2.5-7.5).
   dossier: {
     name: "Dossier", font: "Courier New", capSize: 84, upper: false, bold: 1, ink: "#f2efe6", key: "#ff3b30", capStyle: "tape", tape: "#0c0c0c",
     slamFont: "Courier New", slamSize: 132, slam: "stamp", slamInk: "#ff3b30", slamAngle: -7,
-    flash: "black", grade: "colorbalance=bs=0.10:bm=0.04:rs=-0.04,eq=contrast=1.12:saturation=0.55", grain: 12, vignette: "PI/4", push: 0.05, genres: ["crime"],
+    flash: "black", grade: "colorbalance=bs=0.06:bm=0.03:rs=-0.02,eq=contrast=1.10:saturation=0.9", grain: 12, vignette: "PI/4", push: 0.05, genres: ["crime"],
   },
   // An empire: carved classical serif, letter-spaced, gold. Warm, slow.
   empire: {
     name: "Empire", font: "Linux Libertine G", capSize: 96, upper: true, bold: 1, ink: "#f6efe0", key: "#e8b64f", capStyle: "shadow", spacing: 3,
     slamFont: "Linux Libertine G", slamSize: 170, slam: "carved", slamInk: "#e8b64f", slamAngle: 0, slamSpacing: 8,
-    flash: "warm", grade: "colorbalance=rs=0.07:gs=0.02:bs=-0.06,eq=contrast=1.10:saturation=0.82", grain: 8, vignette: "PI/4", push: 0.05, genres: ["epic"],
+    flash: "warm", grade: "colorbalance=rs=0.07:gs=0.02:bs=-0.06,eq=contrast=1.10:saturation=0.9", grain: 8, vignette: "PI/4", push: 0.05, genres: ["epic"],
   },
   // A ledger: condensed DIN numerals, amber, a near-black slab under the slam. Crisp, cool.
   // (Was neon green on a dark-green slab — the user, Oct 2026: "yeşil siyah çok dandik durmuş".)
@@ -43,11 +55,12 @@ export const SHORT_LOOKS = {
     slamFont: "Bahnschrift", slamSize: 160, slam: "box", slamInk: "#ffb020", slamBox: "#0b0b0d", slamAngle: 0,
     flash: "white", grade: "colorbalance=bs=0.05:gs=0.03,eq=contrast=1.08:saturation=0.85", grain: 5, vignette: "PI/5", push: 0.06, genres: ["finance"],
   },
-  // Noir: italic serif in sentence case, a blood-red keyword, slams glowing out of black. Hard mono.
+  // Noir: italic serif in sentence case, a blood-red keyword, slams glowing out of black. Contrasty colour, not mono
+  // (was hue=s=0 and brightness -0.03 under a PI/3.4 vignette: black on a phone).
   noir: {
     name: "Noir", font: "Georgia", capSize: 96, upper: false, bold: 1, italic: 1, ink: "#f4f4f4", key: "#e01e2b", capStyle: "shadow",
     slamFont: "Georgia", slamSize: 160, slam: "glow", slamInk: "#ffffff", slamGlow: "#c1121f", slamAngle: 0, slamItalic: 1,
-    flash: "black", grade: "hue=s=0,eq=contrast=1.22:brightness=-0.03", grain: 14, vignette: "PI/3.4", push: 0.045, genres: ["horror"],
+    flash: "black", grade: "colorbalance=rs=0.04:bs=0.03,eq=contrast=1.14:saturation=0.88", grain: 14, vignette: "PI/4", push: 0.045, genres: ["horror"],
   },
   // Clean: rounded modern sans, cyan, slams on white printed cards. Bright, quick.
   clean: {
@@ -71,7 +84,8 @@ export const SHORT_LOOKS = {
 
 /** The opening shapes a Short may take (the planner writes it; the renderer sets it). */
 export const OPENINGS = {
-  triple: "three short spoken fragments with a rhythm ('One river. One emperor. And a thin black line.'), each slammed on its own picture",
+  // Oct 2026 channel data: cryptic fragments lost ~40% of Shorts viewers in 12 s — the triple now names the story plainly.
+  triple: "one plain sentence that names who or what, where or when, and the stake ('In June 1812, Napoleon crossed a river with 600,000 men. Six months later, almost none came back.'), its key number slammed",
   question: "one sharp question the Short then answers ('Why did 400 men walk into a frozen river on purpose?'), set big on the first picture",
   number: "one shocking number said first ('Twenty-one thousand gallons.'), the number slammed huge, then what it means",
   quote: "a real, attributed quote from someone in the story, set in italics with who said it, then the story",

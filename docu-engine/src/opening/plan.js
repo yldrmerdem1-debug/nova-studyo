@@ -14,7 +14,7 @@
 export const OPENING_KINDS = ['headlines', 'timestamps', 'cold-open', 'evidence', 'map-dive', 'quote', 'montage'];
 
 /** Map regions the engine can draw (src/geo.ts REGIONS). */
-export const MAP_REGIONS = ['pacific-northwest', 'bosphorus', 'north-atlantic', 'urals', 'wall-street', 'solar-system'];
+export const MAP_REGIONS = ['pacific-northwest', 'bosphorus', 'north-atlantic', 'urals', 'wall-street', 'solar-system', 'world'];
 
 /** Without a main title, the opening is the first scenes up to this long (seconds of written `dur`). */
 const OPEN_MAX_SEC = 42;
@@ -350,7 +350,8 @@ export function mapTarget(scenes, span) {
   const ok = (p) => String(p?.label ?? '').trim() && Number.isFinite(Number(p.x)) && Number.isFinite(Number(p.y));
   const maps = S.filter((s) => s?.type === 'map' && MAP_REGIONS.includes(s.region) && Array.isArray(s.points) && s.points.some(ok));
   if (!maps.length) return null;
-  const out = (map, p) => ({ region: map.region, point: { label: String(p.label).trim(), x: Number(p.x), y: Number(p.y) } });
+  // A world map carries its own box and geometry (lib/world-map.mjs) into the dive.
+  const out = (map, p) => ({ region: map.region, point: { label: String(p.label).trim(), x: Number(p.x), y: Number(p.y) }, ...(map.region === "world" ? { box: map.box, geo: map.geo, mapName: map.mapName } : {}) });
   // 1) A point the opening itself names (narration, title, kicker, captions).
   const idx = span ? [...span.beats, span.title].filter((i) => i >= 0) : [];
   const words = idx.map((i) => [stripTags(S[i]?.say), S[i]?.title, S[i]?.kicker, S[i]?.caption, S[i]?.text].filter(Boolean).join(' ')).join(' ').toLowerCase();

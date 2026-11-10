@@ -22,15 +22,20 @@
 // Her model çağrısı temiz düşer: anahtar/kredi yoksa ya da hata olursa belirleyici
 // yedek (en iyi gerçek fotoğraf + seo.json başlığı, tek kapak). Plan iş klasörüne
 // kaydedilir (docu-package.json): aynı video için yeniden ödeme yapılmaz.
+import { unpaidTitleWords, storyAnchor, titleAnchorErrors, thumbNames, thumbNamesStory } from "./docu-lint.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 import { callJSON, callVisionJSON } from "../llm.js";
+import { ownDataLines } from "./growth-lessons.js";
+import { newsTitleErrors } from "./trend-radar.js";
+import { autoFullThumbs, fullThumbFiles, fullThumbPrompt, sceneCandidates, sceneFiles, writeFullInbox } from "./thumb-scenes.js";
+import { openAIImagesProvider } from "./openai-images.js";
 import { readJson, writeJson, run, DATA_DIR, ROOT } from "../util.js";
 
-export const PACKAGE_VERSION = "docu-package-1";
+export const PACKAGE_VERSION = "docu-package-2";
 export const PLAN_MODEL = "claude-opus-5-5";
 export const VISION_MODEL = "claude-sonnet-5-5";
 export const LAYOUTS = ["hero", "split", "circle", "number", "document"];
@@ -129,6 +134,8 @@ export function collectCandidates({ script, credits = {}, publicDir }) {
       seen.set(r.rel, {
         rel: r.rel, abs, kind, provider: provider || (kind === "ai" ? "ai" : ""),
         source: String(credit?.eser || "").slice(0, 90), scene: i,
+        // The person a name card says this picture shows (the fallback must not sell someone else's face).
+        ...(s.name && s.image === r.rel ? { person: String(s.name).slice(0, 60) } : {}),
         ctx: `${r.ctx ? `${r.ctx} · ` : ""}${sceneCtx}`.slice(0, 260),
         w: size.w, h: size.h,
       });
@@ -170,6 +177,57 @@ export function shortlist(cands, max = MAX_CANDIDATES) {
   // Kotadan artan yer kalırsa en iyi kalanlar.
   for (const c of cands) { if (out.length >= max) break; if (!out.includes(c)) out.push(c); }
   return out.map((c, i) => ({ ...c, id: `c${i + 1}` }));
+}
+
+/*
+ * KUSURLU RESİM KAPAĞA GİRMEZ. ÖLÇÜLEN KUSUR (20261024-950730, Kartal Yuvası): kalite denetimi sahne 87'deki Hitler
+ * portresine "bozuk ve yapay görünüyor: gözlük, kırmızı noktalar ve plastik yüz dokusu" dedi (ai_look; çerçeve camındaki
+ * yansıma). Paket qa.json'u hiç okumuyordu: aynı resim 2. kapak oldu, thumb_b.jpg'de ikinci, hayalet bir yüz var.
+ * Yalnızca resmin kendisini suçlayan türler (docu-qa.js QA_KINDS) sayılır; yazı, kırpma ve tekrar videonun kurgusudur,
+ * kapak kendi yazısını ve kırpmasını yapar.
+ */
+const PICTURE_FLAWS = new Set(["ai_look", "broken", "mismatch", "wrong_face", "anachronism"]);
+
+/**
+ * Denetim bulgularının gösterdiği resim dosyaları.
+ * @param qa      {issues:[{scene, kind}]} — qa.json ya da ön izleme raporu (`scene`: engine-script indeksi, bölüm kartı yok)
+ * @param scenes  engine-script sahneleri ya da props'un bölüm kartsız sahneleri (aynı indeks; null sahne atlanır)
+ * @param o.except bu sahnelerin bulgusu sayılmaz (görseli rapordan sonra değişti)
+ * @returns {Set<string>} public/ altındaki yollar (adayların `rel`i)
+ */
+export function qaFlaggedFiles(qa, scenes = [], { except = [] } = {}) {
+  const out = new Set();
+  for (const x of qa?.issues || []) {
+    if (!PICTURE_FLAWS.has(x?.kind) || !Number.isInteger(x.scene) || except.includes(x.scene)) continue;
+    const s = scenes[x.scene];
+    for (const r of imageRefs(s)) out.add(r.rel);
+    if (typeof s?.image === "string") out.add(s.image.replace(/\.lift(\.\w+)$/i, "$1"));
+  }
+  return out;
+}
+
+/**
+ * Kapak adayları: kapak sahneleri + videonun kendi görselleri, render sonrası denetimin (qa.json) ve ön izlemenin son
+ * turunun (docu-preview-fixes.json `last`) kusurlu bulduğu resimler çıkarılmış. Son turdan sonra değiştirilen sahneler
+ * (`changed`) sayılmaz: o bulgu artık videoda olmayan bir resme ait. Hepsi kusurluysa süzülmemiş liste (paket kapaksız kalmaz).
+ */
+export function packageCandidates({ jobDir, script, engineScript = null, credits = {}, publicDir, logFn = () => {} }) {
+  const all = [...sceneCandidates({ jobDir, publicDir, sizeOf: imageSize }), ...collectCandidates({ script, credits, publicDir })];
+  // Denetimin gördüğü resim props'takidir (docu.js qaScriptOf: props sahnesi engine-script'in üstüne). Motorun ürettiği
+  // AI resmi ve klibin durağan karesi yalnızca props'ta: iki görünüşe de bakılır. Ödünç/tutulan kare (heldBg, borrowed,
+  // bg "prev") o sahnenin kendi resmi değildir, bulgusu komşunun resmini elemez.
+  const mine = (s) => (s?.heldBg || s?.borrowed || s?.bg === "prev" ? null : s);
+  const own = (script?.scenes || []).filter((s) => !(s?.type === "title" && s.chapterCard)).map(mine);
+  const eng = (engineScript?.scenes || []).map(mine);
+  const views = eng.length ? [eng, ...(own.length === eng.length ? [own] : [])] : [own];
+  const flagged = new Set();
+  const flag = (report, o) => { for (const scenes of views) for (const f of qaFlaggedFiles(report, scenes, o)) flagged.add(f); };
+  flag(readJson(path.join(jobDir, "qa.json"), null));
+  const pv = readJson(path.join(jobDir, "docu-preview-fixes.json"), null);
+  flag(pv?.last, { except: Array.isArray(pv?.changed) ? pv.changed : [] });
+  const clean = all.filter((c) => !flagged.has(c.rel));
+  if (clean.length && clean.length < all.length) logFn(`Kapak adayları: kalite denetiminin kusurlu bulduğu ${all.length - clean.length} görsel çıkarıldı (${all.filter((c) => flagged.has(c.rel)).map((c) => path.basename(c.rel)).slice(0, 4).join(", ")})`);
+  return clean.length ? clean : all;
 }
 
 /* ================================================================ 2. görme sıralaması */
@@ -273,6 +331,7 @@ const PLAN_SCHEMA = (ids) => ({
       type: "array",
       items: { type: "object", properties: { text: { type: "string" }, angle: { type: "string" } }, required: ["text", "angle"], additionalProperties: false },
     },
+    scenes: { type: "array", items: { type: "string" }, description: "One AI thumbnail scene per thumbnail, same order (English, 25-45 words each, the scene only — Nova adds the thumbnail's words)" },
     thumbnails: {
       type: "array",
       items: {
@@ -300,11 +359,18 @@ const PLAN_SCHEMA = (ids) => ({
     },
     recommended: { type: "integer" },
   },
-  required: ["titles", "thumbnails", "recommended"],
+  required: ["titles", "thumbnails", "recommended", "scenes"],
   additionalProperties: false,
 });
 
 const wordsOf = (s) => String(s ?? "").trim().split(/\s+/).filter(Boolean);
+/**
+ * Kapak yazısının kelimeleri ([kelime, modelin yazısındaki sırası]): tırnaklar ve tek başına duran işaretler ("/", "—")
+ * düşer. İstemin örnekleri satırları " / " ile ayırıyor ('IRAN–USA WAR / WHY SAUDI?'); "/" kelime sayılınca 4 kelimelik
+ * yazı 5 sayıldı, plan üç denemede reddedildi ve paket tek kapaklı yedeğe düştü (18 Ekim 2026, Hürmüz). Satırları
+ * kapak çizici kendisi böler (fitLines), "/" ekrana basılmaz.
+ */
+const coverWords = (s) => wordsOf(String(s ?? "").replace(/["“”]/g, "")).map((w, i) => [w, i]).filter(([w]) => /[\p{L}\p{N}]/u.test(w));
 const STOP = new Set(["the", "a", "an", "of", "to", "in", "on", "and", "or", "is", "was", "he", "she", "it", "his", "her", "who", "what", "why", "how", "did", "do", "that", "this", "for", "with", "at", "by", "from", "into"]);
 const content = (s) => wordsOf(String(s).toLowerCase().replace(/[^\p{L}\p{N}\s$]/gu, " ")).filter((w) => !STOP.has(w));
 
@@ -323,24 +389,63 @@ const titleCase = (t) => t.split(/(\s+)/).map((w) => {
 }).join("");
 
 /** Opus çıktısının sert kuralları — ihlal modele onarım için geri gider. */
-export function planErrors(plan, { ids, min = 3 }) {
+export function planErrors(plan, { ids, min = 3, scenes = null, anchor = null, news = false, cands = null }) {
   const e = [];
   const titles = Array.isArray(plan?.titles) ? plan.titles : [];
   if (titles.length < 5) e.push(`5 başlık gerekli (gelen ${titles.length})`);
+  // 27 Ekim 2026 Lula: "Lula Wins Fourth Term: From 2.3M Behind to 4.4M Ahead" ilk gün 92 gösterim — sonuç özeti haber kanallarının araması.
+  if (news) {
+    const recaps = titles.filter((t) => newsTitleErrors(t?.text).length);
+    if (recaps.length > 1) e.push(`haber başlıklarından en az 4'ü soru sormalı; sonuç özeti olanlar: ${recaps.map((t) => `"${t.text}"`).join(", ")} — ${newsTitleErrors(recaps[0].text)[0].split(": ").slice(1).join(": ")}`);
+  }
   titles.forEach((t, i) => {
     const s = String(t?.text || "").trim();
     if ([...s].length > TITLE_MAX) e.push(`titles[${i}] ${[...s].length} karakter (≤ ${TITLE_MAX})`);
     if (isAllCaps(s)) e.push(`titles[${i}] BÜYÜK HARF olmamalı`);
+    // 26 Ekim 2026 denizaltı videosu: "HMS Vanguard Was 'Probably a Container,' Said France" — konu belli değildi.
+    for (const x of titleAnchorErrors(s, anchor)) e.push(`titles[${i}] ${x}`);
+    // 20 Ekim 2026 derin inceleme: Built Beyond "…Calling It a Scam" — videoda dolandırıcılık yok. Başlığın iddiası anlatımda ödenmeli.
+    if (scenes?.length) for (const w of unpaidTitleWords(s, scenes)) e.push(`titles[${i}] "${w}" videoda ödenmiyor (anlatımda geçmiyor): başlık videonun kanıtladığını söylesin`);
   });
   const th = Array.isArray(plan?.thumbnails) ? plan.thumbnails : [];
   if (th.length < min) e.push(`${min} kapak gerekli (gelen ${th.length})`);
   th.forEach((t, i) => {
     if (!ids.includes(t?.hero)) e.push(`thumbnails[${i}].hero geçersiz`);
-    const n = wordsOf(t?.text).length + (t?.layout === "number" && t?.number ? 1 : 0);
+    const n = coverWords(t?.text).length + (t?.layout === "number" && t?.number ? 1 : 0);
     if (n < 1 || n > 4) e.push(`thumbnails[${i}] yazı ${n} kelime (1-4, sayı dahil)`);
     if (t?.layout === "number" && !String(t?.number || "").trim()) e.push(`thumbnails[${i}] number şablonu sayı ister`);
   });
   if (th.length >= 3 && new Set(th.map((t) => t?.layout)).size < Math.min(3, th.length)) e.push("kapaklar farklı şablon kullanmalı");
+  e.push(...thumbStoryErrors(th, { scenes, anchor, cands }));
+  return e;
+}
+
+/**
+ * 27 Ekim 2026, kanalların tıklama oranları: kazanan kapaklar konunun adını söyledi ("PARIS UNDER CURFEW" France'ın A/B
+ * testini aldı, Panama'nın etiketleri "7.4 COLOMBIA / 7.7 PANAMA" %4,9); adı söylemeyenler kaybetti ("19 DAYS. ONE CROWN"
+ * %1,3, "FOR ONE CRATER" %1,7, "$116B IN ONE YEAR" %2,5). Fransa borcunun kapağı adı geçmeyen bir bakanın sakin portresiydi: %1,1.
+ *   - her kapağın sözleri (yazı, sayı, etiketler, rozet) anlatımda geçen bir özel adı ya da olayın yılını taşır;
+ *   - bir yüz kapağın kahramanıysa o yüz hikâyenin kendi adıyla anılan öznesidir (başlığın/konunun adı fotoğrafın künyesinde).
+ * Countdown ve dizi kendi kalıbında kalır (anchor yok).
+ */
+const OFFICIAL_FACE = /\b(official|minister|politician|president|chancellor|senator|governor|spokes(?:man|woman|person)|in a (?:dark )?suit|suit and tie|at a (?:podium|lectern)|press conference|headshot)\b/i;
+export function thumbStoryErrors(thumbnails = [], { scenes = null, anchor = null, cands = null } = {}) {
+  const e = [];
+  if (!anchor) return e;
+  const names = scenes?.length ? thumbNames(scenes, anchor) : [];
+  const byId = new Map((cands || []).map((c) => [c.id, c]));
+  thumbnails.forEach((t, i) => {
+    const said = [t?.text, t?.number, t?.tag, ...(Array.isArray(t?.labels) ? t.labels : [])].filter(Boolean).join(" ");
+    if (names.length && !thumbNamesStory(said, names)) e.push(`thumbnails[${i}] yazısı konuyu adlandırmıyor ("${said.slice(0, 40)}") — sözlerde olayın, yerin ya da kişinin adı ya da yılı olsun (${names.slice(0, 6).join(", ")}): 'PARIS UNDER CURFEW' kazandı, '19 DAYS. ONE CROWN' %1,3 aldı`);
+    const c = byId.get(t?.hero);
+    if (c && (c.person || c.vision?.subject === "face")) {
+      const named = (s) => anchor.names.some((n) => n.length >= 3 && !/^\d+$/.test(n) && String(s || "").toLowerCase().includes(n));
+      // The name card says who it is (Bakker video: Falwell's face under "JIM BAKKER"); without one, an official's portrait
+      // the story never names (the minister on France's debt) — never the subject's own picture (D.B. Cooper's sketch).
+      const wrong = c.person ? !named(c.person) : OFFICIAL_FACE.test(`${c.vision?.description || ""} ${c.source || ""}`) && !named(`${c.source || ""} ${c.ctx || ""} ${c.vision?.description || ""}`);
+      if (wrong) e.push(`thumbnails[${i}].hero bir yüz ama hikâyenin adıyla anılan öznesi değil ("${String(c.person || c.source || c.vision?.description || "").slice(0, 50)}") — tanınmayan bir yetkilinin portresi tıklatmaz (Fransa borcu %1,1): olayın sahnesini ya da başlıktaki kişinin fotoğrafını seç`);
+    }
+  });
   return e;
 }
 
@@ -364,12 +469,28 @@ function storyBrief(script, docu, seo, maxLines = 40) {
   ].filter(Boolean).join("\n");
 }
 
-async function planPackage(cands, { llm, model, usage, logFn, script, docu, seo, brand, language, isCancelled }) {
+/**
+ * The story name + year every title must open with (storyAnchor), or null where the title shape is fixed elsewhere:
+ * a countdown opens with its count, a series with its template.
+ */
+export function packageAnchor({ topic, script, docu, brand = {} }) {
+  if ((docu?.format ?? script?.format) === "ranking" || brand.series) return null;
+  const a = storyAnchor({ topic, title: docu?.title || script?.title || "", era: docu?.era || "" });
+  return a.names.length ? a : null;
+}
+
+function anchorLines(anchor) {
+  if (!anchor) return [];
+  const y = anchor.year;
+  return [`   TITLE RULE (the channel owner, Oct 2026 — overrides the examples above): EVERY title opens with the story's plain name${y ? ` and its year ${y}` : ""}, so a stranger knows at once what the video is about; the angle comes after a colon. Shapes: "${y ? `The ${y} <event>: <angle>` : "<Name>: <angle>"}", "<Name>${y ? ` (${y})` : ""}: <angle>". The first word (after "The") is one of the story's names: ${anchor.names.slice(0, 8).join(", ")}${y ? `; ${y} stands before the colon` : ""}. No quotes in a title (a quote belongs in the description), no teaser openers that hide the subject ("Why…", "How…", "The Night…", "Neither…", "Nobody…"). The five titles differ in the angle after the colon.`];
+}
+
+async function planPackage(cands, { llm, model, usage, logFn, script, docu, seo, brand, language, isCancelled, anchor = null, news = false }) {
   const ids = cands.map((c) => c.id);
   const lang = language === "tr" ? "Turkish" : "English";
   const candLines = cands.map((c) => {
     const v = c.vision;
-    const kind = { archive: "REAL archive photo", "archive-clip": "REAL archive film frame", ai: "AI still (illustrative)", stock: "stock photo", "stock-clip": "stock film frame" }[c.kind];
+    const kind = { archive: "REAL archive photo", "archive-clip": "REAL archive film frame", ai: "AI still (illustrative)", stock: "stock photo", "stock-clip": "stock film frame", scene: "THUMBNAIL SCENE (drawn for the thumbnail: the story's most dramatic moment, room left for words)" }[c.kind];
     return `${c.id}: ${kind}${c.source ? ` "${c.source}"` : ""}, ${c.w}x${c.h}` + (v ? ` · vision ${v.score}/10 · ${v.subject} · ${v.emotion} · ${v.description}${v.detail ? " · has a circle-able detail" : ""}${v.issues?.length ? ` · issues: ${v.issues.join(",")}` : ""}` : "") + ` · context: ${c.ctx.slice(0, 140)}`;
   });
   const user = [
@@ -388,25 +509,47 @@ async function planPackage(cands, { llm, model, usage, logFn, script, docu, seo,
     ``,
     `WRITE:`,
     `1) 5 titles in ${lang}, each ≤ ${TITLE_MAX} characters: curiosity + specificity (a concrete name, number, object or stake), the way MagnatesMedia, LEMMiNO, Johnny Harris, ColdFusion and Wendover title videos. Five DIFFERENT angles (e.g. mystery question, specific detail, character, stakes/consequence, contrarian). No clickbait lies: every promise must be answered by the video above. Title Case or sentence case, never ALL CAPS (acronyms like FBI are fine), no emoji, no trailing period.`,
-    `2) 3 thumbnails, each with a DIFFERENT template and, when the candidates allow, a different hero picture. For each: text = 2-4 big words (the "number" template: number + 1-3 words) that ADD curiosity to the title it is paired with (titleIndex) — never repeat the title's words, never summarise it; highlight = index of the one word drawn in the accent colour (-1 none); tag = optional small chip or stamp (≤ 3 words, "" if none); second/labels only for split ("" / [] otherwise); number only for the number template ("" otherwise); accent = colour of the highlighted word and chip (accent = the channel's signature colour, red = alarm red, label = the channel's label colour); grade = picture treatment (natural colour, mono = hard black-and-white, cold, warm, duo = the channel's duotone); side = where the words go (the subject goes to the other side; pick the side the subject does NOT face); zoom = subject size (1 = default crop, 1.3 = tighter, 0.8 = looser); emotion = the one feeling the thumbnail sells; why = one short sentence.`,
-    `3) recommended = index of the thumbnail you would publish first.`,
-    `Rules for the thumbnails: one focal subject, huge contrast, ≤ 4 words readable at 320x180, a clear emotion, consistent channel branding (same fonts/colours come from the look automatically) but each thumbnail visibly different.`,
+    `   CHANNEL DATA (Oct 2026): long videos are watched well by those who click (Panama 5:54 avg, the 1929 crash 64%) but get almost no clicks; the titles that won named the story plainly ('Panama's 7.7 Earthquake: Why Wasn't It Worse?' 5.0% CTR, 'Apollo 13: How Three Men Survived…'), the vague ones lost ('…Will the US Join?', 1.3-2% CTR). So at least 4 of the 5 titles carry the searchable name of the story — the person, place or event a viewer would type into YouTube search — within their first 45 characters, and the title you pair with the recommended thumbnail is understood by someone who has never heard of the story.`,
+    `   OUTLIERS IN OUR NICHES (Oct 2026, 30 channels, videos at 2.5-68x their channel's median): a FAMOUS name or place + ONE surprising, concrete angle wins — history: 'The Miserable Reality Of Life On The Mayflower' 12.8x, 'Why Is Japan So Rich?' 7.7x, 'How Alexander the Great Fooled Darius at Gaugamela' 8x, 'Year 536 Was the Worst Year to Be Alive'; news: 'I went to Greenland, here's why the US wants it' 13x, 'How a US B2 Bomber Bombed Afghanistan from Missouri' 16x, 'Russia is Running Out of People'; finance: 'J.P. Morgan Documentary: How One Man Financed America' 12x, 'Rockefeller: The World's First Billionaire' 9x, 'Fried Chicken Wars: The Fall of KFC in America', 'GoPro Is Going Bankrupt?'. Obscure names, poetic or vague titles lose. Write titles of this shape.`,
+    `   ${ownDataLines()[0]}`,
+    ...anchorLines(anchor),
+    ...(brand.series ? [`   SERIES: this video is an episode of the channel's series "${brand.series}" (small-channel breakouts, Oct 2026: every one runs ONE title template as a series). At least 2 of the 5 titles follow that template's exact shape with this episode's name in it; recommend one of them.`] : []),
+    `2) 3 thumbnails, each with a DIFFERENT template and, when the candidates allow, a different hero picture. For each: text = 2-4 big words (the "number" template: number + 1-3 words) that make the SUBJECT recognisable on their own AND add one curiosity — a name, place, war or object the viewer knows plus the open question ('IRAN–USA WAR / WHY SAUDI?', 'SEALED SINCE 1945', 'HE MADE MILLIONS / NOW CAN'T PAY RENT'); the title's key name may appear, never the whole title; never cryptic fragments that only make sense after watching ('NO. THEN: WE MAY', '4 SINCE 1950', '100% NEVER BEFORE'); highlight = index of the one word drawn in the accent colour (-1 none); tag = optional small chip or stamp (≤ 3 words, "" if none); second/labels only for split ("" / [] otherwise); number only for the number template ("" otherwise); accent = colour of the highlighted word and chip (accent = the channel's signature colour, red = alarm red, label = the channel's label colour); grade = picture treatment (natural colour, mono = hard black-and-white, cold, warm, duo = the channel's duotone); side = where the words go (the subject goes to the other side; pick the side the subject does NOT face); zoom = subject size (1 = default crop, 1.3 = tighter, 0.8 = looser); emotion = the one feeling the thumbnail sells; why = one short sentence.`,
+    `4) scenes = ONE prompt per thumbnail, in the same order (English, 25-45 words each) for the AI-drawn thumbnail scene behind that thumbnail's words, the way the small-channel breakouts do it: the story's single most dramatic or mysterious MOMENT as one photorealistic picture — a place or object with a human for scale (a sealed bunker door and one explorer), a map of the countries in a crisis with their flags, the machine or ship in the decisive second. Period-correct, one focal subject on the right half, empty space on the left for the words, no text in the scene description (Nova adds the thumbnail's own words, the key word in yellow — ChatGPT draws the whole thumbnail; on the Hormuz video this beat our composited cover). Never a real person's likeness (their real photo comes from the candidates). When THUMBNAIL SCENE candidates are listed above, prefer one of them as the recommended hero unless a famous real face IS the story.`,
+    `3) recommended = index of the thumbnail you would publish first. Prefer, for the recommended one, a hero picture the video shows in its first seconds (the earliest candidates in the narration order): the viewer who clicks must see the thumbnail's promise within 5 s or leaves (the channel's own retention data, Oct 2026).`,
+    `SMALL-CHANNEL BREAKOUTS (Oct 2026: channels of 100-10k subscribers whose ONE video hit 100k-3.5M while its siblings, same voice and quality, stayed at hundreds): the hit's thumbnail shows the SCENE of the story — a sealed bunker door with a man for scale, a war map with the countries' flags, the famous person's face at the moment of ruin — and names the subject in plain words; our own thumbnails of the same months were stylish but cryptic and an unknown official's face (El Niño 0.8% CTR; our Saudi–Houthi video got 14 views where 'IRAN–USA WAR / WHY SAUDI?' on a flag map got 172k on the same story). A war or crisis between countries: a map with their flags. A famous person: their face, big. A place or object: the place itself, dramatic, with a human for scale.
+    Rules for the thumbnails: one focal subject, huge contrast, ≤ 4 words readable at 320x180, a clear emotion, consistent channel branding (same fonts/colours come from the look automatically) but each thumbnail visibly different.`,
     `What wins clicks on this channel (the owner's taste): the punch style — 2-4 words in two short lines, the second line the payoff ("70 SHIPS. / ONE HILL."), one giant number when the story has one ("21" beside the face of the man who was 21), and the most IMPOSSIBLE or shocking picture in the video (a ship on top of a hill, a face at the moment of ruin) rather than a calm portrait. A real face, big, beats a crowd. Use circle only when the ringed detail is unmistakable; never ring a person the words are not about.`,
     // Owner's rule (Oct 2026): Google Ads refused a plague thumbnail saying "IT NEVER LEFT"; neutral curiosity passes.
     `Advertiser-friendly (the channel is monetised): no fear or panic claims, no graphic injury, no "outbreak/it's back/it never left" alarm about disease, war or disaster, no claim the video does not prove. Neutral curiosity sells and passes ad review: "WHAT HAPPENED?", "THE WAR NO ONE SAW COMING", "19 DAYS", "100 IN. 7 OUT.". The text must be true of the picture: never "THIS LAB" over a stock lab that is not the lab in the story.`,
     ...((docu?.format ?? script?.format) === "ranking" ? rankingPackageLines(docu?.ranking ? docu : script) : []),
+    ...(news ? newsPackageLines() : []),
+    ...(anchor ? [`THUMBNAIL WORDS NAME THE STORY (hard rule, checked; the channel's own CTR, Oct 2026): "PARIS UNDER CURFEW" won France's A/B test and Panama's labels "7.4 COLOMBIA / 7.7 PANAMA" got 4.9%; words that named nothing lost ("19 DAYS. ONE CROWN" 1.3%, "FOR ONE CRATER" 1.7%, "$116B IN ONE YEAR" 2.5%). Every thumbnail's words (text, number, labels or tag) carry a name or year a stranger knows — one of: ${thumbNames((script?.scenes || []), anchor).slice(0, 8).join(", ") || anchor.names.slice(0, 6).join(", ")}. A face as hero ONLY when it is the story's own named subject; never a calm portrait of an official the title does not name (France's debt: a minister's portrait, 1.1%) — show the event instead.`] : []),
   ].join("\n");
   return llm({
     system: `You are the packaging lead (titles + thumbnails) of a top English-language documentary YouTube channel. You maximise honest click-through rate. Output ${lang} text. Return only the requested JSON.`,
     user,
     schema: PLAN_SCHEMA(ids),
-    validate: (p) => planErrors(p, { ids, min: Math.min(3, cands.length) }),
+    validate: (p) => planErrors(p, { ids, min: Math.min(3, cands.length), scenes: (script?.scenes || []).filter((x) => !(x?.type === "title" && x.chapterCard)), anchor, news, cands }),
     model,
     maxTokens: 16000,
     usage,
     logFn,
     isCancelled,
   });
+}
+
+/**
+ * A news explainer is found by the question, never by the result: the broadcasters own "Lula wins" within
+ * hours (CNN, Bloomberg, ABC, France 24, AFP on 26 Oct 2026); our winners asked why.
+ */
+export function newsPackageLines() {
+  return [
+    ``,
+    `THIS VIDEO IS A NEWS EXPLAINER. On YouTube the result of a news story ("Lula Wins Fourth Term", "Iran Says Tankers Hit Mines") belongs to CNN, Bloomberg, ABC, France 24 and AFP within hours; a small channel is found by the QUESTION their clips leave open.`,
+    `- At least 4 of the 5 titles: <the place or event by its searchable name> (+ one concrete number): Why/How/What …? — the channel's winners: "Panama's 7.7 Earthquake: Why Wasn't It Worse?" (4.9% CTR, 7:11 average view), "France Under Curfew: What Really Set Off the Riots?" (3,527 impressions). The loser: "Lula Wins Fourth Term: From 2.3M Behind to 4.4M Ahead" (a recap, 92 impressions on day one).`,
+    `- Thumbnails show the event itself (the streets, the damage, the map of the countries with their flags), never a calm portrait of an official.`,
+  ];
 }
 
 /**
@@ -427,7 +570,7 @@ export function rankingPackageLines(script) {
 /* ================================================================ plan → kapak spesifikasyonu */
 
 /** Başlıklar: kırp, BÜYÜK HARF'i düzelt, tekrarları at, 5'e tamamla (seo.json'dan). */
-export function sanitizeTitles(list, fallback = []) {
+export function sanitizeTitles(list, fallback = [], anchor = null) {
   const out = [];
   const seen = new Set();
   const add = (text, angle, from) => {
@@ -441,7 +584,10 @@ export function sanitizeTitles(list, fallback = []) {
     out.push({ text: t, angle: String(angle || "").slice(0, 40), chars: [...t].length, from });
   };
   for (const t of list || []) add(t?.text ?? t, t?.angle, "plan");
-  for (const t of fallback || []) if (out.length < 5) add(t, "", "seo");
+  // Yedek (seo.json) başlıklarından adı başta olanlar öne: yedek paket ilk başlığı önerir.
+  const named = (t) => !titleAnchorErrors(t, anchor).length;
+  const fb = [...(fallback || [])].sort((a, b) => Number(named(b)) - Number(named(a)));
+  for (const t of fb) if (out.length < 5) add(t, "", "seo");
   return out.slice(0, 5);
 }
 
@@ -450,16 +596,18 @@ export function specFromPlan(t, byId, i) {
   const c = byId.get(t.hero);
   if (!c) return null;
   const layout = LAYOUTS.includes(t.layout) ? t.layout : "hero";
-  let ws = wordsOf(String(t.text || "").replace(/["“”]/g, ""));
+  const kept = coverWords(t.text);
   const number = layout === "number" ? String(t.number || "").trim().slice(0, 12) : "";
   const maxWords = number ? 3 : 4;
-  if (ws.length > maxWords) ws = ws.slice(0, maxWords);
+  const ws = kept.slice(0, maxWords).map(([w]) => w);
+  // The model's highlight counts its own words (with any "/"): the same word after the marks are dropped.
+  const hi = Number.isInteger(t.highlight) ? kept.findIndex(([, i]) => i === t.highlight) : -1;
   const pic = (x) => ({ src: `pk/${x.id}${path.extname(x.rel).toLowerCase() || ".jpg"}`, w: x.w, h: x.h, box: x.vision?.box, ...(x.vision?.detail ? { detail: x.vision.detail } : {}) });
   const second = layout === "split" && t.second && byId.get(t.second) && t.second !== t.hero ? byId.get(t.second) : null;
   const spec = {
     layout: layout === "number" && !number ? "hero" : layout,
     text: ws.join(" "),
-    highlight: Number.isInteger(t.highlight) && t.highlight >= 0 && t.highlight < ws.length ? t.highlight : -1,
+    highlight: hi >= 0 && hi < ws.length ? hi : -1,
     ...(String(t.tag || "").trim() ? { tag: wordsOf(t.tag).slice(0, 3).join(" ") } : {}),
     ...(number ? { number } : {}),
     accentRole: ACCENT_ROLES.includes(t.accent) ? t.accent : "accent",
@@ -473,9 +621,27 @@ export function specFromPlan(t, byId, i) {
   return { spec, meta: { n: i + 1, heroId: c.id, heroFile: c.rel, heroKind: c.kind, heroSource: c.source, secondFile: second?.rel || null, emotion: String(t.emotion || "").slice(0, 30), why: String(t.why || "").slice(0, 200), titleIndex: Number.isInteger(t.titleIndex) ? t.titleIndex : 0 } };
 }
 
-/** Kredi/anahtar yoksa: en iyi gerçek fotoğraf + seo başlığı, tek kapak. */
+/** Başlığın öznesi: iki noktadan önceki büyük harfli sözcükler ("Jim Bakker: …" → jim, bakker). */
+export function subjectWords(title) {
+  const head = String(title || "").split(/[:\-–—?!|]/)[0];
+  return [...new Set((head.match(/\p{Lu}[\p{L}'’]{2,}/gu) || []).map((w) => w.toLowerCase().replace(/['’]s$/, "")).filter((w) => !SUBJECT_STOP.has(w)))];
+}
+const SUBJECT_STOP = new Set(["the", "why", "how", "what", "who", "when", "where", "inside", "story", "this", "that", "and", "was", "wasn't", "its", "real", "true", "untold", "secret", "last", "first"]);
+
+/**
+ * Kredi/anahtar yoksa: başlığın öznesini gösteren en iyi gerçek fotoğraf + seo başlığı, tek kapak.
+ * İsim kartı başka birini söyleyen portre asla seçilmez: Bakker videosunda (Ekim 2026) yedek, Jerry Falwell'in
+ * yüzünü "JIM BAKKER" yazısıyla kapağa koymuştu.
+ */
 export function fallbackPlan(cands, { seo, docu }) {
-  const ranked = [...cands].sort((a, b) => rankScore(b) - rankScore(a));
+  const subj = subjectWords(docu?.title || (seo?.titles || []).find(Boolean) || "");
+  const hits = (c) => subj.filter((w) => `${c.person || ""} ${c.source || ""} ${c.ctx || ""}`.toLowerCase().includes(w)).length;
+  const wrongFace = (c) => !!(c.person && subj.length && !subj.some((w) => c.person.toLowerCase().includes(w)));
+  const pool = cands.filter((c) => !wrongFace(c));
+  // A named portrait of the subject leads; a mention of the subject in a picture's context only breaks ties
+  // (D.B. Cooper's composite sketch still beats "Money stolen by D. B. Cooper").
+  const score = (c) => rankScore(c) + 1.5 * Math.min(1, hits(c)) + (c.person ? 3 : 0);
+  const ranked = [...(pool.length ? pool : cands)].sort((a, b) => score(b) - score(a));
   const hero = ranked.find((c) => c.kind === "archive") || ranked.find((c) => c.kind === "archive-clip") || ranked[0];
   const title = (seo?.titles || []).find(Boolean) || docu?.title || "";
   let text = String(seo?.thumbnailText || "").trim();
@@ -496,12 +662,25 @@ function engineDirDefault() {
   return path.join(ROOT, "docu-engine");
 }
 
+/** Süreç ağacını kes: Remotion'ın Chrome'u kapak çizicinin torunudur (docu.js killTree ile aynı). */
+function killTree(p) {
+  if (process.platform === "win32" && p.pid) {
+    try { spawn("taskkill", ["/pid", String(p.pid), "/T", "/F"], { windowsHide: true }).on("error", () => {}); } catch {}
+  }
+  try { p.kill("SIGKILL"); } catch {}
+}
+
 /**
  * Motorun kapak çizicisini alt süreçte çalıştırır (Electron ikilisi düz Node gibi,
  * düşük öncelik, tek tarayıcı, tek tek). Remotion'ın Chrome'u Nova'nın render
  * çalışma klasöründeki önbellekten gelir (docu.js ile aynı yer).
+ *
+ * Söz her durumda bir kez bağlanır (25 Ekim 2026, 20261024-373aaf ön izleme kapısı 48 dk durdu; aday 4): yalnızca
+ * 'close' beklenirdi ve bekçi yalnızca doğrudan çocuğu öldürürdü. Borunun ucunu tutan bir torun (Chrome) kalırsa
+ * 'close' hiç gelmez, iş sonsuza dek beklerdi. Şimdi: 'exit'ten `exitGraceMs` sonra hâlâ 'close' yoksa borular
+ * kapatılıp sonuç verilir; takılmada bütün ağaç kesilir ve söz doğrudan reddedilir; logFn fırlatsa da dinleyici düşmez.
  */
-export function renderWithEngine({ items, assets, workDir, bundleDir, killer, logFn = () => {}, stallMs = 10 * 60 * 1000 }) {
+export function renderWithEngine({ items, props = null, assets, workDir, bundleDir, killer, logFn = () => {}, stallMs = 10 * 60 * 1000, exitGraceMs = 15000 }) {
   const engine = engineDirDefault();
   const runtime = DATA_DIR.length > 100 ? path.join(os.tmpdir(), "nova-docu-runtime") : path.join(DATA_DIR, "docu-runtime");
   fs.mkdirSync(runtime, { recursive: true });
@@ -509,7 +688,8 @@ export function renderWithEngine({ items, assets, workDir, bundleDir, killer, lo
   if (!fs.existsSync(pkg)) fs.writeFileSync(pkg, '{"private":true}\n');
   fs.mkdirSync(workDir, { recursive: true });
   const spec = path.join(workDir, "thumbs-spec.json");
-  writeJson(spec, { items, assets, workDir, ...(bundleDir ? { bundleDir } : {}) });
+  // `props`: shared by every item without its own (the preview's one script, a frame per scene).
+  writeJson(spec, { items, assets, workDir, ...(props ? { props } : {}), ...(bundleDir ? { bundleDir } : {}) });
   return new Promise((resolve, reject) => {
     if (killer?.cancelled) return reject(new Error("cancelled"));
     const p = spawn(process.execPath, [path.join(engine, "bin", "nova-thumbs.mjs"), spec], {
@@ -520,8 +700,30 @@ export function renderWithEngine({ items, assets, workDir, bundleDir, killer, lo
     p.stdout.setEncoding("utf8");
     p.stderr.setEncoding("utf8");
     let buf = "", errTail = "", done = null, failure = null;
-    let timer = null;
-    const arm = () => { clearTimeout(timer); timer = setTimeout(() => { try { p.kill("SIGKILL"); } catch {} }, stallMs); timer.unref?.(); };
+    let timer = null, grace = null, settled = false, exited = false;
+    const settle = (fn, v) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      clearTimeout(grace);
+      fn(v);
+    };
+    const finish = (code) => {
+      if (killer?.cancelled) return settle(reject, new Error("cancelled"));
+      if (code === 0 && done) return settle(resolve, { files: done.files || [], failed: done.failed || [] });
+      settle(reject, new Error(`kapak çizici: ${failure?.msg || errTail.trim().split("\n").slice(-2).join(" ") || `çıkış kodu ${code}`}`.slice(0, 400)));
+    };
+    // Bekçi yalnızca çocuk yaşarken kurulur: bittikten sonra gelen veri, PID'si başka sürece geçmiş olabilecek bir ağacı kesmesin.
+    const arm = () => {
+      clearTimeout(timer);
+      if (settled || exited) return;
+      timer = setTimeout(() => {
+        killTree(p);
+        const wait = stallMs >= 60000 ? `${Math.round(stallMs / 60000)} dakika` : `${Math.round(stallMs / 1000)} sn`;
+        settle(reject, killer?.cancelled ? new Error("cancelled") : new Error(`kapak çizici: ${wait} yanıt vermedi ve durduruldu`));
+      }, stallMs);
+      timer.unref?.();
+    };
     arm();
     p.stdout.on("data", (d) => {
       arm();
@@ -533,19 +735,26 @@ export function renderWithEngine({ items, assets, workDir, bundleDir, killer, lo
         if (!line) continue;
         let ev;
         try { ev = JSON.parse(line); } catch { continue; }
-        if (ev.type === "log") logFn(ev.msg);
-        else if (ev.type === "done") done = ev;
-        else if (ev.type === "error") failure = ev;
+        // Günlük yazılamasa da (job.json EPERM) olay akışı sürer: buradan fırlayan hata ana sürece düşerdi.
+        if (ev?.type === "log") { try { logFn(ev.msg); } catch {} }
+        else if (ev?.type === "done") done = ev;
+        else if (ev?.type === "error") failure = ev;
       }
     });
     p.stderr.on("data", (d) => { arm(); errTail = (errTail + d).slice(-1500); });
-    p.on("error", (e) => { clearTimeout(timer); reject(e); });
-    p.on("close", (code) => {
+    p.on("error", (e) => settle(reject, e));
+    p.on("exit", (code) => {
+      exited = true;
       clearTimeout(timer);
-      if (killer?.cancelled) return reject(new Error("cancelled"));
-      if (code === 0 && done) return resolve({ files: done.files || [], failed: done.failed || [] });
-      reject(new Error(`kapak çizici: ${failure?.msg || errTail.trim().split("\n").slice(-2).join(" ") || `çıkış kodu ${code}`}`.slice(0, 400)));
+      // 'close' boruların da kapanmasını bekler; torun Chrome stdout/stderr'i miras alıp açık tutarsa hiç gelmez.
+      grace = setTimeout(() => {
+        try { p.stdout.destroy(); } catch {}
+        try { p.stderr.destroy(); } catch {}
+        finish(code);
+      }, exitGraceMs);
+      grace.unref?.();
     });
+    p.on("close", (code) => finish(code));
   });
 }
 
@@ -644,16 +853,37 @@ async function verifyLegibility(entries, { llm, model, usage, logFn, isCancelled
 /* ================================================================ 6. çıktı */
 
 /** seo.md'deki kopyala-yapıştır açıklaması (bölümler ve künye dahil); yoksa seo.json'unki. */
-function publishedDescription(jobDir, seo) {
+export function publishedDescription(jobDir, seo) {
   try {
-    const md = fs.readFileSync(path.join(jobDir, "seo.md"), "utf8");
+    // Elle kaydedilen CRLF seo.md'de blok bulunamıyor, paket seo.json'un künyesiz, bölümsüz açıklamasına düşüyordu.
+    const md = fs.readFileSync(path.join(jobDir, "seo.md"), "utf8").replace(/\r\n/g, "\n");
     const m = md.match(/##[^\n]*(?:Açıklama|Description)[^\n]*\n(?:[^\n]*\n)*?```\n([\s\S]*?)```/);
     if (m) return m[1].trim();
   } catch {}
   return String(seo?.description || "").replace("{BOLUMLER}", "").trim();
 }
 
-export function renderPackageMarkdown({ titles, thumbs, recommended, seo, description, mode, cost }) {
+/**
+ * seo.md'nin yayıncıya notları: kopyala-yapıştır bloğunun altındaki "**Yayın öncesi kontrol (görsel|müzik):**"
+ * maddeleri ve 5.000 karakter uyarısı. Kullanıcının açtığı dosya package.md ("Baslik ve Aciklama.md"); yalnızca
+ * blok taşınınca kliplerin "Permission not verified" ve müziğin "origin/license not verified" notları yalnızca
+ * seo.md'de kalıyordu (25 Ekim 2026).
+ */
+export function publisherChecks(jobDir) {
+  let md = "";
+  try { md = fs.readFileSync(path.join(jobDir, "seo.md"), "utf8"); } catch { return []; }
+  md = md.replace(/\r\n/g, "\n").replace(/```[\s\S]*?```/g, ""); // izleyici metni not sayılmaz; elle kaydedilen CRLF de okunur
+  const out = [];
+  const uyari = md.match(/^\*\*Uyarı:\*\*\s*(.+)$/m);
+  if (uyari) out.push(`Açıklama: ${uyari[1].trim()}`);
+  for (const [, grup, maddeler] of md.matchAll(/^\*\*Yayın öncesi kontrol \(([^)\n]+)\):\*\*\n((?:- [^\n]*(?:\n|$))+)/gm)) {
+    const ad = grup.charAt(0).toLocaleUpperCase("tr") + grup.slice(1);
+    for (const m of maddeler.split("\n")) if (m.startsWith("- ")) out.push(`${ad}: ${m.slice(2).trim()}`);
+  }
+  return out;
+}
+
+export function renderPackageMarkdown({ titles, thumbs, recommended, seo, description, checks = [], mode, cost }) {
   const rec = thumbs[recommended] || thumbs[0];
   return [
     `# YouTube paketi`,
@@ -672,8 +902,20 @@ export function renderPackageMarkdown({ titles, thumbs, recommended, seo, descri
     description || "",
     "```",
     ``,
+    // Yayıncının: bloğun dışında, ayrı başlıkla (seo.md'deki gibi hemen altında).
+    ...(checks?.length ? [`## Yayın öncesi kontrol`, `Açıklamaya girmez; yayından önce bunlara bak:`, ...checks.map((c) => `- ${c}`), ``] : []),
     ...(seo?.tags?.length ? [`## Etiketler`, "```", seo.tags.join(", "), "```", ``] : []),
     ...(String(seo?.pinnedComment || "").trim() ? [`## Sabitlenecek yorum`, `> ${seo.pinnedComment}`, ``] : []),
+    // İzlenme verisi (Ekim 2026): Short izleyicisinin uzun videoya geçtiği tek yol "İlgili video" bağlantısı.
+    `## Yayın kontrol listesi`,
+    `- Short'u yükleyince "İlgili video" alanına bu uzun videoyu bağla (YouTube Studio → İçerik → Shorts → Short'un kalemi → Ayrıntılar → İlgili video).`,
+    `- Kapaktaki görsel ya da sözcük videonun ilk 5 sn'sinde görünüyor mu? (Tıklayan izleyici vaadi hemen görmezse ilk 30 sn'de çıkıyor.)`,
+    // Kanal analizi (Ekim 2026): reklam görüntülemeleri uzun videoların %57-69'u ve 0:42-1:47 izleniyor; organik izleyici
+    // 4-6 dk. Kapak tıklaması (en iyi %4,1 sayı kapağı) ve organik erişim asıl darboğaz.
+    ...(thumbs.length > 1 ? [`- ${thumbs.length} kapağın hepsini Studio'nun "Test ve karşılaştır" özelliğiyle yükle (Ayrıntılar → Küçük resim → Test ve karşılaştır); YouTube izlenme süresine göre kazananı seçer.`] : []),
+    `- Bitiş ekranı: kanalın organikte en uzun izlenen videosu + abone ol. Videoyu konusunun/döneminin oynatma listesine ekle.`,
+    `- Yayından 48 saat sonra Studio → Analiz → Kitle tutma: ilk 30 sn'deki düşüşe bak — trafik kaynağından reklamı çıkararak (reklam izleyicisi organik tutmayı gizler).`,
+    ``,
     ...(cost ? [`_Tahmini model maliyeti: $${cost.usd.toFixed(3)} (${cost.calls} çağrı; fatura değildir)_`] : []),
   ].filter((x) => x !== "").join("\n").replace(/\n## /g, "\n\n## ");
 }
@@ -720,7 +962,7 @@ function copyAtomic(src, dest) {
  * @param o.force       kayıtlı planı yok say (yeniden öder)
  * @returns {{titles, thumbs, recommended, mode, outputs:{thumbs:string[], thumbLabels:object}, cost}}
  */
-export async function runDocuPackage({ jobDir, job = {}, settings = {}, usage = null, logFn = () => {}, llm = callJSON, visionLlm = callVisionJSON, render = renderWithEngine, isCancelled = () => false, killer, force = false, bundleDir, ffmpeg } = {}) {
+export async function runDocuPackage({ jobDir, job = {}, settings = {}, usage = null, logFn = () => {}, llm = callJSON, visionLlm = callVisionJSON, render = renderWithEngine, isCancelled = () => false, killer, force = false, bundleDir, ffmpeg, rerun = false } = {}) {
   const ff = ffmpeg || settings.ffmpegPath || "ffmpeg";
   const workDir = path.join(jobDir, "docu");
   const id = job.id || path.basename(jobDir);
@@ -732,16 +974,22 @@ export async function runDocuPackage({ jobDir, job = {}, settings = {}, usage = 
   const seo = readJson(path.join(jobDir, "seo.json"), {}) || {};
   const credits = readJson(path.join(jobDir, "docu-archive-done.json"), null)?.credits || {};
   const publicDir = path.join(workDir, "public");
-  const brand = { genre: script.genre || docu.genre || "documentary", variant: script.look?.variant || engineScript?.look?.variant || "", locale: script.locale || (job.language === "tr" ? "tr" : "en") };
+  const brand = { genre: script.genre || docu.genre || "documentary", variant: script.look?.variant || engineScript?.look?.variant || "", locale: script.locale || (job.language === "tr" ? "tr" : "en"), ...(job.docuSeries ? { series: job.docuSeries } : {}) };
   const language = job.language || (String(brand.locale).startsWith("tr") ? "tr" : "en");
+  const anchor = packageAnchor({ topic: job.topic, script, docu, brand });
 
-  const all = collectCandidates({ script, credits, publicDir });
+  // Kapak sahneleri (thumb-scenes.js): kutuda çizilmiş sahne varsa adayların başında. Denetimin kusurlu bulduğu resim aday olmaz.
+  const all = packageCandidates({ jobDir, script, engineScript, credits, publicDir, logFn });
   if (!all.length) throw new Error("paket: videoda kapak için görsel bulunamadı");
   let cands = shortlist(all);
   const cacheFile = path.join(jobDir, "docu-package.json");
   const key = hash(JSON.stringify([PACKAGE_VERSION, seo.titles, seo.thumbnailText, docu.title, cands.map((c) => c.rel), brand]));
   const cache = !force ? readJson(cacheFile, null) : null;
   const saved = cache?.key === key ? cache : null;
+  // The package made before a "Kapakları yenile" (force). Houthi–Saudi news, 28 Oct 2026: the refresh's plan call
+  // failed, the deterministic fallback replaced 3 covers and 5 written titles with one cover and seo.json titles,
+  // and the three ChatGPT covers in the box mapped onto that one. A failed refresh now keeps the plan it had.
+  const prior = force ? readJson(cacheFile, null) : null;
   const u = {};
   const hasKey = !!settings.anthropicKey || llm !== callJSON || visionLlm !== callVisionJSON;
   const notes = [];
@@ -773,7 +1021,7 @@ export async function runDocuPackage({ jobDir, job = {}, settings = {}, usage = 
     if (!plan && hasKey && !creditGone) {
       try {
         logFn("Başlık ve kapak planı yazılıyor (Opus)...");
-        plan = await planPackage(cands, { llm, model: settings.docuPackageModel || PLAN_MODEL, usage: u, logFn, script, docu, seo, brand, language, isCancelled });
+        plan = await planPackage(cands, { llm, model: settings.docuPackageModel || PLAN_MODEL, usage: u, logFn, script, docu, seo, brand, language, isCancelled, anchor, news: job.docuFormat === "news" });
       } catch (e) {
         if (isCancelled()) throw e;
         if (noCredit(e)) creditGone = true;
@@ -781,12 +1029,16 @@ export async function runDocuPackage({ jobDir, job = {}, settings = {}, usage = 
         logFn(`YouTube paketi belirleyici yedekle sürüyor: ${notes.at(-1)}`);
       }
     }
+    if (!plan && prior?.plan && prior.mode !== "fallback") {
+      plan = prior.plan;
+      logFn("YouTube paketi: yeni plan yazılamadı — önceki başlık ve kapak planı korunuyor, yalnız kapaklar yenileniyor");
+    }
     if (!plan) {
       plan = fallbackPlan(cands, { seo, docu });
       mode = "fallback";
       logFn("YouTube paketi belirleyici yedekle hazırlanıyor: en iyi gerçek fotoğraf + seo.json başlığı, tek kapak");
     }
-    const titles = sanitizeTitles(plan.titles, [...(seo.titles || []), docu.title].filter(Boolean));
+    const titles = sanitizeTitles(plan.titles, [...(seo.titles || []), docu.title].filter(Boolean), anchor);
     let entries = (plan.thumbnails || []).slice(0, 3).map((t, i) => specFromPlan(t, byId, i)).filter(Boolean);
     if (!entries.length) {
       plan = fallbackPlan(cands, { seo, docu });
@@ -796,6 +1048,22 @@ export async function runDocuPackage({ jobDir, job = {}, settings = {}, usage = 
     entries.forEach((e, i) => { e.meta.n = i + 1; if (e.meta.titleIndex >= titles.length || e.meta.titleIndex < 0) e.meta.titleIndex = 0; });
     const recommended = clamp(Number.isInteger(plan.recommended) ? plan.recommended : 0, 0, Math.max(0, entries.length - 1));
     if (saved?.specs?.length === entries.length && !force) saved.specs.forEach((s, i) => { if (s) entries[i].spec = s; });
+
+    // TAM GPT KAPAĞI (thumb-scenes.js, Hürmüz 20 Ekim 2026): her kapak için yazısı içinde ChatGPT tarifi. Kutuda
+    // kapak varsa onlar kapağın KENDİSİDİR; yoksa OpenAI kredisiyle hemen çizilir, kredi yoksa LISTE.txt'ye yazılır.
+    let gptFiles = fullThumbFiles(jobDir);
+    if (!gptFiles.length && mode === "llm" && Array.isArray(plan.scenes) && plan.scenes.length && !sceneFiles(jobDir).length && settings.docuThumbScenes !== false) {
+      const gptPrompts = entries.map((e, i) => fullThumbPrompt({
+        scene: plan.scenes[i] || plan.scenes[0],
+        text: [e.spec.number, e.spec.text].filter(Boolean).join(" "),
+        key: e.spec.highlight >= 0 ? String(e.spec.text).split(/\s+/)[e.spec.highlight] : "",
+        tag: e.spec.tag || "",
+      }));
+      const list = writeFullInbox(jobDir, gptPrompts, { title: docu.title || "" });
+      const made = await autoFullThumbs({ jobDir, prompts: gptPrompts, settings, textToImage: openAIImagesProvider.textToImage.bind(openAIImagesProvider), logFn });
+      gptFiles = fullThumbFiles(jobDir);
+      if (!made && list) logFn(`GPT kapak tarifleri hazır: ${list} — ChatGPT'de üretip 01.png/02.png/03.png olarak koy, sonra "Kapakları yenile"`);
+    }
 
     /* ---- 4. çizim ---- */
     const outDir = path.join(jobDir, "thumbnails");
@@ -820,13 +1088,33 @@ export async function runDocuPackage({ jobDir, job = {}, settings = {}, usage = 
       }
       for (const x of res.failed || []) notes.push(`kapak çizilemedi: ${path.basename(x.out)} (${String(x.error).slice(0, 100)})`);
     };
-    logFn(`Kapaklar çiziliyor (${entries.length})...`);
-    await draw(entries);
+    // GPT kapakları kutudan: 1280x720'ye getirilir, motorda çizilmez, üstüne yazı basılmaz.
+    for (const [i, file] of gptFiles.entries()) {
+      const e = entries[i];
+      if (!e) break;
+      const f = path.join(outDir, `thumb-${e.meta.n}.jpg`);
+      const small = path.join(outDir, `thumb-${e.meta.n}-small.jpg`);
+      try {
+        await run(ff, ["-v", "error", "-y", "-i", file, "-vf", "scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720", "-q:v", "2", f], { timeoutMs: 60000 });
+        await run(ff, ["-v", "error", "-y", "-i", f, "-vf", "scale=320:180:flags=lanczos", "-q:v", "3", small], { timeoutMs: 60000 });
+        drawn.set(e.meta.n, { file: f, small });
+        e.gpt = true;
+        e.spec = { ...e.spec, layout: "gpt" };
+      } catch (err) {
+        notes.push(`GPT kapağı alınamadı: ${path.basename(file)} (${String(err?.message || err).slice(0, 100)})`);
+      }
+    }
+    if (gptFiles.length) logFn(`Kapaklar kapak-kutusundan (GPT): ${entries.filter((e) => e.gpt).length}`);
+    const toDraw = entries.filter((e) => !e.gpt);
+    if (toDraw.length) {
+      logFn(`Kapaklar çiziliyor (${toDraw.length})...`);
+      await draw(toDraw);
+    }
     if (isCancelled()) throw new Error("cancelled");
 
     /* ---- 5. okunurluk ---- */
     let verify = saved?.verify && saved.specs?.length === entries.length ? saved.verify : null;
-    const toCheck = entries.filter((e) => drawn.has(e.meta.n)).map((e) => ({ n: e.meta.n, spec: e.spec, small: drawn.get(e.meta.n).small }));
+    const toCheck = entries.filter((e) => drawn.has(e.meta.n) && !e.gpt).map((e) => ({ n: e.meta.n, spec: e.spec, small: drawn.get(e.meta.n).small }));
     if (!verify && hasKey && !creditGone && toCheck.length && settings.docuPackageVerify !== false) {
       try {
         logFn("Kapaklar 320x180'de okunurluk için denetleniyor...");
@@ -864,7 +1152,7 @@ export async function runDocuPackage({ jobDir, job = {}, settings = {}, usage = 
       notes, cost,
     };
     writeJson(path.join(jobDir, "titles.json"), titlesJson);
-    fs.writeFileSync(path.join(jobDir, "package.md"), renderPackageMarkdown({ titles, thumbs, recommended: recIdx, seo, description: publishedDescription(jobDir, seo), mode, cost }), "utf8");
+    fs.writeFileSync(path.join(jobDir, "package.md"), renderPackageMarkdown({ titles, thumbs, recommended: recIdx, seo, description: publishedDescription(jobDir, seo), checks: publisherChecks(jobDir), mode, cost }), "utf8");
     writeJson(cacheFile, {
       key, version: PACKAGE_VERSION, mode, savedAt: new Date().toISOString(),
       // Yalnızca modelin gerçekten ürettiği kaydedilir: yedek plan, kredi gelince yeniden denensin.
@@ -880,7 +1168,7 @@ export async function runDocuPackage({ jobDir, job = {}, settings = {}, usage = 
       const name = `thumb_${letters[i]}.jpg`;
       copyAtomic(path.join(jobDir, t.file), path.join(jobDir, name));
       uiThumbs.push(name);
-      labels[name] = `${i + 1}. ${{ hero: "Kahraman", split: "Önce/sonra", circle: "Daire", number: "Sayı", document: "Belge" }[t.layout] || t.layout}: ${[t.number, t.text].filter(Boolean).join(" ")}`;
+      labels[name] = `${i + 1}. ${{ hero: "Kahraman", split: "Önce/sonra", circle: "Daire", number: "Sayı", document: "Belge", gpt: "GPT kapağı" }[t.layout] || t.layout}: ${[t.number, t.text].filter(Boolean).join(" ")}`;
     });
     const cover = readJson(path.join(jobDir, "cover.json"), null);
     if (thumbs.length && !cover?.selected) copyAtomic(path.join(jobDir, thumbs[recIdx].file), path.join(jobDir, "thumbnail.jpg"));

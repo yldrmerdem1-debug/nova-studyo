@@ -51,10 +51,13 @@ export function inboxFileFor(dir, file) {
 }
 
 /**
- * LISTE.txt for the person at the keyboard: numbered prompts, and the request to paste into ChatGPT
- * in batches (ChatGPT made 5 of 8 asked at once: batches of 4).
+ * LISTE.txt for the person at the keyboard: numbered prompts, and the request to paste into ChatGPT,
+ * ONE still per message. Batches of 4 worked until October 2026 (ChatGPT made 5 of 8 asked at once). On
+ * 28 Oct 2026 (Houthi–Saudi news, 24 stills) every 4-item message came back as ONE 1536x1024 picture holding
+ * a 2x2 grid, landscape too, and each quarter is only 768x512. Asked one at a time, all 24 came back as
+ * single pictures in about a minute each.
  */
-export function writeList(dir, { batch = 4 } = {}) {
+export function writeList(dir, { batch = 1 } = {}) {
   const items = loadNeeds(dir).items.filter((x) => !inboxFileFor(dir, x.file));
   const lines = [
     `CHATGPT GÖRSEL KUTUSU — ${items.length} görsel bekleniyor`,
@@ -67,8 +70,10 @@ export function writeList(dir, { batch = 4 } = {}) {
   for (let i = 0; i < items.length; i += batch) {
     const part = items.slice(i, i + batch);
     lines.push(`--- ChatGPT mesajı ${i / batch + 1} (yapıştır) ---`);
-    lines.push(`Create ${part.length} SEPARATE images, one image per item, each landscape 3:2 (1536x1024), photorealistic. Each must be ONE single continuous photograph of one scene — never a collage, grid, split frame or several pictures. No text, no logos.`);
-    for (const x of part) lines.push(`${pad(x.n)}) ${x.prompt}`);
+    lines.push(part.length === 1
+      ? `Create ONE single image (not several, not a collage, grid or split frame): landscape 3:2 (1536x1024), photorealistic, one continuous photograph of one scene. No text, no logos.`
+      : `Create ${part.length} SEPARATE images, one image per item, each landscape 3:2 (1536x1024), photorealistic. Each must be ONE single continuous photograph of one scene — never a collage, grid, split frame or several pictures. No text, no logos.`);
+    for (const x of part) lines.push(part.length === 1 ? x.prompt : `${pad(x.n)}) ${x.prompt}`);
     lines.push('');
   }
   mkdirSync(dir, { recursive: true });

@@ -50,8 +50,27 @@ export function writeJson(file, obj) {
   } finally {
     fs.closeSync(fd);
   }
-  fs.renameSync(tmp, file);
+  // Windows: hedefi silme izni vermeden açık tutan bir okuyucu (virüs tarayıcı, dizin oluşturucu, dışarıdan bir
+  // betik) varken rename EPERM/EACCES/EBUSY verir. 25 Ekim 2026'da tek bir düşen rename işi 48 dk dondurdu
+  // (20261024-373aaf): kısa aralıklarla yeniden dene, olmazsa üstüne kopyala; ancak o da olmazsa hata ver.
+  for (let i = 0; ; i++) {
+    try {
+      fs.renameSync(tmp, file);
+      return;
+    } catch (e) {
+      if (!RENAME_BUSY.has(e?.code)) throw e;
+      if (i < RENAME_WAITS.length) { sleepSync(RENAME_WAITS[i]); continue; }
+      fs.copyFileSync(tmp, file);
+      try { fs.unlinkSync(tmp); } catch {}
+      return;
+    }
+  }
 }
+
+const RENAME_BUSY = new Set(["EPERM", "EACCES", "EBUSY"]);
+/** ~1,6 sn toplam: bir tarayıcının dosyayı bırakması için yeter, ana süreci hissedilir biçimde bekletmez. */
+export const RENAME_WAITS = [25, 50, 100, 200, 400, 800];
+const sleepSync = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
 export function readJson(file, fallback = null) {
   try {
@@ -92,7 +111,8 @@ export class ProcKiller {
     for (const p of this.procs) {
       // Windows'ta ffmpeg kendi alt süreçlerini doğurabilir; ağacı komple kes.
       if (process.platform === "win32" && p.pid) {
-        try { spawn("taskkill", ["/pid", String(p.pid), "/T", "/F"], { windowsHide: true }); } catch {}
+        // 'error' dinleyicisi şart: asenkron bir taskkill hatası (ENOENT) yoksa uncaughtException'a düşer.
+      try { spawn("taskkill", ["/pid", String(p.pid), "/T", "/F"], { windowsHide: true }).on("error", () => {}); } catch {}
       }
       try { p.kill("SIGKILL"); } catch {}
     }
@@ -138,8 +158,10 @@ export function run(cmd, args, { cwd, onLine, killer, timeoutMs = 30 * 60 * 1000
     killer?.add(p);
     let err = "";
     const timer = setTimeout(() => { try { p.kill("SIGKILL"); } catch {}; reject(new Error(`${cmd} zaman aşımı`)); }, timeoutMs);
-    p.stdout.on("data", (d) => onLine?.(d.toString()));
-    p.stderr.on("data", (d) => { const s = d.toString(); err += s; if (err.length > 40000) err = err.slice(-20000); onLine?.(s); });
+    // Dinleyiciden hata kaçarsa ana süreci düşürür (25 Ekim 2026 donması): onLine korunuyor.
+    const line = (s) => { try { onLine?.(s); } catch (e) { console.warn("onLine hatası:", e?.message || e); } };
+    p.stdout.on("data", (d) => line(d.toString()));
+    p.stderr.on("data", (d) => { const s = d.toString(); err += s; if (err.length > 40000) err = err.slice(-20000); line(s); });
     p.on("error", (e) => { clearTimeout(timer); reject(e); });
     p.on("close", (code) => {
       clearTimeout(timer);
@@ -150,13 +172,22 @@ export function run(cmd, args, { cwd, onLine, killer, timeoutMs = 30 * 60 * 1000
   });
 }
 
-export async function ffprobeDuration(ffprobe, file) {
+/**
+ * Dosyanın süresi (sn); ölçülemezse 0.
+ *
+ * Zamanlayıcısı yoktu (25 Ekim 2026, ana süreç donmaları denetimi): takılan bir ffprobe (yarım inmiş dosya, kilitli
+ * ya da ağdaki dosya) sözü hiç çözmüyor, onu bekleyen adım sonsuza dek duruyordu. Artık timeoutMs sonunda süreç
+ * öldürülür ve 0 döner — her çağıranın zaten "ölçülemedi" diye ele aldığı sonuç. spawnFn: testler sahte süreç verir.
+ */
+export async function ffprobeDuration(ffprobe, file, { timeoutMs = 60000, spawnFn = spawn } = {}) {
   return new Promise((resolve) => {
-    const p = spawn(ffprobe, ["-v", "quiet", "-show_entries", "format=duration", "-of", "csv=p=0", file], { windowsHide: true });
+    const p = spawnFn(ffprobe, ["-v", "quiet", "-show_entries", "format=duration", "-of", "csv=p=0", file], { windowsHide: true });
     let out = "";
+    const timer = setTimeout(() => { try { p.kill("SIGKILL"); } catch {}; resolve(0); }, timeoutMs);
+    const bitti = (v) => { clearTimeout(timer); resolve(v); };
     p.stdout.on("data", (d) => (out += d.toString()));
-    p.on("close", () => resolve(parseFloat(out.trim()) || 0));
-    p.on("error", () => resolve(0));
+    p.on("close", () => bitti(parseFloat(out.trim()) || 0));
+    p.on("error", () => bitti(0));
   });
 }
 

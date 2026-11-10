@@ -1,7 +1,8 @@
 // Approved editorial lessons, shared by the real planner and render cache.
 // Changes require a policy version bump and a regression fixture; no self-training.
-export const DIRECTOR_POLICY_VERSION=19;
+export const DIRECTOR_POLICY_VERSION=20;
 export const DIRECTOR_LESSONS=Object.freeze([
+ {id:'portrait-cover-subject-visibility',rule:'A portrait cover must keep its actual subject and identifying source details visible. Confine any text-supporting dark fade to the lower text area with clamped alpha; never black out the upper picture or crop away a needed company sign. Keep complete values, units and text inside safe margins. Verify the rendered cover pixels, not only the template.'},
  {id:'literal-moment',rule:'Each shot serves the exact narrative moment: subject, place, era and physical action must match. A shared keyword or attractive unrelated footage is insufficient. Prefer verified real moving footage when it actually depicts this moment.'},
  {id:'visible-action',rule:'When narration names an action, the action must be visibly underway in body orientation, object state, contact or consequence. A posed face-off, completed aftermath or broad topic image does not depict the action. Prefer one readable physical moment with a manageable number of distinct subjects and a clear spatial relationship; split multi-sector claims into separate shots instead of forcing a montage into one image.'},
  {id:'temporal-state-match',rule:'Match the exact before, during or after state claimed in narration. If a carrier, city, person or object is said to be untouched, intact, not yet hit or still searching, do not show a later burning, destroyed or completed state. Audit a moving source at the actual chosen timecode and throughout the planned shot, not just by its title or a frame elsewhere in the file. Replace a misleading excerpt with a verified moment before rendering.'},

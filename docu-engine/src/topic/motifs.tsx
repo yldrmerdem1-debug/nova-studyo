@@ -2,6 +2,9 @@ import React, { useMemo } from 'react';
 import { AbsoluteFill, interpolate, useCurrentFrame } from 'remotion';
 import { FONT } from '../fonts';
 import { ELITE } from '../looks/fonts';
+import { alpha, mix, readable } from '../looks/color';
+// A namespace import: test harnesses that stub everything but motifs.tsx and color still bundle (no missing named export).
+import * as variants from '../looks/variants';
 import type { FontKey, Genre, MotifId } from '../types';
 import { h01, morse, rng, type TopicCtx } from './context';
 import { MOTIF_FACES, TYPED_MOTIFS } from './fontkeys';
@@ -39,32 +42,146 @@ export interface MotifPalette {
   displayKey: FontKey;
   /** Uppercase display? */
   caps: boolean;
+  /** The light version (a light look): paper ground, dark ink (motifPalette's `light`). */
+  light?: boolean;
 }
 
+/*
+ * Gimli 9ff721 önce/sonra, 29 Ekim 2026: şema ve bölüm kartı zemini neredeyse siyah. Round 1 gave the photos their
+ * colour back (saturation 2.2 -> 14.0) but luma only rose 48 -> 66 and 25% of frames stayed dark, because every motif
+ * ground was #05070d-#1a120b ('THE 1.77 FUEL SUM' on a near-black navy, chapter cards on black-brown). The dark grounds
+ * are now MID-DARK slate / umber tones of each motif's own hue — luma >= DEVICE_GROUND_MIN_LUMA (45/255), ground2
+ * included — so a dark look still reads as night, never as a black frame. Dims and the darker accents are lifted with
+ * them so they keep reading on the lighter ground; paper and paper inks are unchanged.
+ */
 const BASE: Record<MotifId, Omit<MotifPalette, 'mono' | 'display' | 'typed'> & { typedElite?: boolean }> = {
-  cipher: { ground: '#17181b', ground2: '#0f1012', paper: '#e9e6df', paperInk: '#17181b', ink: '#ecebe6', dim: '#8d8c87', accent: '#f2b33d', accent2: '#4fd1c5', monoKey: 'jetbrains', displayKey: 'spacegrotesk', caps: true },
-  telegraph: { ground: '#0c121a', ground2: '#06090e', paper: '#ece3cc', paperInk: '#2a2219', ink: '#efe8d6', dim: '#8e9aa6', accent: '#ffb547', accent2: '#e2563b', monoKey: 'courier', displayKey: 'oldstandard', caps: true, typedElite: true },
-  ticker: { ground: '#11110f', ground2: '#080807', paper: '#efe6cf', paperInk: '#1d1a14', ink: '#f2eee4', dim: '#8f8a7d', accent: '#e8423a', accent2: '#3fbf73', monoKey: 'plexMono', displayKey: 'oswald', caps: true },
-  telemetry: { ground: '#05070d', ground2: '#020306', paper: '#dfe7f2', paperInk: '#0a0f1a', ink: '#e1e9f5', dim: '#6f7f96', accent: '#e8b64c', accent2: '#63d0ff', monoKey: 'jetbrains', displayKey: 'spacegrotesk', caps: true },
-  electric: { ground: '#0a0b16', ground2: '#05050c', paper: '#ede5d1', paperInk: '#1c1a2a', ink: '#eef1ff', dim: '#8088a8', accent: '#8fb7ff', accent2: '#ffcf6b', monoKey: 'courier', displayKey: 'playfair', caps: true },
-  'case-file': { ground: '#121314', ground2: '#0a0a0b', paper: '#e9dfc6', paperInk: '#22201b', ink: '#f2efe8', dim: '#8c8a84', accent: '#f2c318', accent2: '#c8102e', monoKey: 'courier', displayKey: 'oswald', caps: true, typedElite: true },
-  expedition: { ground: '#0a1118', ground2: '#05080c', paper: '#e3ecf1', paperInk: '#0e1a24', ink: '#e8eff3', dim: '#7f95a6', accent: '#ff8a3d', accent2: '#9fd3ef', monoKey: 'plexMono', displayKey: 'bebas', caps: true },
-  siege: { ground: '#1a120b', ground2: '#0d0905', paper: '#e6d3ab', paperInk: '#2b1c0e', ink: '#f1e4c8', dim: '#a08b67', accent: '#b8322a', accent2: '#d4a64a', monoKey: 'crimson', displayKey: 'cinzel', caps: true },
+  cipher: { ground: '#34363b', ground2: '#2c2e32', paper: '#e9e6df', paperInk: '#17181b', ink: '#ecebe6', dim: '#a3a29c', accent: '#f2b33d', accent2: '#4fd1c5', monoKey: 'jetbrains', displayKey: 'spacegrotesk', caps: true },
+  telegraph: { ground: '#2e3a48', ground2: '#28323e', paper: '#ece3cc', paperInk: '#2a2219', ink: '#efe8d6', dim: '#a6b1bc', accent: '#ffb547', accent2: '#f06a4e', monoKey: 'courier', displayKey: 'oldstandard', caps: true, typedElite: true },
+  ticker: { ground: '#3a3933', ground2: '#312f2a', paper: '#efe6cf', paperInk: '#1d1a14', ink: '#f2eee4', dim: '#a8a395', accent: '#f0564d', accent2: '#4fcb80', monoKey: 'plexMono', displayKey: 'oswald', caps: true },
+  telemetry: { ground: '#2f3947', ground2: '#283040', paper: '#dfe7f2', paperInk: '#0a0f1a', ink: '#e1e9f5', dim: '#94a3b8', accent: '#e8b64c', accent2: '#63d0ff', monoKey: 'jetbrains', displayKey: 'spacegrotesk', caps: true },
+  electric: { ground: '#33364f', ground2: '#2b2e44', paper: '#ede5d1', paperInk: '#1c1a2a', ink: '#eef1ff', dim: '#a3aac6', accent: '#8fb7ff', accent2: '#ffcf6b', monoKey: 'courier', displayKey: 'playfair', caps: true },
+  'case-file': { ground: '#37383a', ground2: '#2e2f31', paper: '#e9dfc6', paperInk: '#22201b', ink: '#f2efe8', dim: '#a6a49d', accent: '#f2c318', accent2: '#e0263f', monoKey: 'courier', displayKey: 'oswald', caps: true, typedElite: true },
+  expedition: { ground: '#2c3b47', ground2: '#26333e', paper: '#e3ecf1', paperInk: '#0e1a24', ink: '#e8eff3', dim: '#9fb3c2', accent: '#ff8a3d', accent2: '#9fd3ef', monoKey: 'plexMono', displayKey: 'bebas', caps: true },
+  siege: { ground: '#45362a', ground2: '#3a2e24', paper: '#e6d3ab', paperInk: '#2b1c0e', ink: '#f1e4c8', dim: '#bba584', accent: '#d0453b', accent2: '#d4a64a', monoKey: 'crimson', displayKey: 'cinzel', caps: true },
 };
 
-export function motifPalette(t: TopicCtx, g: Genre): MotifPalette {
+/** The lowest luma (0-255, Rec.601) a device / card ground may have in a DARK look: mid-dark, never near-black. */
+export const DEVICE_GROUND_MIN_LUMA = 45;
+
+/** Luma 0-255 (Rec.601, what the frame meter reads) of a #rrggbb colour; NaN for anything else. */
+export function groundLuma(hex: string): number {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex ?? '').trim());
+  if (!m) return NaN;
+  const n = parseInt(m[1], 16);
+  return 0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255);
+}
+
+/** A colour lifted towards `to` until its luma reaches `min` (an override never brings a black ground back). */
+export function liftGround(c: string, to: string, min = DEVICE_GROUND_MIN_LUMA): string {
+  if (!(groundLuma(c) < min)) return c;
+  for (let k = 0.05; k <= 1.001; k += 0.05) {
+    const x = mix(c, to, k);
+    if (groundLuma(x) >= min) return x;
+  }
+  return to;
+}
+
+/** A copy of the motif's BASE colours (what the ground test reads). */
+export function motifBase(m: MotifId): Pick<MotifPalette, 'ground' | 'ground2' | 'paper' | 'paperInk' | 'ink' | 'dim' | 'accent' | 'accent2'> {
+  const b = BASE[m];
+  return { ground: b.ground, ground2: b.ground2, paper: b.paper, paperInk: b.paperInk, ink: b.ink, dim: b.dim, accent: b.accent, accent2: b.accent2 };
+}
+
+/** Is the LOOK light (genre.light or a light variant)? A dark-surfaced scene genre keeps its variant, so a paper look stays paper. */
+export function isLightLook(g: Pick<Genre, 'light' | 'variant'> | null | undefined): boolean {
+  return !!g && (g.light === true || (typeof variants.isLightVariant === 'function' && variants.isLightVariant(g.variant)));
+}
+
+/**
+ * The plate every device / card draws behind itself (Gimli 9ff721 önce/sonra, 29 Ekim 2026: şema ve bölüm kartı zemini
+ * neredeyse siyah): the scene's or chapter's related picture, soft, brightness >= 0.8, opacity >= 0.45; the black ring
+ * at most 0.3; legibility from a LOCAL scrim behind the type (`scrim`), never by darkening the whole frame. A light look
+ * lays a paper veil over the plate instead.
+ */
+export const DEVICE_PLATE = { brightness: 0.84, opacity: 0.5, blur: 8, zoom: 1.25, ring: 0.28, lightRing: 0.1, scrim: 0.55, lightVeil: 0.6 } as const;
+/** Framed / lightbox / print / film-frame: the empty field is the photo's own blurred plate, colour kept, ring <= 0.3. */
+export const PRESENT_PLATE = { brightness: 0.86, ring: 0.28, lightRing: 0.1, wash: 0.22, lightVeil: 0.5, newsprint: 0.45 } as const;
+
+type PlatePic = { image?: string; video?: string; videoStart?: number; videoDur?: number; videoW?: number; videoH?: number };
+/** The picture a device stands on: the scene's own (image / clip), else the look's related picture; undefined = none. */
+export function devicePicture(scene: unknown, look?: { picture?: PlatePic } | null): PlatePic | undefined {
+  const s = (scene ?? {}) as { image?: unknown; images?: unknown; video?: unknown; videoStart?: number; videoDur?: number; videoW?: number; videoH?: number };
+  const image = typeof s.image === 'string' && s.image ? s.image : Array.isArray(s.images) && typeof s.images[0] === 'string' && s.images[0] ? (s.images[0] as string) : undefined;
+  const video = typeof s.video === 'string' && s.video ? s.video : undefined;
+  if (image || video) return { image, video, videoStart: s.videoStart, videoDur: s.videoDur, videoW: s.videoW, videoH: s.videoH };
+  const p = look?.picture;
+  return p && (p.image || p.video) ? p : undefined;
+}
+
+/** A device's own ground: a soft radial of the motif's two grounds (mid-dark in a dark look, paper in a light one). */
+export const deviceGround = (P: Pick<MotifPalette, 'ground' | 'ground2'>, at = '50% 45%') => `radial-gradient(ellipse at ${at}, ${P.ground} 0%, ${P.ground2} 120%)`;
+
+/** A local scrim behind type: the ground's own colour, strongest under the words, gone at its edge. */
+export const typeScrim = (P: Pick<MotifPalette, 'ground'>, a: number = DEVICE_PLATE.scrim, shape = 'ellipse 62% 50% at 50% 50%') =>
+  `radial-gradient(${shape}, ${alpha(P.ground, a)} 0%, ${alpha(P.ground, a * 0.55)} 55%, ${alpha(P.ground, 0)} 100%)`;
+
+/** The frame-edge ring: never more than 0.3 black (light looks 0.1). */
+export const deviceRing = (light: boolean, ring: number = light ? DEVICE_PLATE.lightRing : DEVICE_PLATE.ring) =>
+  `radial-gradient(ellipse 80% 72% at 50% 50%, rgba(0,0,0,0) 55%, rgba(0,0,0,${Math.min(0.3, ring)}) 100%)`;
+
+/** Dark-look colours: grounds kept mid-dark (a topic accent never darkens them), dims and accents readable on them. */
+export function darkMotifColours(b: Pick<MotifPalette, 'ground' | 'ground2' | 'paper' | 'dim' | 'accent' | 'accent2'>) {
+  const ground = liftGround(b.ground, b.paper);
+  const ground2 = liftGround(b.ground2, b.paper);
+  return { ground, ground2, dim: readable(b.dim, ground, 3), accent: readable(b.accent, ground, 3), accent2: readable(b.accent2, ground, 3) };
+}
+
+/**
+ * A motif's LIGHT version, for a light look (genre.light / a light variant): its own printed paper becomes the
+ * ground, its paper ink the ink, and the accents are pushed until they read on it. Kartal Yuvası 950730 / Gimli
+ * 20261028-9ff721, 29 Ekim 2026: every motif ground was near-black (#05070d-#1a120b), so even a paper look's chapter
+ * cards, explainers and UI cards were black frames.
+ */
+export function lightMotifColours(b: Pick<MotifPalette, 'ground' | 'ground2' | 'paper' | 'paperInk' | 'ink' | 'dim' | 'accent' | 'accent2'>) {
+  const ground = mix(b.paper, '#ffffff', 0.25);
+  const ground2 = mix(b.paper, b.paperInk, 0.1);
+  return {
+    ground,
+    ground2,
+    ink: b.paperInk,
+    dim: mix(b.paperInk, b.paper, 0.45),
+    accent: readable(b.accent, ground, 3),
+    accent2: readable(b.accent2, ground, 3),
+  };
+}
+
+/**
+ * The motif's palette. The LOOK decides light or dark (isLightLook: genre.light or a light variant) — no caller has to
+ * remember `light = true` (Gimli 9ff721 önce/sonra, 29 Ekim 2026: captions, icons, diagrams and the wipe drew the
+ * night palette inside paper looks because their callers never passed it). `light = true` forces the paper version;
+ * darkMotifPalette forces the night one (type with no panel of its own over a dark picture).
+ */
+export function motifPalette(t: TopicCtx, g: Genre, light = false): MotifPalette {
+  light = light || isLightLook(g);
   const b = { ...BASE[t.motif], monoKey: MOTIF_FACES[t.motif][0], displayKey: MOTIF_FACES[t.motif][1] };
   const hex = (v?: string) => (typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v) ? v : undefined);
   const displayKey = (t.topic.headline as FontKey | undefined) ?? b.displayKey;
+  const colours = { ...b, accent: hex(t.topic.accent) ?? b.accent, accent2: hex(t.topic.accent2) ?? b.accent2 };
   return {
-    ...b,
-    accent: hex(t.topic.accent) ?? b.accent,
-    accent2: hex(t.topic.accent2) ?? b.accent2,
+    ...colours,
+    ...(light ? lightMotifColours(colours) : {}),
+    ...(light ? {} : darkMotifColours(colours)),
+    light,
     displayKey,
     mono: FONT[b.monoKey],
     display: FONT[displayKey] ?? FONT[b.displayKey],
     typed: b.typedElite ? ELITE : FONT[b.monoKey],
   };
+}
+
+/** The night version whatever the look (type with no panel of its own over a dark picture). */
+export function darkMotifPalette(t: TopicCtx, g: Genre): MotifPalette {
+  return motifPalette(t, { ...g, light: false, variant: undefined });
 }
 
 /** The faces a motif needs (fontkeys.ts is the source; fonts.ts fetches only what a script uses). */
@@ -335,7 +452,7 @@ const WipeFace: React.FC<{ t: TopicCtx; P: MotifPalette; lead: 'left' | 'right' 
         for (let k = 0; k < 3; k++) {
           let d = `M 0 ${300 + k * 240}`;
           for (let i = 1; i <= 24; i++) d += ` L ${i * 84} ${300 + k * 240 + (r() - 0.5) * 120}`;
-          els.push(<path key={k} d={d} fill="none" stroke={k === 1 ? '#ffffff' : P.accent} strokeWidth={k === 1 ? 5 : 2.5} opacity={k === 1 ? 0.95 : 0.7} />);
+          els.push(<path key={k} d={d} fill="none" stroke={k === 1 ? (P.light ? P.ink : '#ffffff') : P.accent} strokeWidth={k === 1 ? 5 : 2.5} opacity={k === 1 ? 0.95 : 0.7} />);
         }
         break;
       }
@@ -402,11 +519,11 @@ const WipeFace: React.FC<{ t: TopicCtx; P: MotifPalette; lead: 'left' | 'right' 
       : t.motif === 'expedition'
         ? `linear-gradient(90deg, transparent, #ffffff 50%, transparent)`
         : t.motif === 'case-file'
-          ? `linear-gradient(90deg, transparent, rgba(0,0,0,0.45) 50%, transparent)`
-          : `linear-gradient(90deg, transparent, ${t.motif === 'electric' ? '#ffffff' : P.accent} 50%, transparent)`;
+          ? `linear-gradient(90deg, transparent, rgba(0,0,0,0.28) 50%, transparent)`
+          : `linear-gradient(90deg, transparent, ${t.motif === 'electric' && !P.light ? '#ffffff' : P.accent} 50%, transparent)`;
   const flick = t.motif === 'electric' ? 0.6 + h01(`${f}`) * 0.4 : 1;
   return (
-    <div style={{ position: 'absolute', inset: 0, background: bg, boxShadow: t.motif === 'case-file' ? '0 0 60px rgba(0,0,0,0.6)' : undefined }}>
+    <div style={{ position: 'absolute', inset: 0, background: bg, boxShadow: t.motif === 'case-file' ? '0 0 60px rgba(0,0,0,0.3)' : undefined }}>
       <svg width={2000} height={1200} style={{ position: 'absolute', inset: 0 }}>
         {face}
       </svg>

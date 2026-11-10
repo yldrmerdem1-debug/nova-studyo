@@ -1,7 +1,7 @@
 import React from 'react';
 import { AbsoluteFill, Easing, Sequence, interpolate, random, spring, useCurrentFrame, useVideoConfig } from 'remotion';
 import { FONT, fitFont, textLocale, textWidth } from './fonts';
-import { CARD_PAD, LETTERBOX, LayeredPhoto, LightLeak, PatternBg, Photo, PhotoCard, SoftPlate, clipOf, isLowRes, isLowResClip } from './fx';
+import { CARD_PAD, LETTERBOX, LayeredPhoto, LightLeak, PatternBg, Photo, PhotoCard, SoftPlate, clipOf, isLowRes, isLowResClip, steadyFootage } from './fx';
 import type { Clip } from './fx';
 import { headlineLand } from './headline';
 import { mapImpacts } from './map';
@@ -12,12 +12,15 @@ import { useLook, type LookCtx } from './looks/context';
 import { StyledCaption, StyledMontageWord, StyledSlam, StyledTitle, type TextCtx } from './looks/text';
 import { StyledCounter } from './counterStyles';
 import { useTopic } from './topic/context';
-import { MotifChapterCard } from './topic/cards';
+import { CARD_PLATE, MotifChapterCard } from './topic/cards';
+import { isLightVariant } from './looks/variants';
+import { alpha } from './looks/color';
 import { RankCard } from './ranking/RankCard';
 import { PresentedPhoto } from './topic/presentation';
 import { MotifCaption } from './topic/caption';
 import { useOpening } from './opening/context';
 import { counterCountEnd, counterSpokenAt } from './opening/timing';
+import { tallyItems } from './infographics/timing.js';
 import type {
   ChartScene,
   CounterScene,
@@ -45,7 +48,13 @@ interface Common {
 
 const clamp = { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' } as const;
 /** The scene's text style (src/looks): 'box' = this file's original treatments. */
-const textCtx = (look: LookCtx, genre: Genre, kicker?: string): TextCtx => ({ genre, style: look.textStyle, surface: look.surface, chapterName: look.chapterName, kicker: kicker?.trim() || undefined, index: look.index });
+const textCtx = (look: LookCtx, genre: Genre, kicker?: string, at?: 'low' | 'top'): TextCtx => ({ genre, style: look.textStyle, surface: look.surface, chapterName: look.chapterName, kicker: kicker?.trim() || undefined, index: look.index, ...(at ? { at } : {}) });
+/**
+ * Where a scene's big words go when its picture shows a face (scene.textAt, set by the pipeline): only over a picture,
+ * never with depth layers (the split already puts the words on the person's empty side or behind them).
+ */
+const faceBand = (scene: { textAt?: 'low' | 'top'; image?: string; video?: string; layers?: unknown }): 'low' | 'top' | undefined =>
+  scene.textAt && (scene.image || scene.video) && !scene.layers ? scene.textAt : undefined;
 const FRAME_W = 1920;
 const FRAME_H = 1080;
 /**
@@ -362,7 +371,7 @@ export interface Impact {
 function coreImpacts(scene: Scene, durFrames: number, fps: number, genre?: Genre): Impact[] {
   const out: Impact[] = [];
   if (scene.type === 'slam') out.push({ f: slamFrame(scene, fps), strength: 1 });
-  if (scene.type === 'counter') {
+  if (scene.type === 'counter' && tallyItems((scene as { wordTimes?: { word: string; t: number }[] }).wordTimes, { to: (scene as { to?: number }).to }).length < 2) {
     // The count lands 0.9 s after it starts — on the number's first spoken word when it is said late (Engine spokenDelayed).
     const at = counterSpokenAt(scene, fps);
     const wait = at !== null && at > 6 && at < durFrames - fps ? at - 3 : 0;
@@ -370,7 +379,7 @@ function coreImpacts(scene: Scene, durFrames: number, fps: number, genre?: Genre
   }
   if (scene.type === 'words' && scene.keyword) {
     const [k] = keyRange(textWords(scene.text), scene.keyword);
-    if (k >= 0) out.push({ f: wordFrames(scene, durFrames, fps)[k], strength: 0.5 });
+    if (k >= 0) out.push({ f: wordFrames(scene, durFrames, fps)[k], strength: 0.2 });
   }
   if (scene.type === 'montage') {
     montageCuts(scene, durFrames, fps).forEach((c, i) => {
@@ -516,6 +525,8 @@ const cameraMoves = (scene: Scene) => !!scene.camera && scene.camera !== 'static
 function planFor(scene: Scene, durFrames: number, fps: number, genre?: Genre): ReframePlan {
   // Cutaways are the line's cuts: no re-crops of the first picture under them.
   if (scene.inserts?.length) return NO_REFRAME;
+  // Real footage plays as filmed: no re-crops on a clip that already moves (fx.tsx steadyFootage).
+  if (steadyFootage(scene)) return NO_REFRAME;
   const annotated = scene.type === 'photo' && !!scene.annotate;
   /*
    * Pace (the art director's): hold = one continuous shot, quick = 1-2 and
@@ -601,8 +612,12 @@ export function montageClip(scene: MontageScene, idx: number, cuts: number[], du
   return { ...base, start: base.start + (n > 1 ? (slack * idx) / (n - 1) : 0) };
 }
 
-/** A word as it is slammed on screen: no sentence punctuation, apostrophes (Enron'un) kept. */
-const displayWord = (w: string) => w.replace(/[.,!?…:;"“”«»()[\]]/g, '').replace(/^[—–-]+|[—–-]+$/g, '');
+/**
+ * A word as it is slammed on screen: no sentence punctuation, apostrophes (Enron'un) kept. Punctuation only at the
+ * word's edges: a number keeps its point and comma ("7.6" was set as "76", Panama Oct 2026). A single quote at an
+ * edge is a quotation mark, not an apostrophe: "'mines cleared'" slammed "CLEARED'" in the Hormuz hook (Oct 2026).
+ */
+const displayWord = (w: string) => w.replace(/^[.,!?…:;"“”«»()[\]'‘’]+|[.,!?…:;"“”«»()[\]'‘’]+$/g, '').replace(/^[—–-]+|[—–-]+$/g, '');
 
 /**
  * Cold open. Pictures cut on the music's beats; words land on the narrator's
@@ -854,7 +869,9 @@ const PlainTitle: React.FC<Common & { scene: TitleScene }> = ({ scene, genre, du
    */
   const maxTrack = genre.look === 'glow' ? 24 : 10;
   const titleLines = balanceLines(titleText);
-  const cap = scene.layers ? 260 : 180;
+  // Over a face (scene.textAt) the title goes to its band a size down: two 180 px lines climbed back to the mouth.
+  const at = faceBand(scene);
+  const cap = scene.layers ? 260 : at ? 130 : 180;
   const fitSize = Math.min(
     ...titleLines.map((t) => fitFont(t, genre.headline, { maxW: FRAME_W - 220, cap, trackPx: maxTrack, upper: true, scaleMax: 1.02 })),
   );
@@ -937,16 +954,28 @@ const PlainTitle: React.FC<Common & { scene: TitleScene }> = ({ scene, genre, du
         focus={scene.crop ? (scene as { focus?: [number, number] }).focus : undefined}
         crop={scene.crop}
       />
+      {/*
+       * Cutaways under a title, as on a key-word card: the title stays, the picture under it changes.
+       * Eagle's Nest fire (Oct 2026): a hook title over an archive still ("It Burned Down in One Night",
+       * 6.2 s) was flagged a slow hook in all four preview rounds — this component drew no cutaways.
+       */}
+      {scene.image && !scene.layers && scene.inserts?.length ? (
+        <>
+          <InsertShots scene={scene} durFrames={durFrames} />
+          <AbsoluteFill style={{ background: 'rgba(0,0,0,0.36)' }} />
+        </>
+      ) : null}
       <LightLeak color={genre.accent} strength={genre.leak * 2.2} seed="title" />
       {styled ? (
-        <StyledTitle ctx={textCtx(look, genre)} title={titleText} kicker={kickerText} durFrames={durFrames} />
+        <StyledTitle ctx={textCtx(look, genre, undefined, at)} title={titleText} kicker={kickerText} durFrames={durFrames} />
       ) : (
       <AbsoluteFill
         style={{
           ...BOX,
-          justifyContent: scene.layers ? 'flex-start' : 'center',
+          justifyContent: scene.layers ? 'flex-start' : at === 'low' ? 'flex-end' : at === 'top' ? 'flex-start' : 'center',
           alignItems: 'center',
-          paddingTop: scene.layers ? 120 + bar * 0.5 : 0,
+          paddingTop: scene.layers ? 120 + bar * 0.5 : at === 'top' ? Math.max(120, bar + 70) : 0,
+          paddingBottom: at === 'low' ? Math.max(140, bar + 80) : 0,
         }}
       >
         {kickerText ? (
@@ -1013,6 +1042,15 @@ const ChapterCard: React.FC<Common & { scene: TitleScene }> = ({ scene, genre, d
       .trim() || (locale.toLowerCase().startsWith('tr') ? 'BÖLÜM' : 'CHAPTER');
   const title = String(scene.title ?? '').trim();
   const ink = genre.titleInk ?? genre.ink;
+  /*
+   * The plain card follows the look like the motif card (topic/cards.tsx CARD_PLATE): a light look gets a paper veil,
+   * a dark one a soft ground-colour scrim; the next shot shows through (dim 0.15, black ring <= 0.3). Gimli
+   * 20261028-9ff721 / Kartal Yuvası 950730, 29 Ekim 2026: every chapter card was a near-black frame (plate 0.3, ring 0.72).
+   */
+  const light = genre.light === true || isLightVariant(genre.variant);
+  // Its own picture, else the chapter's related one from the look (looks/resolve.ts devicePlateSource; Gimli 9ff721 önce/sonra, 29 Ekim 2026).
+  const lookPic = useLook()?.picture;
+  const cardPic = scene.image || scene.video ? scene : lookPic && (lookPic.image || lookPic.video) ? lookPic : undefined;
 
   const lines = title ? balanceLines(title, 18) : [];
   const trackEm = look === 'glow' ? 0.08 : look === 'terminal' ? 0.03 : 0.02;
@@ -1047,7 +1085,9 @@ const ChapterCard: React.FC<Common & { scene: TitleScene }> = ({ scene, genre, d
       ? `0 0 44px ${genre.accent}99, 0 0 10px #000`
       : look === 'terminal'
         ? `0 0 30px ${genre.accent}55, 0 2px 10px #000`
-        : '0 6px 0 rgba(0,0,0,0.35), 0 0 40px rgba(0,0,0,0.65)';
+        : light
+          ? '0 2px 0 rgba(0,0,0,0.08)'
+          : '0 6px 0 rgba(0,0,0,0.35), 0 0 40px rgba(0,0,0,0.65)';
   const titleBlock = lines.map((t, i) => (
     <StaggerText
       key={i}
@@ -1242,18 +1282,27 @@ const ChapterCard: React.FC<Common & { scene: TitleScene }> = ({ scene, genre, d
   return (
     <AbsoluteFill>
       <PatternBg pattern={genre.pattern} color={genre.accent} bg={genre.bg} />
-      {scene.image || scene.video ? (
-        <SoftPlate
-          src={scene.image ?? ''}
-          clip={clipOf(scene)}
-          dim={look === 'label' ? 0.42 : 0.3}
-          blur={7}
-          zoom={1.3}
-          focus={[no % 2 ? 0.3 : 0.7, 0.62]}
-          durFrames={durFrames}
-        />
+      {cardPic ? (
+        <AbsoluteFill style={{ opacity: CARD_PLATE.opacity }}>
+          <SoftPlate
+            src={cardPic.image ?? ''}
+            clip={clipOf(cardPic)}
+            dim={1 - CARD_PLATE.dim}
+            blur={7}
+            zoom={1.3}
+            focus={[no % 2 ? 0.3 : 0.7, 0.62]}
+            durFrames={durFrames}
+          />
+        </AbsoluteFill>
       ) : null}
-      <AbsoluteFill style={{ background: 'radial-gradient(ellipse 70% 60% at 50% 50%, rgba(0,0,0,0.1) 0%, rgba(0,0,0,0.72) 100%)' }} />
+      <AbsoluteFill
+        style={{
+          background: light
+            ? alpha(genre.bg, CARD_PLATE.lightVeil)
+            : `radial-gradient(ellipse 58% 46% at 50% 50%, ${alpha(genre.bg, CARD_PLATE.scrim)} 0%, ${alpha(genre.bg, 0)} 100%)`,
+        }}
+      />
+      <AbsoluteFill style={{ background: `radial-gradient(ellipse 75% 65% at 50% 50%, rgba(0,0,0,0) 0%, rgba(0,0,0,${light ? CARD_PLATE.lightRing : CARD_PLATE.ring}) 100%)` }} />
       <LightLeak color={genre.accent} strength={genre.leak * 1.5} seed={`ch${no}`} />
       <AbsoluteFill style={{ justifyContent: 'center', alignItems: 'center' }}>
         <div
@@ -1315,7 +1364,9 @@ export const Slam: React.FC<Common & { scene: SlamScene }> = ({ scene, genre, du
    */
   const trackEm = genre.look === 'glow' ? 0.05 : 0.012;
   const word = String(scene.word ?? '');
-  const fontSize = fitFont(word, genre.headline, { maxW: 1720, cap: 260, scaleMax: 1.06 * layerK * 1.05, trackEm, upper: true, min: 60 });
+  // Over a face (scene.textAt) the word lands in the lower third (or upper band) a size down, never across the eyes.
+  const at = faceBand(scene);
+  const fontSize = fitFont(word, genre.headline, { maxW: 1720, cap: at ? 200 : 260, scaleMax: 1.06 * layerK * 1.05, trackEm, upper: true, min: 60 });
   const wordW = Math.max(1, textWidth(word, genre.headline, fontSize, { trackEm, upper: true }));
   const over = Math.max(1, Math.min(1.28, LAND_MAX_W / (wordW * layerK * 1.05)));
   const size = landed ? interpolate(since, [0, 4], [over, 1], { ...clamp, easing: Easing.out(Easing.quad) }) : 1;
@@ -1437,10 +1488,18 @@ export const Slam: React.FC<Common & { scene: SlamScene }> = ({ scene, genre, du
         crop={scene.crop}
       />
       {landed && look.textStyle !== 'box' ? (
-        <StyledSlam ctx={textCtx(look, genre)} word={word} sub={scene.sub} since={since} durFrames={durFrames} subAt={subAt} />
+        <StyledSlam ctx={textCtx(look, genre, undefined, at)} word={word} sub={scene.sub} since={since} durFrames={durFrames} subAt={subAt} />
       ) : landed ? (
-        <AbsoluteFill style={{ justifyContent: 'center', alignItems: 'center' }}>
-          <div style={{ position: 'relative', transform: `scale(${size * drift})` }}>
+        <AbsoluteFill
+          style={
+            at === 'low'
+              ? { ...BOX, justifyContent: 'flex-end', alignItems: 'center', paddingBottom: Math.max(180, barPx(genre) + 120) }
+              : at === 'top'
+                ? { ...BOX, justifyContent: 'flex-start', alignItems: 'center', paddingTop: Math.max(120, barPx(genre) + 70) }
+                : { justifyContent: 'center', alignItems: 'center' }
+          }
+        >
+          <div style={{ position: 'relative', transform: `scale(${size * drift})`, transformOrigin: at === 'low' ? 'center bottom' : at === 'top' ? 'center top' : 'center' }}>
             {/* Ghost echoes: two copies blowing outwards and fading. */}
             {echoes}
             {face}
@@ -1553,9 +1612,66 @@ export function counterFit(scene: CounterScene, locale: string, font: FontKey, b
  * A counter in its treatment (src/looks/counters.ts picks it per scene): the
  * original box below, or one of src/counterStyles.tsx.
  */
-export const Counter: React.FC<Common & { scene: CounterScene }> = (props) => {
+export const Counter: React.FC<Common & { scene: CounterScene; offset?: number }> = ({ offset = 0, ...props }) => {
   const style = useLook().counterStyle;
+  const tally = tallyItems((props.scene as { wordTimes?: { word: string; t: number }[] }).wordTimes, { to: props.scene.to });
+  if (tally.length >= 2) return <TallyCounter {...props} items={tally} offset={offset} />;
   return style && style !== 'box' ? <StyledCounter {...props} style={style} /> : <BoxCounter {...props} />;
+};
+
+/**
+ * TALLY: the numbers of one line stacked in the order they are said, each row landing on its own spoken word
+ * ("324 TARGETS", then "100 AIRCRAFT"), the earlier rows staying (dimmed) — no shake, no slam: it reads with the
+ * voice (user, Oct 2026: "sayılar ardışık, o anda ekranda adamın dediği gibi sıralanmalı, sesle uyumlu olmalı").
+ * `offset` = frames the scene start was delayed by (the engine starts it on the first number).
+ */
+export function tallyFrames(items: { t: number }[], fps: number, offset = 0): number[] {
+  return items.map((it) => Math.max(0, Math.round(it.t * fps) - offset));
+}
+
+const TallyCounter: React.FC<Common & { scene: CounterScene; items: { t: number; text: string; label: string }[]; offset: number }> = ({ scene, genre, items, offset }) => {
+  const f = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const at = tallyFrames(items, fps, offset);
+  const n = items.length;
+  const numSize = Math.round(Math.min(170, 980 / (n * 1.35)));
+  const labSize = Math.round(numSize * 0.42);
+  const doc = genre.look === 'label';
+  const live = at.reduce((k, a, i) => (f >= a ? i : k), -1);
+  return (
+    <AbsoluteFill>
+      <PatternBg pattern={genre.pattern} color={genre.accent} bg={genre.bg} />
+      <LightLeak color={genre.accent} strength={genre.leak} seed={`t${scene.to}`} />
+      <AbsoluteFill style={{ justifyContent: 'center', alignItems: 'center' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: numSize * 0.18, alignItems: 'flex-start' }}>
+          {items.map((it, i) => {
+            const p = interpolate(f, [at[i], at[i] + 9], [0, 1], { ...clamp, easing: Easing.out(Easing.cubic) });
+            if (p <= 0) return <div key={i} style={{ height: numSize }} />;
+            const current = i === live;
+            return (
+              <div
+                key={i}
+                style={{
+                  display: 'flex',
+                  alignItems: 'baseline',
+                  gap: numSize * 0.28,
+                  opacity: p * (current ? 1 : 0.55),
+                  transform: `translateY(${(1 - p) * 26}px)`,
+                  background: doc ? genre.labelBg : 'rgba(0,0,0,0.38)',
+                  padding: `${numSize * 0.08}px ${numSize * 0.32}px`,
+                }}
+              >
+                <span style={{ fontFamily: FONT[genre.headline], fontWeight: 700, fontSize: numSize, lineHeight: 1, color: doc ? genre.labelInk : genre.accent, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{it.text}</span>
+                {it.label ? (
+                  <span style={{ fontFamily: FONT[genre.body], fontWeight: 800, fontSize: labSize, letterSpacing: 4, textTransform: 'uppercase', color: doc ? genre.labelInk : '#fff', whiteSpace: 'nowrap' }}>{it.label}</span>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      </AbsoluteFill>
+    </AbsoluteFill>
+  );
 };
 
 const BoxCounter: React.FC<Common & { scene: CounterScene }> = ({ scene, genre, locale, durFrames, speed }) => {
@@ -2133,6 +2249,20 @@ const PhotoBody: React.FC<Common & { scene: PhotoScene }> = ({ scene, genre, dur
           </div>
         </AbsoluteFill>
       ) : null}
+      {/* The person's own words (source-clips.js): a burned-in subtitle like the breakout channels, key words in the accent. */}
+      {scene.sourceVoice && scene.say ? (
+        <AbsoluteFill style={{ ...BOX, justifyContent: 'flex-end', alignItems: 'center', paddingBottom: genre.letterbox ? 190 : 120 }}>
+          <div style={{ background: 'rgba(0,0,0,0.72)', color: '#fff', fontFamily: FONT[genre.body], fontWeight: 700, fontSize: 40, lineHeight: 1.25, padding: '10px 26px', maxWidth: 1400, textAlign: 'center' }}>
+            {'\u201C'}{String(scene.say).replace(/\[[^\]]*\]/g, '').trim()}{'\u201D'}
+          </div>
+        </AbsoluteFill>
+      ) : null}
+      {/* Source corner label for real footage: small, bottom-left, never over the source's own logo (top corners). */}
+      {scene.sourceLabel ? (
+        <div style={{ position: 'absolute', left: 44, bottom: genre.letterbox ? 150 : 40, background: 'rgba(0,0,0,0.62)', color: '#f2f2f2', fontFamily: FONT[genre.body], fontWeight: 600, fontSize: 24, padding: '6px 14px', borderRadius: 4, letterSpacing: '0.02em' }}>
+          {scene.sourceLabel}
+        </div>
+      ) : null}
     </AbsoluteFill>
   );
 };
@@ -2272,11 +2402,12 @@ export const Words: React.FC<Common & { scene: WordsScene }> = ({ scene, genre, 
         <InsertShots scene={scene} durFrames={durFrames} speed={speed} />
         {scene.inserts?.length ? <AbsoluteFill style={{ background: `rgba(0,0,0,${mode === 'none' ? 0.12 : 0.36})` }} /> : null}
         {mode === 'key' && since >= 0 && look.textStyle !== 'box' ? (
-          <StyledSlam ctx={textCtx(look, genre, scene.kicker)} word={keyText} since={since} durFrames={durFrames} subAt={9999} weight={0.74} />
+          // A styled key word is centred like a slam — over a face it goes to the band (Lula: "52" on Flávio's face).
+          <StyledSlam ctx={textCtx(look, genre, scene.kicker, faceBand(scene))} word={keyText} since={since} durFrames={durFrames} subAt={9999} weight={0.74} />
         ) : mode === 'key' && since >= 0 ? (
           // Over a picture the word sits where captions sit (low, or the depth split's empty side), never
           // across the middle of a portrait: "ROSTOPCHIN" covered the governor's eyes (Napoleon QA 8:46).
-          <AbsoluteFill style={pictured ? (scene.layers ? textZone : { justifyContent: 'flex-end', alignItems: 'center', paddingBottom: genre.letterbox ? 250 : 200 }) : { justifyContent: 'center', alignItems: 'center' }}>
+          <AbsoluteFill style={pictured ? (scene.layers ? textZone : faceBand(scene) === 'top' ? { ...BOX, justifyContent: 'flex-start', alignItems: 'center', paddingTop: genre.letterbox ? 220 : 150 } : { justifyContent: 'flex-end', alignItems: 'center', paddingBottom: genre.letterbox ? 250 : 200 }) : { justifyContent: 'center', alignItems: 'center' }}>
             <div style={{ position: 'relative', transform: `scale(${pop * drift})` }}>
               {doc ? (
                 <div style={{ position: 'absolute', left: '-0.12em', right: '-0.12em', top: '0.06em', bottom: '-0.02em', fontSize: boxSize, background: genre.labelBg, transformOrigin: 'left center', transform: `scaleX(${sweep}) rotate(-1.5deg)`, boxShadow: `0 0.06em 0 ${genre.accent2}` }} />
@@ -2327,7 +2458,7 @@ export const Words: React.FC<Common & { scene: WordsScene }> = ({ scene, genre, 
         <MotifCaption t={topicCap} genre={genre} scene={scene} words={words} frames={frames} k0={k0} k1={k1} pictured={pictured} durFrames={durFrames} light={look.surface === 'light'} />
       ) : look.textStyle !== 'box' ? (
         <StyledCaption
-          ctx={textCtx(look, genre, scene.kicker)}
+          ctx={textCtx(look, genre, scene.kicker, faceBand(scene))}
           words={words}
           frames={frames}
           k0={k0}

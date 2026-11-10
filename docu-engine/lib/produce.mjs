@@ -40,14 +40,18 @@ import {
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, parse as parsePath, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ensureFoley, libraryRoot, loadLibrary, musicHistoryFor, pickSfxPools, planAmbience, planEvents, planScore, readMusicHistory, recordMusicHistory, renderScore, sceneYears, sfxMeta, storyGravity } from './audio-director.mjs';
-import { applyBreath, applyEditGrammar } from './edit-grammar.mjs';
-import { planInserts } from './inserts.mjs';
+import { ensureFoley, libraryRoot, loadLibrary, musicHistoryFor, pickSfxPools, planAmbience, planEvents, planScore, readMusicHistory, recordMusicHistory, renderScore, editGravity, sceneYears, sfxMeta } from './audio-director.mjs';
+import { applyBreath, applyEditGrammar, tightenToVoice } from './edit-grammar.mjs';
+import { planInserts, insertPicturesAhead } from './inserts.mjs';
+import { periodNegative, promptYear, yearOfEra } from './period.mjs';
 import { directLines, isV4, untagAlignment } from './voice-director.mjs';
 import { klingImageToVideo, KLING_CHEAP_MODEL } from './kling.mjs';
 import { VOICE_CHAIN_VERSION, applySpace, panVariant, processVoice, widenBed } from './sound-craft.mjs';
 import { placeTimeline } from '../src/timeline.js';
 import { openingEnd } from '../src/opening/plan.js';
+import { attachWorldMaps } from './world-map.mjs';
+import { SLOW_DIRECTION, VOICE_SPEED, detectSilences, paceFilter, paceIdentity, pacePlan, paceWords } from './pace.mjs';
+import { editScorecard, scorecardLine } from './edit-scorecard.mjs';
 import { COLLAGE_GENRES, deriveStyle, isLowResStill } from '../src/effects/variety.js';
 import { addNeed, inboxFileFor, pad as padNo, writeList } from './image-inbox.mjs';
 
@@ -59,7 +63,8 @@ const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const dbToLin = (db) => Math.pow(10, db / 20);
 const stripTags = (s) => String(s ?? '').replace(/\[[^\]]*\]/g, ' ').replace(/\s+/g, ' ').trim();
 const fmtN = (n) => Math.round(n).toLocaleString('tr-TR');
-const fmtMin = (s) => `${Math.floor(s / 60)} dk ${Math.round(s % 60)} sn`;
+// Round to whole seconds first: 599.6 s is "10 dk 0 sn", never "9 dk 60 sn" (same slip as docu-script clock).
+const fmtMin = (s) => { const t = Math.round(s); return `${Math.floor(t / 60)} dk ${t % 60} sn`; };
 const toPosix = (p) => p.split(sep).join('/');
 
 /** A cache hit is a file with content: a killed write can leave a 0-byte file behind. */
@@ -95,6 +100,38 @@ function linkOrCopy(src, dst) {
     copyFileSync(src, tmp);
   }
   renameSync(tmp, dst);
+}
+
+/*
+ * A deadline on every ffmpeg the engine waits on. spawnSync/execFileSync block the whole engine, and a hung
+ * ffmpeg sat there until Nova's 25-minute stall watchdog killed the job with no word of what hung (hang
+ * analysis of the submarine job 20261024-373aaf, 25 Oct 2026). A probe gets 60 s, a still or a short file
+ * 180 s, a pass over a long file 180 s plus its own length, never more than 20 minutes (inside the watchdog).
+ * -nostdin: ffmpeg never waits on the console. A killed run fails through its usual error path; a probe or a
+ * measurement (ffText) throws, since its callers would read the killed run's partial output as a result.
+ */
+export const FF_PROBE_MS = 60_000;
+export const FF_SHORT_MS = 180_000;
+const FF_MAX_MS = 20 * 60_000;
+/** Deadline of an ffmpeg pass over `seconds` of media (length unknown: the longest). */
+// Node wants a whole number of ms: 22,960 frames / 30 = 765.33 s gave 945333.33 and killed the Chernobyl job after its full render.
+export const ffDeadline = (seconds) => (Number(seconds) > 0 ? Math.ceil(Math.min(FF_MAX_MS, FF_SHORT_MS + Number(seconds) * 1000)) : FF_MAX_MS);
+/** Node's own "spawnSync <long ffmpeg path> ETIMEDOUT" is cut off in the logs: a run killed at its deadline says so first. */
+function deadlineNote(e, ms) {
+  if (e?.code === 'ETIMEDOUT') e.message = `ffmpeg ${Math.round(ms / 1000)} sn içinde bitmedi, durduruldu (${e.message})`;
+  return e;
+}
+/** spawnSync for ffmpeg: -nostdin, no window, a deadline. */
+function ffSync(bin, args, { timeout = FF_SHORT_MS, ...opts } = {}) {
+  const r = spawnSync(bin, ['-nostdin', ...args], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, windowsHide: true, ...opts, timeout });
+  deadlineNote(r.error, timeout);
+  return r;
+}
+/** stderr + stdout of an ffmpeg probe or measurement; a run killed at its deadline throws (no partial result). */
+function ffText(bin, args, timeout = FF_SHORT_MS) {
+  const r = ffSync(bin, args, { timeout });
+  if (r.error?.code === 'ETIMEDOUT') throw r.error;
+  return (r.stderr ?? '') + (r.stdout ?? '');
 }
 
 /**
@@ -253,14 +290,404 @@ const FACE_HIDDEN = /silhouett|from behind|back to (the )?camera|seen from the b
 /* Shots with nobody's face in them: a reference portrait would only pull the composition toward a head-and-shoulders. */
 const FACELESS = /silhouett|from behind|back to (the )?camera|seen from the back|close-up of (his|her|their|the|a|an) hands?|hands only|aerial view|extreme(ly)? wide|empty (room|street|office|corridor|hall|house|desk|chair)|no people|nobody|face (is )?(not visible|hidden|turned away)|faceless/i;
 
+/*
+ * A FACE FRAMING IS NOT HIDDEN BY A SUFFIX (2009 submarine collision, Oct 2026): "Formal portrait of the man ...,
+ * steady direct gaze, plain dark background, seen from behind or in silhouette, face not visible" — the writer's own
+ * framing stayed in front of the suffix, and the admiral's shot came back as a submarine with nobody in it. The
+ * framings that ask for a face are turned to the back before the suffix.
+ */
+const FACE_FRAMING = [
+  [/\b(?:(?:formal|official|studio|head-and-shoulders)\s+)*portrait of\b/gi, 'back view of'],
+  // "close-up of the man's face" is the back of his head; "close-up of the man's hands" shows no face and stays as asked.
+  [/\b(?:extreme\s+)?close-up of (?:the |a |an )?(man|woman|person)['’]s face\b/gi, "the back of the $1's head"],
+  [/\b(?:extreme\s+)?close-up of (?:the |a |an )?(man|woman|person)\b(?!['’])/gi, 'view from behind of the $1'],
+  [/\b(?:extreme\s+)?close-up of (his|her|their) face\b/gi, 'the back of $1 head'],
+  // "her gaze fixed on the horizon": the whole phrase goes, never the word alone ("her fixed on the horizon").
+  [/,?\s*\b(?:his|her|their)\s+(?:(?:steady|direct|intense|calm|piercing|stern|level)\s+)*gaze\b[^,;.]*/gi, ''],
+  [/,?\s*(?:with\s+)?(?:an?\s+)?(?:(?:steady|direct|intense|calm|piercing|stern|level)\s+)*gaze\b(?:\s+(?:into|at)\s+the\s+(?:camera|lens|viewer))?/gi, ''],
+  [/,?\s*(?:looking (?:straight )?(?:at|into)|facing) the (?:camera|lens|viewer)/gi, ''],
+  [/,?\s*(?:with\s+)?(?:an?\s+)?(?:composed|calm|stern|serious|neutral|warm)\s+expression|,?\s*(?:with\s+)?(?:an?\s+)?half-smile/gi, ''],
+  /*
+   * Madoff (26 Ekim 2026, 20261026-27b4d8, gorsel-kutusu #4 ve #6): "composed faint smile" ve "serious faces" gizlenen
+   * istemde kaldı — "face not visible" dedikten sonra yine yüz isteniyordu. Yüzü anlatan kısa ifade de düşer.
+   */
+  [/,?\s*(?:with\s+)?(?:(?:serious|grim|tense|anxious|worried|stern|solemn|tired|weary|drawn|pale|composed|calm|blank|stony|determined|focused|somber|sombre|shocked|stunned|tearful|smiling|joyful|exhausted|lined|weathered)\s+)+faces?\b/gi, ''],
+  [/,?\s*\bfaces? (?:lit|glowing|illuminated)\b[^,;.]*/gi, ''],
+  [/,?\s*(?:with\s+)?(?:an?\s+)?(?:(?:composed|faint|slight|tight|thin|warm|wry|knowing|confident|nervous|forced|broad)\s+)*smile\b/gi, ''],
+];
+
 /**
  * A real, photographed person must not get an invented AI face that is cut
  * against their real photos: AI shots of them hide the face. The framing is
  * appended only when the prompt does not already hide it.
+ * NOT A SILHOUETTE (Gimli 20261028-9ff721 / Kartal Yuvası 950730, 29 Oct 2026: mean luma 52-56, 21-39 % of frames
+ * under 40): "in silhouette" turned every real person's shot into a black figure against a bright window. The face
+ * is hidden by the back or the distance, in the scene's own light.
  */
+export const HIDDEN_FACE = 'seen from behind or at a distance, face not visible';
 export function hideRealFace(prompt, realInShot) {
   if (!realInShot?.length || FACE_HIDDEN.test(prompt)) return prompt;
-  return `${String(prompt).replace(/[.\s]+$/, '')}, seen from behind or in silhouette, face not visible`;
+  const asked = String(prompt);
+  let p = asked;
+  for (const [re, to] of FACE_FRAMING) p = p.replace(re, to);
+  if (p !== asked) p = p.replace(/^[\s,;]+/, '').replace(/^\p{Ll}/u, (c) => c.toUpperCase());
+  return `${p.replace(/[.\s]+$/, '')}, ${HIDDEN_FACE}`;
+}
+
+/* What a face is made of: a real person's cast text loses these parts in AI shots. */
+const FACE_PART = /\b(face|faced|facial|gaze|eyes|eyed|hair|haired|beard|bearded|moustache|mustache|clean-shaven|stubble|smile|smiling|expression|portrait|jaw|jawline|brows?|eyebrows|lips|cheekbones|complexion|wrinkles|freckles|glasses|spectacles|bald|balding)\b/i;
+
+/**
+ * A real person's cast text for a shot that hides the face: build, age,
+ * clothes and setting stay, every part about the face goes ("clean-shaven,
+ * lined face with a steady direct gaze" sat right after "face not visible").
+ */
+export function bodyOnly(desc) {
+  // "A tall man in his sixties with a grey beard": the "with" phrase goes, the man stays.
+  const parts = String(desc ?? '').split(/[,;]/)
+    .map((x) => x.split(/\s+(?=with\b)/i).filter((y) => !FACE_PART.test(y)).join(' ').replace(/[.\s]+$/, '').trim())
+    .filter(Boolean);
+  return [...parts, 'face not shown'].join(', ');
+}
+
+/*
+ * GERÇEK KİŞİ CAST'TA OLMASA DA YÜZSÜZ (Madoff, 26 Ekim 2026, 20261026-27b4d8): "[quietly] On December 10, 2008, Madoff
+ * told his sons, Mark and Andrew, the truth." satırının ardındaki arşiv sahnesi ("Mark Madoff Andrew Madoff 2008")
+ * fotoğraf bulamayıp AI'a düştü; "Medium shot of two men in their forties in business suits ... serious faces" istemi
+ * yüz gizlenmeden ChatGPT görsel kutusuna gitti (needed.json #6). hideRealFace yalnızca sahnenin cast'ındaki gerçek
+ * kişiye bakıyordu; iki gerçek oğul hiçbir cast listesinde yoktu. Lula'da (20261026-29db03) cast boştu: Lula ve
+ * Bolsonaro'lar anlatılırken AI benzemeyen adamlar çizdi (ön izleme bir karede Justin Trudeau gördü).
+ * Kural: sahnenin anlatımı, ekran yazısı, arşiv araması, isim kartı ya da istemi gerçek bir kişinin adını taşıyorsa —
+ * ya da ad bir önceki satırda geçti ve bu satır onu "he / his / the son" diye sürdürüyorsa — ve istem birini
+ * gösteriyorsa, AI karesi yüzü gizler (hideRealFace). Kimsenin adının geçmediği sahne, adsız kalabalık ve "an anonymous
+ * examiner" olduğu gibi kalır (önbellek anahtarı da).
+ * Gerçek adlar (realPeople): script.realCast (docu-script.js realCastOf yazar; aynı kurallar), arşive düşen ya da
+ * aramada adıyla geçen cast anahtarları, isim kartları, alıntı sahibi, unvanla ("Senator Flávio Bolsonaro") ya da
+ * akrabalıkla ("his sons, Mark and Andrew", "Jair Bolsonaro's eldest son") anılan adlar ve portre araması ("Harry
+ * Markopolos 2009 portrait"). Bu adlardan birini taşıyan arama da adı taşır ("Mark Madoff Andrew Madoff 2008" → Madoff).
+ */
+const fold = (s) => String(s ?? '').normalize('NFD').replace(/\p{M}+/gu, '');
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/* A name word: capitalised, with a small letter after it — an acronym (SEC, FBI, PT) is never a person. */
+const NAME_WORD = String.raw`\p{Lu}(?:['’]\p{Lu})?[\p{L}-]*\p{Ll}[\p{L}-]*`;
+const PARTICLE = String.raw`(?:da|de|do|dos|das|del|della|di|du|van|von|der|den|ter|le|la|bin|ibn|al|el)`;
+/* "Luiz Inácio Lula da Silva": up to four name words, particles between them. */
+const NAME_RUN = String.raw`${NAME_WORD}(?:\s+(?:${PARTICLE}\s+)?${NAME_WORD}){0,3}`;
+const EDGE_L = String.raw`(?<![\p{L}\p{N}])`;
+const EDGE_R = String.raw`(?![\p{L}\p{N}])`;
+/* A title in front of a name. The common political ones also lowercase ("former president Jair Bolsonaro"). */
+const TITLE_UPPER = ['Vice President', 'Prime Minister', 'Senator', 'Sen', 'President', 'Minister', 'Governor', 'Mayor', 'Judge', 'Justice', 'Chancellor', 'King', 'Queen', 'Prince', 'Princess', 'Emperor', 'Empress', 'Tsar', 'Czar', 'Pope', 'Cardinal', 'Archbishop', 'Bishop', 'General', 'Admiral', 'Colonel', 'Col', 'Captain', 'Capt', 'Lieutenant', 'Lt', 'Sergeant', 'Sgt', 'Commander', 'Marshal', 'Sheriff', 'Detective', 'Dr', 'Doctor', 'Professor', 'Prof', 'Rev', 'Reverend', 'Mr', 'Mrs', 'Ms', 'Sir', 'Dame', 'Lord', 'Lady', 'Ayatollah', 'Sheikh', 'Sultan', 'Rabbi', 'Imam'];
+const TITLE_LOWER = ['vice president', 'prime minister', 'senator', 'president', 'minister', 'governor', 'mayor', 'judge', 'chancellor'];
+/* Only an abbreviation takes a full stop: "Dr. Legasov", never "Justice. Words the conquerors brought" (Hastings). */
+const TITLE_ABBR = new Set(['Sen', 'Col', 'Capt', 'Lt', 'Sgt', 'Dr', 'Prof', 'Rev', 'Mr', 'Mrs', 'Ms']);
+const TITLE = String.raw`(?:${[...TITLE_UPPER, ...TITLE_LOWER].map((t) => `${escapeRe(t)}${TITLE_ABBR.has(t) ? String.raw`\.?` : ''}`).join('|')})`;
+/*
+ * A country or its people is never a person's name word (review, 27 Ekim 2026, before the Israel 2026 election video):
+ * "Defense Minister Israel Katz" made "Israel" a name token, so every AI person shot of every scene saying "Israel" hid its
+ * face; "Israel's sons and daughters", "Gaza's children", "America's sons" made the place a person. Katz stays a person by
+ * "Katz". Not words that are often surnames or first names too (Jordan, Georgia, Paris, Washington, French, English,
+ * German, Christian). Mirrored in src/pipeline/docu-script.js PLACE_WORDS and src/pipeline/docu-archive.js YER_ADI.
+ */
+const PLACE_NAMES = 'israel israeli israelis gaza palestine palestinian palestinians iran iranian iranians iraq iraqi syria syrian lebanon lebanese egypt egyptian yemen yemeni saudi saudis arabia arab arabs qatar qatari oman turkey turkiye turkish russia russian russians ukraine ukrainian ukrainians belarus china chinese taiwan japan japanese korea korean india pakistan pakistani afghanistan afghan america american americans britain british england scotland ireland irish france germany italy italian spain spanish portugal europe european africa african asia brazil brazilian argentina mexico mexican canada canadian venezuela venezuelan cuba cuban hungary hungarian poland polish soviet jewish muslim houthi houthis idf jerusalem tel aviv moscow beijing tehran kyiv kiev hamas hezbollah kremlin'.split(' ');
+const PLACE = new Set(PLACE_NAMES);
+/* Words that are never a person's name, even capitalised: titles, small words, months, places and bodies in names. */
+const NAME_STOP = new Set([
+  ...PLACE_NAMES,
+  ...TITLE_UPPER.flatMap((t) => t.toLowerCase().split(' ')),
+  ...'the a an and or but so then now yet still in on at of for from by with to into after before when while during since until as his her their its our my your this that these those there here what who whom why how where which it he she they we you mr mrs ms sir dame lord lady saint st jr sr ii iii iv remember meanwhile however today tonight yesterday tomorrow later earlier'.split(' '),
+  ...'january february march april may june july august september october november december monday tuesday wednesday thursday friday saturday sunday'.split(' '),
+  ...'court house senate congress parliament assembly building tower palace square street avenue road bridge river lake mountain station airport hospital university college school church cathedral museum bank exchange market office department ministry committee council commission agency bureau police army navy force party group company corporation inc ltd llc fund foundation institute center centre hall plant reactor unit prison jail federal national supreme state city county republic kingdom union united states new old north south east west central great royal international world global times post journal news daily magazine tribune herald press gazette globe portrait motors electric staff will hope grace faith joy bill'.split(' '),
+]);
+/* A narrated link to a named person: "his sons, Mark and Andrew" / "Jair Bolsonaro's eldest son". */
+const KIN = String.raw`(?:sons?|daughters?|wife|husband|widow|brothers?|sisters?|father|mother|parents|children|nephew|niece|grandson|granddaughter|cousin|lawyer|attorney|deputy|aide|assistant|partner|accountant|secretary)`;
+/*
+ * The possessive form takes FAMILY words only (review, 27 Ekim 2026, before the Israel 2026 election video): a work word
+ * after "'s" names an office, not a person's relative — "Israel's attorney general", "Brazil's deputy foreign minister",
+ * "Apple's lawyer" made a country or a company a "real person", and every AI person shot of a scene naming it hid its
+ * face. "Madoff's sons" (20261026-27b4d8) still names Madoff. "his lawyer, Ira Sorkin" (KIN_NAMED) keeps the work words:
+ * there the name after the word is the person. Mirrored in src/pipeline/docu-script.js NAME_CUES.
+ */
+const FAMILY = String.raw`(?:sons?|daughters?|wife|wives|husband|widow|widower|brothers?|sisters?|father|mother|parents|children|nephews?|nieces?|grandsons?|granddaughters?|grandchildren|cousins?|stepsons?|stepdaughters?)`;
+const KIN_OF = new RegExp(String.raw`${EDGE_L}(${NAME_RUN})['’]s\s+(?:\p{Ll}+\s+){0,2}${FAMILY}${EDGE_R}`, 'gu');
+const KIN_NAMED = new RegExp(String.raw`${EDGE_L}(?:[Hh]is|[Hh]er|[Tt]heir)\s+(?:\p{Ll}+\s+){0,2}${KIN},?\s+(${NAME_RUN})(?:\s*(?:,|and|&)\s*(${NAME_RUN}))?`, 'gu');
+const TITLED = new RegExp(String.raw`${EDGE_L}${TITLE}\s+(?:Sir\s+)?(${NAME_RUN})`, 'gu');
+/* "Harry Markopolos 2009 portrait": the search's first two name words are the sitter. */
+const PORTRAIT = new RegExp(String.raw`^\s*(?:${TITLE}\s+)?(${NAME_WORD}\s+(?:${PARTICLE}\s+)?${NAME_WORD})${EDGE_R}(?=.*\bportrait\b)`, 'u');
+/* A name card / quote author is a person only when it reads like one: name words, particles, initials. */
+const PERSONLIKE = new RegExp(String.raw`^(?:${TITLE}\s+)?(?:${NAME_WORD}|\p{Lu}\.|${PARTICLE})(?:\s+(?:${NAME_WORD}|\p{Lu}\.|${PARTICLE})){0,5}$`, 'u');
+/* Cast keys like "ananenko_young", "worker_1938", "crs_officer": only the words that can be a name count. */
+const KEY_GENERIC = /^(?:young|younger|old|older|elder|early|late|jr|sr|senior|junior|child|children|teen|adult|middle|aged?|man|men|woman|women|boy|girl|\d+s?|student|officer|crs|police|policeman|guard|soldier|worker|firefighter|fireman|nurse|doctor|farmer|priest|monk|knight|ceo|lawyer|judge|investor|trader|banker|clerk|driver|pilot|diver|engineer|miner|sailor|survivor|witness|victim|mother|father|son|daughter|wife|husband|protester|rioter|villager|peasant|merchant|agent|detective|reporter|journalist|official|minister|president|general|admiral|captain|narrator|host|crowd|operator|scientist|analyst|examiner|regulator|executive)$/;
+
+const nameWords = (name) => (fold(name).match(new RegExp(NAME_WORD, 'gu')) ?? []).filter((w) => w.length >= 3 && !NAME_STOP.has(w.toLowerCase()));
+/* A body or a place is not a person: "World Health Organization", "International Energy Agency" (quote authors), "King Fahd Airport". */
+const ORG_WORD = /\b(?:agency|organi[sz]ation|association|institute|committee|council|commission|ministry|department|office|bureau|service|authority|administration|court|bank|fund|group|company|corporation|foundation|university|airport|party|police|army|navy|union|network|news|times|post|journal|press|international|national|federal|world)\b/i;
+const personName = (n) => nameWords(n).length > 0 && !ORG_WORD.test(fold(n));
+/** A cast key's word as written in text: "madoff" → Madoff, "mcdonald" → McDonald too. */
+const keyWordRe = (w) => new RegExp(`${EDGE_L}${w[0].toUpperCase()}${[...w.slice(1)].map((c) => (/[a-z]/.test(c) ? `[${c}${c.toUpperCase()}]` : escapeRe(c))).join('')}${EDGE_R}`, 'u');
+const wordRe = (w) => new RegExp(`${EDGE_L}${escapeRe(w)}${EDGE_R}`, 'u');
+/** Everything a scene says or searches about who is in it (folded: "Flavio" finds "Flávio"). */
+const sceneText = (sc) => fold([stripTags(sc?.say), sc?.text, sc?.caption, sc?.search, sc?.commons, sc?.name, sc?.who, sc?.quote, sc?.imagePrompt].filter((x) => typeof x === 'string' && x).join(' \n '));
+
+/** People named by a title or a family/working link in one line of narration. */
+export function cuedNames(text) {
+  const t = String(text ?? '');
+  const out = [];
+  for (const re of [TITLED, KIN_OF, KIN_NAMED]) for (const m of t.matchAll(re)) out.push(...m.slice(1).filter(Boolean));
+  return out.filter(personName);
+}
+
+/**
+ * The real people of a script: `keys` — cast keys that are real people (their AI shots hide the face and their
+ * description loses its face, bodyOnly); `names` — real people named anywhere, in cast or not; `tokens` — the
+ * name words a scene is searched for (namedAt).
+ */
+export function realPeople(script) {
+  const cast = script?.cast ?? {};
+  const scenes = script?.scenes ?? [];
+  const listed = (Array.isArray(script?.realCast) ? script.realCast : []).map(String);
+  const names = new Set(listed.filter((n) => !cast[n] && personName(n)));
+  for (const sc of scenes) {
+    for (const v of [sc.name, sc.who]) {
+      const n = String(v ?? '').split(/[,(]/)[0].trim();
+      if (n && PERSONLIKE.test(n) && personName(n)) names.add(n);
+    }
+    for (const t of [stripTags(sc.say), sc.text, sc.caption]) for (const n of cuedNames(t)) names.add(n);
+    const sitter = typeof sc.search === 'string' ? sc.search.match(PORTRAIT)?.[1] : null;
+    if (sitter && personName(sitter) && nameWords(sitter).length === 2) names.add(sitter);
+  }
+  // A cast member is real when listed, cast on an archive scene, or searched/carded by name ("Harry Markopolos 2009 portrait").
+  const evidence = fold([...scenes.flatMap((sc) => [sc.search, sc.commons]), ...names].filter((x) => typeof x === 'string').join(' \n '));
+  // A place or its people in a key is not a name (review, 27 Ekim 2026): "israeli_voter", "tel_aviv_protester" and
+  // "idf_soldier" were real people, because "Israeli", "Tel Aviv" and "IDF" are in the searches (PLACE_NAMES).
+  const keyWords = (k) => k.split('_').filter((w) => w.length >= 3 && !KEY_GENERIC.test(w) && !PLACE.has(w));
+  const keys = new Set([...listed, ...scenes.filter((s) => s.archived || s.source === 'archive').flatMap((s) => s.cast ?? [])].filter((n) => cast[n]));
+  for (const k of Object.keys(cast)) if (keyWords(k).some((w) => keyWordRe(w).test(evidence))) keys.add(k);
+  // A search that names someone by a known name word ("Mark Madoff Andrew Madoff 2008" → Madoff) is found by
+  // that word; a full name nobody titles, cards or links stays unknown — "Brazil Lula rally" must not make Brazil a person.
+  const tokens = new Map();
+  for (const n of names) for (const w of nameWords(n)) tokens.set(w, wordRe(w));
+  for (const k of keys) for (const w of keyWords(k)) tokens.set(w[0].toUpperCase() + w.slice(1), keyWordRe(w));
+  return { keys: [...keys], names: [...names], tokens: [...tokens].map(([word, re]) => ({ word, re })) };
+}
+
+/* "He won it" / "His sons…" / "the father in 2022, the son in 2026": the line goes on about someone named before it. */
+const REFERS = /^[\s"“'‘]*(?:(?:and|but|then|so|yet|later|now|still|instead|soon|there|here),?\s+)?(?:he|she|his|her|him)\b|\bthe (?:father|sons?|mother|daughters?|brothers?|sisters?|widow|wife|husband)\b/i;
+
+/**
+ * The real people a scene names: its own words, else — when the line refers back ("he", "the son") — those of the
+ * spoken lines before it (chapter cards and silent devices skipped, at most three lines back).
+ */
+export function namedAt(scenes, i, people) {
+  if (!people?.tokens?.length) return [];
+  for (let k = i, hop = 0; k >= 0 && hop <= 3; hop++) {
+    const sc = scenes[k];
+    const text = sceneText(sc);
+    const found = people.tokens.filter((t) => t.re.test(text)).map((t) => t.word);
+    if (found.length) return found;
+    if (!REFERS.test(stripTags(sc?.say))) return [];
+    do k--; while (k >= 0 && !stripTags(scenes[k]?.say));
+  }
+  return [];
+}
+
+/*
+ * ANLATIM RESMİN TARİFİ DEĞİLDİR (inceleme, 27 Ekim 2026, 24 eski işin istemleri): kesme kareleri (lib/inserts.mjs)
+ * satırı tırnakla taşır — `The moment: "We'll rebuild that night minute by minute..."` — ve ön izleme kapısı istemin
+ * sonuna " — it must plainly show what the narration says: …" ekler (docu-preview.js aiNote). Tırnak "okunur yazı
+ * istendi" sayılınca 21 kesme karesinin satırı siliniyordu ("The moment, any writing blurred and unreadable": D.B.
+ * Cooper 20260930-08f5fc #5, Banco Master 20261011-b48aac #3); Lula'da (20261026-29db03 #132) anlatımdaki "But he will
+ * govern" seçmen kuyruğunu "kişi gösteren kare" yapıyordu. Yazı, gazete, kişi ve adsızlık kararları yalnızca resmin
+ * kendi tarifine bakar; anlatım kelimesi kelimesine kalır, yalnızca gazete adı "a newspaper" olur.
+ */
+const NARRATION_NOTE = /\s+[—–]\s+(?:a clear, well-exposed picture\b[^—–]*[—–]\s+)?it must plainly show what the narration says:|\.\s+The moment:\s*["“]/i;
+/** [the picture's own words, the narration the prompt carries after them ('' when none)]. */
+export function pictureAndNote(prompt) {
+  const p = String(prompt ?? '');
+  const m = p.match(NARRATION_NOTE);
+  return m ? [p.slice(0, m.index), p.slice(m.index)] : [p, ''];
+}
+
+/* Somebody the writer made anonymous on purpose stays as asked. */
+const ANONYMOUS = /\b(?:anonymous|unidentified|unnamed|nameless|faceless)\b/i;
+const CROWD = /\b(?:crowds?|crowded|throngs?|masses|audiences?|spectators|onlookers|passers-?by|commuters|shoppers|supporters|protesters|demonstrators|voters|mourners|rows of|lines? of|queues?|queuing|lined up)\b/i;
+/*
+ * A person word in front of a thing names the thing: "Official patent documents" (Tesla, 20260930-25116f #53), "an
+ * official government case form" and "a cluttered analyst desk" (Madoff #2, #51), "the Lehman Brothers headquarters".
+ */
+const OF_A_THING = String.raw`(?!\s+(?:government\s+)?(?:desks?|chairs?|tables?|offices?|rooms?|cars?|badges?|documents?|forms?|papers?|files?|folders?|notebooks?|ledgers?|letters?|seals?|stamps?|records?|reports?|statements?|photos?|photographs?|lighting|headquarters|buildings?|towers?|logos?|signs?|patents?|mortgages?|case)\b)`;
+// "A judge's empty high-backed leather chair" (Bakker, 20261006-af567d) shows nobody: an owner's 's is not a person.
+const SOMEONE = new RegExp(String.raw`\b(?:man|woman|person|figure|boy|girl|gentleman|lady|he|she|him)\b(?!['’]s)|\b(?:a|an|the|elderly|older|young)\s+couple\b(?!\s+of)|\b(?:two|three|four|both)\s+(?:[\w-]+\s+){0,3}?(?:men|women|people|brothers|sons|sisters|daughters|figures)\b${OF_A_THING}|\bthe\s+(?:[\w-]+\s+){0,2}?(?:men|women|brothers|sons|sisters|daughters)\b(?!['’]s?)${OF_A_THING}`, 'i');
+const PERSON_NOUN = new RegExp(String.raw`\b(?:senators?|presidents?|ministers?|governors?|mayors?|lawyers?|attorneys?|judges?|bankers?|financiers?|officials?|politicians?|engineers?|officers?|admirals?|soldiers?|divers?|scientists?|doctors?|investigators?|examiners?|trustees?|leaders?|kings?|queens?|emperors?|popes?|priests?|chancellors?|candidates?|defendants?|prisoners?|businessm[ae]n|businesswom[ae]n|analysts?|reporters?|journalists?|pilots?|captains?|commanders?|liquidators?|firefighters?|workers?|sons?|daughters?|fathers?|mothers?|wife|wives|husbands?|widows?|brothers?|sisters?|supervisors?|men|women)\b(?!['’])${OF_A_THING}`, 'i');
+/** The shot shows a person (or two), not only a crowd, a place or a thing — by the picture's own words, never the narration's. */
+export function showsPerson(prompt) {
+  const [p] = pictureAndNote(prompt);
+  return SOMEONE.test(p) || (PERSON_NOUN.test(p) && !CROWD.test(p));
+}
+
+/** A shot of a scene that names real people hides the face of whoever it shows (hideRealFace). */
+export function hideNamedFaces(prompt, named) {
+  if (!named?.length || ANONYMOUS.test(pictureAndNote(prompt)[0]) || !showsPerson(prompt)) return prompt;
+  return hideRealFace(prompt, named);
+}
+
+/*
+ * AI GAZETESİ YOK (Çernobil, 26 Ekim 2026, 20261026-24122a): "On 2 May, the New York Post announced a mass grave for
+ * fifteen thousand." satırının istemi "Close-up of a 1980s tabloid front page on a newsstand, bold black headline type
+ * blurred" idi; 3:45'te anlamsız manşetli ("NTD THE BLENS") bulanık bir AI gazete çıktı — gerçek bir gazetenin sahte
+ * nüshası, uydurma belge. Gerçek gazete arşivden ya da headline cihazından gelir (o cihaza dokunulmaz). AI karesinde ön
+ * sayfa, manşet, dergi kapağı ya da yayın adı katlanmış, baskısı odak dışı bir gazete yığınına döner; okunur yazı
+ * istenen belge, afiş ya da tabela yazısız kalır. Böyle bir istem yoksa istem (ve önbellek anahtarı) aynen kalır.
+ */
+const PUBLICATION = /(?:\b[Tt]he\s+)?\b(?:New York (?:Times|Post|Daily News)|Washington Post|Wall Street Journal|Los Angeles Times|Chicago Tribune|USA Today|Boston Globe|Daily (?:Mail|Mirror|Telegraph|Express)|Evening Standard|Financial Times|The (?:Guardian|Times|Economist|Observer|Independent)(?!\s+Square)|Le Monde|Le Figaro|Der Spiegel|Die Zeit|Bild-Zeitung|Pravda|Izvestia|Folha de S\.? ?Paulo|O Globo|Estad[aã]o|Newsweek|TIME magazine|Time magazine|Life magazine|Rolling Stone|H[uü]rriyet|Cumhuriyet|Milliyet)\b/;
+// "Folded tabloid newspapers" are newspapers, not a front page (2009 submarine, 20261024-373aaf #83).
+const PAPER_FACE = /\b(?:front[- ]pages?|headlines?|mastheads?|magazine covers?|covers? of (?:a |an |the )?(?:[\w-]+\s+){0,2}magazines?|(?:tabloids?|broadsheets?)(?!\s+(?:news)?papers?)|(?:newspaper|press) clippings?)\b/i;
+/* The printed thing itself, as the subject of a clause: "a 1980s tabloid front page" → "a stack of folded 1980s newspapers". */
+const PAPER_NOUN = /(?:\b(?:a|an|the)\s+)?((?:\b(?!(?:a|an|the|of|on|in|at|with|and|from|by)\b)[\w-]+\s+){0,3}?)(?:(?:tabloid|newspaper|broadsheet|magazine|paper)\s+)?\b(?:front[- ]pages?|magazine covers?|covers?|mastheads?|headlines?|(?:tabloids?|broadsheets?)(?!\s+(?:news)?papers?)|(?:newspaper|press) clippings?)\b/i;
+/*
+ * A headline the writer already keeps unreadable asks for no record: "a rack of 1972 newspapers…, headlines blurred and
+ * unreadable" (D.B. Cooper #99), "a bundle of newspapers…, headlines unreadable" (Bakker #71), "the headline too blurred
+ * to read" (Tesla #140) were rewritten anyway — same picture, new cache key, paid again on a re-render. A front page,
+ * masthead, cover or tabloid page is a record even blurred (Çernobil #44: "bold black headline type blurred").
+ */
+const PRINT_HIDDEN = /\b(?:blurr(?:ed|y)|unreadable|illegible|out of focus|not readable|too (?:blurred|small|far away|far) to read)\b/i;
+const RECORD_FACE = /\b(?:front[- ]pages?|mastheads?|magazine covers?|covers? of|(?:tabloids?|broadsheets?)(?!\s+(?:news)?papers?)|clippings?)\b/i;
+const asksPrintedFace = (picture) => picture.split(/,\s*/).some((c) => PAPER_FACE.test(c) && (RECORD_FACE.test(c) || !PRINT_HIDDEN.test(c)));
+const PRINT_WORDS = /\b(?:headlines?|mastheads?|type|typeface|lettering|letters|text|print|printed|words|titles?|captions?|logos?|fonts?|columns?|readable|legible)\b/i;
+/*
+ * Readable writing asked for: quoted words, "that reads", "with the words", "legible". A negation is not a request:
+ * "no readable text", "unreadable", "no screens readable" (2009 submarine, 20261024-373aaf #12).
+ */
+const NOT_ASKED = String.raw`(?<!\b(?:no|not|non|never|nothing|without)\b[^,;.]{0,30})`;
+const READABLE = new RegExp(String.raw`["“][^"“”]{2,}["”]|‘[^‘’]{2,}’|\b(?:reading|titled|headlined|captioned|labell?ed|stamped|inscribed|emblazoned)\s+(?:with\s+)?['"“‘]|\b(?:that|which)\s+(?:reads|says)\b|\bwith the (?:words?|headline|title|slogan|caption|name)\b|${NOT_ASKED}\b(?:legible|readable)\b|${NOT_ASKED}\bclearly visible (?:text|words|writing|lettering)\b`, 'i');
+const WRITTEN_THING = /\b(?:documents?|letters?|memos?|telegrams?|forms?|reports?|files?|dossiers?|certificates?|contracts?|ledgers?|pages?|signs?|notes?|placards?|banners?|posters?|billboards?|leaflets?|pamphlets?|flyers?|plaques?|screens?|statements?|cheques?|checks?|envelopes?|labels?|newspapers?|magazines?|books?|cards?)\b/i;
+const ERA_WORD = /^(?:\d{2,4}s?|\d{4}-era|old|older|yellowed|vintage|faded|crumpled|period|wartime|soviet|american|british|french|german|russian|brazilian|ukrainian|local)$/i;
+const tidy = (p) => p.replace(/\s+([,.;:])/g, '$1').replace(/([,;:])\s*[,;:]+/g, '$1').replace(/\s{2,}/g, ' ').replace(/^[\s,;:]+|[\s,;:.]+$/g, '').replace(/^\p{Ll}/u, (c) => c.toUpperCase());
+
+/** An AI still never fakes a printed record: no newspaper front page, headline, magazine cover or readable document. */
+export function noPrintedRecord(prompt) {
+  // The narration (pictureAndNote) stays word for word but for a publication's name: its masthead is never asked for.
+  const [asked, note] = pictureAndNote(prompt);
+  const told = note.replace(new RegExp(PUBLICATION.source, 'g'), 'a newspaper');
+  if (asksPrintedFace(asked) || PUBLICATION.test(asked)) {
+    const named = asked
+      .replace(new RegExp(PUBLICATION.source, 'g'), 'a newspaper')
+      .replace(/\b(?:a|an|the)\s+(?:front[- ]pages?|covers?)\s+of\s+(?:a|an|the)\s+(?:[\w-]+\s+){0,2}?(?:newspapers?|papers?|tabloids?|magazines?)\b/gi, 'a stack of folded newspapers');
+    const stack = (c) => c.replace(PAPER_NOUN, (m, adj) => `a stack of folded ${adj.split(/\s+/).filter((w) => ERA_WORD.test(w)).map((w) => `${w} `).join('')}newspapers`);
+    const [head, ...rest] = named.split(/,\s*/);
+    // The subject keeps its framing and place; a clause about the print itself ("bold black headline type blurred") goes.
+    const subject = stack(head.replace(/\s*\b(?:with|showing|bearing)\s+(?:(?:a|an|the)\s+)?(?:[\w-]+\s+){0,3}?(?:headlines?|mastheads?|titles?|text|lettering)\b/gi, ''));
+    const kept = rest.filter((c) => !PRINT_WORDS.test(c)).map(stack);
+    return `${tidy(`${[subject, ...kept].join(', ')}, the print out of focus, no readable text, no masthead, no headline, no logo`)}${told}`;
+  }
+  // A line about the papers ("the New York Post announced…", "the headlines called him a hero") asks for a page: any
+  // page the picture brings in stays unreadable.
+  const unreadable = /\b(?:no readable|unreadable|illegible)\b|\b(?:headlines?|print|text|type|writing)\b[^,;.]{0,25}\b(?:blurr(?:ed|y)|out of focus)\b/i.test(asked);
+  const papered = note && !unreadable && (PAPER_FACE.test(note) || told !== note);
+  const withPapers = (s) => (papered ? `${s.replace(/[.\s]+$/, '')}, any printed page out of focus, no readable text, no masthead` : s);
+  if (READABLE.test(asked) && WRITTEN_THING.test(asked)) {
+    const quiet = asked
+      .replace(/\s*(?:\b(?:reading|that reads|which reads|that says|which says|titled|headlined|captioned|labell?ed|stamped|inscribed|emblazoned)\s+)?(?:with\s+)?(?:["“][^"“”]*["”]|‘[^‘’]*’)/gi, '')
+      .replace(/\s*\b(?:reading|titled|headlined|captioned|labell?ed|stamped|inscribed|emblazoned)\s+(?:with\s+)?'[^']*'/gi, '')
+      .replace(/\s*\b(?:that|which)\s+(?:reads|says)\b[^,;.]*/gi, '')
+      .replace(/\s*\bwith the (?:words?|headline|title|slogan|caption|name)\b[^,;.]*/gi, '')
+      .replace(/\s*\bclearly visible (?:text|words|writing|lettering)\b/gi, '')
+      .replace(new RegExp(String.raw`${NOT_ASKED}\b(?:legible|readable)\b`, 'gi'), 'blurred');
+    return withPapers(`${tidy(`${tidy(quiet)}, any writing blurred and unreadable`)}${told}`);
+  }
+  return withPapers(`${asked}${told}`);
+}
+
+/**
+ * The prompt an AI still is asked with — the same for OpenAI, FLUX and the ChatGPT inbox (sceneImage writes the
+ * inbox from it): no printed record (a headline device keeps its own page), and the faces of named real people hidden.
+ */
+export function stillPrompt(prompt, { scene, named = [] } = {}) {
+  const p = scene?.type === 'headline' ? String(prompt ?? '') : noPrintedRecord(prompt);
+  return hideNamedFaces(p, named);
+}
+
+/*
+ * A BRIGHT, EXPOSED STILL (Gimli 20261028-9ff721 / Kartal Yuvası 950730, 29 Oct 2026: the last 7 videos measured mean
+ * luma 52-75, saturation 2.5-7.5, 21-39 % of frames under luma 40; the best one, Panama, 88 / 10.2 in natural colour).
+ * The writer's visualStyle rode on every request with "deep shadows", "low-key", "noir", "moody", "harsh flash against
+ * black", "green-black". The REQUEST TEXT drops every clause that carries one and asks for exposure; the cache keys keep
+ * the raw STYLE, so stills already made are not asked (and paid) again. A black-and-white style (an archive before
+ * colour film) is asked bright with clear midtones, not in colour.
+ */
+const DARK_LOOK = [/\bdeep\s+(?:black\s+)?shadows?\b/i, /\blow[- ]key\b/i, /\bnoir\b/i, /\bmood(?:y|ily)\b/i, /\bharsh\b[^,.;]*\bagainst\b[^,.;]*\bblack\b/i, /\bgreen[- ]black\b/i, /\bcrushed\s+blacks?\b/i, /\bunder-?exposed\b/i];
+const DARK_ADJ = /\s*\b(?:mood(?:y|ily)|noir|low[- ]key|green[- ]black|under-?exposed)\b\s*/gi;
+const MONO_LOOK = /\b(?:black[- ]and[- ]white|black & white|b&w|monochrome|sepia|gr[ae]yscale|tintype|daguerreotype|cyanotype|tri-x)\b/i;
+export const EXPOSURE = 'Bright, well-exposed, natural colour.';
+export const EXPOSURE_MONO = 'Bright, well-exposed, clear midtones.';
+export function exposedStyle(style) {
+  const s = String(style ?? '').trim();
+  if (!s) return s;
+  const bad = (c) => DARK_LOOK.some((re) => re.test(c));
+  const clean = !bad(s)
+    ? s
+    : s
+        .split(/(?<=\.)\s+/)
+        .map((sentence, si) => {
+          const end = /\.$/.test(sentence) ? '.' : '';
+          const clauses = (end ? sentence.slice(0, -1) : sentence).split(/\s*[,;]\s*/);
+          // The head clause names the medium ("Moody noir documentary photograph"): it loses the words, not the clause.
+          const kept = clauses.map((c, ci) => (si === 0 && ci === 0 && bad(c) ? c.replace(DARK_ADJ, ' ').replace(/\s{2,}/g, ' ').trim() : c)).filter((c) => c && !bad(c));
+          if (kept.length && si === 0) kept[0] = kept[0].replace(/^\p{Ll}/u, (ch) => ch.toUpperCase());
+          return kept.length ? `${kept.join(', ')}${end}` : '';
+        })
+        .filter(Boolean)
+        .join(' ');
+  if (/\bwell[- ]exposed\b/i.test(clean)) return clean;
+  return `${clean} ${MONO_LOOK.test(clean) ? EXPOSURE_MONO : EXPOSURE}`.trim();
+}
+
+/*
+ * TODAY'S THINGS IN A STORY OF TODAY (Eagle's Nest fire, Oct 2026): "no modern objects" rode on every still, the
+ * 2026 police roadblocks and fire engines too — the preview gate found torch-lit riders for "police had detained a
+ * man" and a 1980s American patrol car on a Bavarian road. A scene from PRESENT_FROM on asks for the things of its
+ * own year instead. Request text only: every cache key keeps the plain style, so pictures already made stay theirs.
+ * Every year's request is also exposed (exposedStyle).
+ */
+export const PRESENT_FROM = 1990;
+export function styleFor(style, year) {
+  const s = exposedStyle(style);
+  if (year == null || !Number.isFinite(year) || year < PRESENT_FROM) return s;
+  return `${s.replace(/,?\s*\bno modern objects\b/gi, '').replace(/\.\s*\./g, '.')} Set in ${year}: vehicles, uniforms and equipment as they look in ${year}.`.trim();
+}
+
+/*
+ * The mean luma under which a still is lifted (liftIfDark). Was 62: Gimli 20261028-9ff721 / Kartal Yuvası 950730
+ * (29 Oct 2026) measured 52-56 across the whole video, so a still at 62 still sank under the grade. The target mid
+ * luma is ~88 (Panama, the channel's best-looking video); 85 opens everything below it.
+ */
+export const LIFT_FLOOR = 85;
+/** The gamma a still of mean luma `yavg` is opened with (1 = untouched), at most 1.9. */
+export function liftGamma(yavg, floor = LIFT_FLOOR) {
+  if (!Number.isFinite(yavg) || yavg >= floor) return 1;
+  return Number(Math.min(1.9, 1 + (floor - yavg) / 55).toFixed(2));
+}
+
+/*
+ * SİYAH-BEYAZ KAYNAK (scene.monoSource; looks/resolve.ts sceneGrade). Gimli 9ff721 önce/sonra, 29 Ekim 2026: hattın
+ * hiçbir adımı bayrağı yazmıyordu. Uygulama (src/pipeline/media.js isMonochrome, aynı eşikler) arşiv adımında ölçer;
+ * motor yalnızca bayrağı olmayan eski bir işin gerçek arşiv resmini, diskteki dosyanın 96 px kopyasında ffmpeg
+ * signalstats ile ölçer. Gerçekten gri: SATAVG < 4, SATHIGH < 10, SATMAX < 48 (gri pistte küçük kırmızı uçak renkli
+ * kalır). Ölçülemezse bayrak konmaz: renkli sayılır (yanlış "mono" renkli fotoğrafı griye boyardı).
+ */
+export const MONO_SAT_MAX = 4;
+export const MONO_SAT_HIGH_MAX = 10;
+export const MONO_SAT_PEAK_MAX = 48;
+/** signalstats çıktısı → true (siyah-beyaz), false (renkli), null (ölçüm yok). */
+export function monoFromSignalstats(text) {
+  const num = (k) => {
+    const m = String(text ?? '').match(new RegExp('lavfi\\.signalstats\\.' + k + '=([0-9.]+)'));
+    return m ? Number(m[1]) : NaN;
+  };
+  const avg = num('SATAVG');
+  if (!Number.isFinite(avg)) return null;
+  const high = num('SATHIGH');
+  const peak = num('SATMAX');
+  return avg < MONO_SAT_MAX && (!Number.isFinite(high) || high < MONO_SAT_HIGH_MAX) && (!Number.isFinite(peak) || peak < MONO_SAT_PEAK_MAX);
 }
 
 /**
@@ -312,6 +739,8 @@ export const DEFAULT_VOICE = 'JKJ5z8hs4F7XP8fr2Y5U';
  * brought to exactly that; the master then lifts the whole mix to -14.
  */
 const VOICE_LUFS = -19;
+/** A real clip's own sound under the narration (natSound): ~11 LU below the voice — heard, never fighting it. */
+const NAT_LUFS = -30;
 /*
  * Recipe tag of the levelled narration files: bump it when levelVoice changes.
  * n2 = the broadcast chain (lib/sound-craft.mjs voiceChain); its own version
@@ -512,10 +941,18 @@ function beatGrid(on, from, to) {
  * @returns {{beats:number[], segments:{from:number,to:number,bpm:number|null,strength:number|null,beats:number[]}[]}}
  */
 export function scoreBeats(file, windows, { ff = 'ffmpeg', margin = 1.3 } = {}) {
-  const raw = execFileSync(ff, ['-hide_banner', '-loglevel', 'error', '-i', file, '-ac', '1', '-ar', String(BEAT_SR), '-f', 's16le', '-'], {
-    maxBuffer: 1 << 30,
-    windowsHide: true,
-  });
+  // The whole score is decoded: its deadline grows with its length.
+  const timeout = ffDeadline(Math.max(0, ...windows.map((w) => w.to)));
+  let raw;
+  try {
+    raw = execFileSync(ff, ['-nostdin', '-hide_banner', '-loglevel', 'error', '-i', file, '-ac', '1', '-ar', String(BEAT_SR), '-f', 's16le', '-'], {
+      maxBuffer: 1 << 30,
+      windowsHide: true,
+      timeout,
+    });
+  } catch (e) {
+    throw deadlineNote(e, timeout);
+  }
   const buf = raw.byteOffset % 2 ? Buffer.from(raw) : raw;
   const on = onsetEnvelope(new Int16Array(buf.buffer, buf.byteOffset, buf.byteLength >> 1));
   const segments = [];
@@ -564,7 +1001,10 @@ export async function produce(scriptIn, o) {
   if (!KNOWN_GENRES.includes(script.genre)) script.genre = 'documentary';
   const log = o.log ?? ((m) => console.log('›', m));
   // Transitions, effects and camera obey the story's gravity and each beat's meaning (edit-grammar.mjs).
-  for (const n of applyEditGrammar(script, { gravity: storyGravity(script, script.genre) }).notes) log(n);
+  // The picture keeps its own gravity rule (editGravity): the music's stricter one must not re-cut old videos.
+  for (const n of applyEditGrammar(script, { gravity: editGravity(script, script.genre) }).notes) log(n);
+  // World maps: the coast, borders and tinted countries each map box shows (world-map.mjs, Natural Earth).
+  script.scenes = attachWorldMaps(script, { log }).scenes ?? script.scenes;
   const progress = o.progress ?? (() => {});
   const cancelled = o.cancelled ?? (() => false);
   const guard = () => {
@@ -639,7 +1079,9 @@ export async function produce(scriptIn, o) {
    * v2 (its picture is cut to those beats) keeps 'v1'; new jobs get 'v2'.
    */
   const MUSIC_HISTORY = o.musicHistory ?? process.env.NOVA_MUSIC_HISTORY ?? (o.cacheDir && basename(o.cacheDir) === 'docu-cache' ? join(dirname(o.cacheDir), 'docu-music-history.json') : null);
-  const MUSIC_PRIOR = MUSIC_HISTORY ? musicHistoryFor(readMusicHistory(MUSIC_HISTORY), id) : [];
+  // Variety is per channel (27 Ekim 2026): a news video avoids the last news videos' music, not the history channel's.
+  const MUSIC_CHANNEL = musicChannelOf(script);
+  const MUSIC_PRIOR = MUSIC_HISTORY ? musicHistoryFor(readMusicHistory(MUSIC_HISTORY), id, { channel: MUSIC_CHANNEL }) : [];
   const MUSIC_MARK = join(PUBLIC, BUILD, 'music-plan.json');
   const MUSIC_SELECTOR = script.musicSelector ?? process.env.NOVA_MUSIC_SELECTOR ?? readJson(MUSIC_MARK)?.selector
     ?? (readdirSafe(join(PUBLIC, BUILD)).some((f) => /^(beats-[0-9a-f]+\.json|score-[0-9a-f]+\.wav\.json)$/.test(f)) ? 'v1' : 'v2');
@@ -711,6 +1153,15 @@ export async function produce(scriptIn, o) {
         mkdirSync(dirname(dst), { recursive: true });
         copyFileSync(src, dst);
       }
+    }
+  }
+  // Map flags (1.16.16, src/map.tsx): only the ones this film's world maps draw.
+  for (const code of new Set(script.scenes.flatMap((s) => (s?.geo?.flagFills ?? []).map((f) => f.flag)))) {
+    const src = join(ENGINE_DIR, 'public', 'flags', `${code}.svg`);
+    const dst = join(PUBLIC, 'flags', `${code}.svg`);
+    if (/^[a-z]{2}(-[a-z]+)?$/.test(code) && fileOk(src) && !fileOk(dst)) {
+      mkdirSync(dirname(dst), { recursive: true });
+      copyFileSync(src, dst);
     }
   }
 
@@ -788,11 +1239,15 @@ export async function produce(scriptIn, o) {
     return Math.max(0, (s.character_limit ?? 0) - (s.character_count ?? 0));
   }
 
-  const ff = (args, opts = {}) => execFileSync(FFMPEG, args, { maxBuffer: 512 * 1024 * 1024, windowsHide: true, ...opts });
-  const ffOut = (args) => {
-    const r = spawnSync(FFMPEG, args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, windowsHide: true });
-    return (r.stderr ?? '') + (r.stdout ?? '');
+  const ff = (args, opts = {}) => {
+    const timeout = opts.timeout ?? FF_SHORT_MS;
+    try {
+      return execFileSync(FFMPEG, ['-nostdin', ...args], { maxBuffer: 512 * 1024 * 1024, windowsHide: true, ...opts, timeout });
+    } catch (e) {
+      throw deadlineNote(e, timeout);
+    }
   };
+  const ffOut = (args, timeout = FF_SHORT_MS) => ffText(FFMPEG, args, timeout);
   /** Integrated loudness, range and true peak (EBU R128), after an optional filter chain. */
   function loudnessOf(file, chain = null) {
     const out = ffOut(['-hide_banner', '-nostats', '-i', file, '-vn', '-af', [chain, 'ebur128=peak=true'].filter(Boolean).join(','), '-f', 'null', '-']);
@@ -875,7 +1330,9 @@ export async function produce(scriptIn, o) {
   /*
    * Appended to every image: generated stills otherwise sprout gibberish
    * lettering and anachronisms (a modern spiral notebook in a 1974 kitchen),
-   * and either one breaks the archive illusion instantly.
+   * and either one breaks the archive illusion instantly. Part of every image
+   * key; every request is asked with styleFor(STYLE, year): its dark-look words dropped and exposure asked
+   * (exposedStyle), and from PRESENT_FROM on the things of its own year. The keys keep this raw STYLE.
    */
   const STYLE = `${script.visualStyle ?? ''} No readable text or lettering anywhere, no logos, no modern objects.`.trim();
   /* One seed per script keeps grain, palette and lens character consistent. */
@@ -960,14 +1417,16 @@ export async function produce(scriptIn, o) {
   /*
    * Real people. A cast member who also appears in real (archive) photos must
    * not get an invented AI face cut against those photos: AI shots of them
-   * hide the face (hideRealFace). Real = listed in `script.realCast`, or cast
-   * on a scene the writer sourced from the archive.
+   * hide the face (hideRealFace). Real = listed in `script.realCast`, cast
+   * on a scene the writer sourced from the archive, or searched/carded by
+   * name (realPeople). PEOPLE also holds the real people outside the cast:
+   * a shot of a scene that names one hides the face too (stillPrompt).
    */
-  const REAL = new Set(
-    [...(Array.isArray(script.realCast) ? script.realCast : []), ...script.scenes.filter((s) => s.archived || s.source === 'archive').flatMap((s) => s.cast ?? [])]
-      .filter((n) => script.cast?.[n]),
-  );
-  if (REAL.size) log(`gerçek kişiler (AI karelerinde yüzleri gösterilmez): ${[...REAL].join(', ')}`);
+  const PEOPLE = realPeople(script);
+  const REAL = new Set(PEOPLE.keys);
+  if (REAL.size || PEOPLE.names.length) log(`gerçek kişiler (AI karelerinde yüzleri gösterilmez): ${[...REAL, ...PEOPLE.names].join(', ')}`);
+  /** Scene i's AI prompt as it is asked (stillPrompt): no printed record, no face of a real person the scene names. */
+  const stillPromptAt = (prompt, i) => stillPrompt(prompt, { scene: script.scenes[i], named: namedAt(script.scenes, i, PEOPLE) });
 
   /*
    * One reference portrait per cast member. A failed portrait is not
@@ -1022,18 +1481,20 @@ export async function produce(scriptIn, o) {
     if (!desc) throw new Error(`cast'ta "${name}" yok`);
     const key = hash(`ref|${IMG}|${name}|${desc}|${STYLE}`);
     const file = `${BUILD}/cast-${name}-${key}.jpg`;
+    // The year of the person's first scene (styleFor): a 2026 firefighter's portrait is not asked for "no modern objects".
+    const style = styleFor(STYLE, yearOfEra(script.scenes.find((s) => s.cast?.includes(name))?.era ?? script.era));
     if (!fileOk(join(PUBLIC, file)) && IMG === 'openai') {
       log(`karakter referansı: ${name}`);
       // A refused portrait is remembered like a refused shot: the next run goes straight to the no-reference shots.
       await generate(file, () => openaiImage({
-        prompt: `Portrait of ${desc}. Head and shoulders, facing the camera, neutral expression, clear face. ${STYLE}`,
+        prompt: `Portrait of ${desc}. Head and shoulders, facing the camera, neutral expression, clear face. ${style}`,
         size: '1024x1536',
       }));
     }
     if (!fileOk(join(PUBLIC, file))) {
       log(`karakter referansı: ${name}`);
       const buf = await replicate('black-forest-labs/flux-1.1-pro', {
-        prompt: `Portrait photograph of ${desc}. Head and shoulders, facing the camera, neutral expression, clear face. ${STYLE}`,
+        prompt: `Portrait photograph of ${desc}. Head and shoulders, facing the camera, neutral expression, clear face. ${style}`,
         aspect_ratio: '3:4',
         output_format: 'jpg',
         output_quality: 92,
@@ -1045,8 +1506,10 @@ export async function produce(scriptIn, o) {
     return file;
   }
 
+  /** A cast member in words; a real person's face is never described (bodyOnly): their AI shots hide it. */
+  const castText = (n) => (REAL.has(n) ? bodyOnly(script.cast[n]) : script.cast[n]);
   /** People in the shot in words, for shots that carry no reference portrait. */
-  const describe = (names) => (names.length ? ` ${names.length > 1 ? 'People in the shot' : 'The person in the shot'}: ${names.map((n) => script.cast[n]).join('; ')}.` : '');
+  const describe = (names) => (names.length ? ` ${names.length > 1 ? 'People in the shot' : 'The person in the shot'}: ${names.map(castText).join('; ')}.` : '');
 
   /*
    * A refusal is remembered next to the image (`.refused`), so a re-run goes
@@ -1068,7 +1531,8 @@ export async function produce(scriptIn, o) {
     return file;
   }
 
-  async function sceneImage(prompt, cast = []) {
+  // `style`: STYLE as this scene's year asks for it (styleFor) — request text only; every key below keeps STYLE.
+  async function sceneImage(prompt, cast = [], period = '', style = STYLE) {
     cast = cast.filter((n) => script.cast?.[n]);
     const people = cast.map((n) => `${n}: ${script.cast?.[n] ?? ''}`).join('; ');
     // Replicate keeps its historical cache key, so FLUX videos made before GPT Image still hit their cache.
@@ -1104,7 +1568,7 @@ export async function produce(scriptIn, o) {
       return file;
     }
     const waitInbox = () => {
-      const n = addNeed(INBOX, { file, prompt: `${prompt}.${describe(cast)} ${STYLE} Wide 16:9 cinematic documentary still.` });
+      const n = addNeed(INBOX, { file, prompt: `${prompt}.${describe(cast)} ${style}${period} Wide 16:9 cinematic documentary still.` });
       manualImages++;
       return Object.assign(new Error(`görsel ${padNo(n)} ChatGPT görsel kutusunda bekleniyor`), { manualImage: true });
     };
@@ -1120,7 +1584,7 @@ export async function produce(scriptIn, o) {
       if (IMG === 'openai') {
         const hold = withRef.length ? ` Keep exactly the same face, age, hair and build as the ${withRef.length > 1 ? 'people' : 'person'} in the reference image${withRef.length > 1 ? 's' : ''}.` : '';
         return openaiImage({
-          prompt: `${prompt}.${hold}${describe(inWords)} ${STYLE} Wide 16:9 cinematic documentary still.`,
+          prompt: `${prompt}.${hold}${describe(inWords)} ${style}${period} Wide 16:9 cinematic documentary still.`,
           size: '1536x1024',
           refs: refFiles.map((f) => readFileSync(join(PUBLIC, f))),
         });
@@ -1128,11 +1592,11 @@ export async function produce(scriptIn, o) {
       if (withRef.length) {
         // The first cast member's reference photo carries the face; others are described.
         const refUri = 'data:image/jpeg;base64,' + readFileSync(join(PUBLIC, refFiles[0])).toString('base64');
-        const others = cast.slice(1).map((n) => `Also in the shot: ${script.cast[n]}.`).join(' ');
+        const others = cast.slice(1).map((n) => `Also in the shot: ${castText(n)}.`).join(' ');
         return replicate('black-forest-labs/flux-kontext-pro', {
           prompt:
             `${prompt}. The man or woman from the reference photo appears in this scene: keep exactly the same face, ` +
-            `age, hairstyle and build. ${others} ${STYLE} Wide 16:9 cinematic documentary still.`,
+            `age, hairstyle and build. ${others} ${style}${period} Wide 16:9 cinematic documentary still.`,
           input_image: refUri,
           aspect_ratio: '16:9',
           output_format: 'jpg',
@@ -1141,7 +1605,7 @@ export async function produce(scriptIn, o) {
         });
       }
       return replicate('black-forest-labs/flux-1.1-pro', {
-        prompt: `${prompt}.${describe(inWords)} ${STYLE} Wide 16:9 cinematic documentary still.`,
+        prompt: `${prompt}.${describe(inWords)} ${style}${period} Wide 16:9 cinematic documentary still.`,
         aspect_ratio: '16:9',
         output_format: 'jpg',
         output_quality: 92,
@@ -1156,13 +1620,13 @@ export async function produce(scriptIn, o) {
    * only (no reference portrait), with its safety tolerance one notch more
    * permissive than the default — the prompt is already non-graphic.
    */
-  async function fluxFallback(prompt, cast = []) {
+  async function fluxFallback(prompt, cast = [], period = '', style = STYLE) {
     cast = cast.filter((n) => script.cast?.[n]);
     const file = `${BUILD}/img-${hash(`flux-fallback|${prompt}|${cast.map((n) => `${n}: ${script.cast[n]}`).join('; ')}|${STYLE}`)}.jpg`;
     if (fileOk(join(PUBLIC, file))) return file;
     log(`görsel (FLUX yedeği): ${prompt.slice(0, 70)}`);
     return generate(file, () => replicate('black-forest-labs/flux-1.1-pro', {
-      prompt: `${prompt}.${describe(cast)} ${STYLE} Wide 16:9 cinematic documentary still.`,
+      prompt: `${prompt}.${describe(cast)} ${style}${period} Wide 16:9 cinematic documentary still.`,
       aspect_ratio: '16:9',
       output_format: 'jpg',
       output_quality: 92,
@@ -1176,6 +1640,7 @@ export async function produce(scriptIn, o) {
    * curve then crushes them to black — the kitchen before "ÇALINDI" read as an
    * empty screen. Measure average luma and lift the midtones of anything that
    * would not survive the grade. Blacks stay black; only the midtones open up.
+   * Floor 62 -> LIFT_FLOOR 85 (Gimli 20261028-9ff721 / Kartal Yuvası 950730, 29 Oct 2026: mean luma 52-56).
    */
   /** Gamma each lifted file was opened with: a lifted footage still's clip gets the same lift in the engine (fx.tsx clipOf). */
   const liftedGamma = new Map();
@@ -1185,9 +1650,9 @@ export async function produce(scriptIn, o) {
     const out = ffOut(['-hide_banner', '-i', join(PUBLIC, file), '-vf', 'signalstats,metadata=print:key=lavfi.signalstats.YAVG', '-f', 'null', '-']);
     const m = out.match(/YAVG=([\d.]+)/);
     const yavg = m ? Number(m[1]) : 128;
-    if (yavg >= 62) return file;
+    if (yavg >= LIFT_FLOOR || liftGamma(yavg) < 1.02) return file;
     const lifted = file.replace(/\.jpe?g$/i, '.lift.jpg');
-    const gamma = Math.min(1.9, 1 + (62 - yavg) / 45).toFixed(2);
+    const gamma = liftGamma(yavg).toFixed(2);
     liftedGamma.set(lifted, Number(gamma));
     if (!fileOk(join(PUBLIC, lifted))) {
       log(`karanlık görsel açılıyor (Y=${yavg.toFixed(0)}, gamma ${gamma}): ${basename(file)}`);
@@ -1249,7 +1714,7 @@ export async function produce(scriptIn, o) {
         writeAtomic(abs, await replicate(VIDEO_MODEL, input));
       }
     }
-    const info = String(spawnSync(FFMPEG, ['-hide_banner', '-i', abs], { encoding: 'utf8', windowsHide: true }).stderr || '');
+    const info = ffText(FFMPEG, ['-hide_banner', '-i', abs], FF_PROBE_MS);
     const d = /Duration: (\d+):(\d+):([\d.]+)/.exec(info);
     const z = /, (\d{2,5})x(\d{2,5})[, ]/.exec(info);
     const dur = d ? +d[1] * 3600 + +d[2] * 60 + +d[3] : 0;
@@ -1333,11 +1798,19 @@ export async function produce(scriptIn, o) {
 
   async function safeImage(prompt, cast, i) {
     img.calls++;
+    // Every AI still — scene, montage frame, cutaway — is asked through here, and sceneImage writes the ChatGPT inbox
+    // (gorsel-kutusu/LISTE.txt, needed.json) from the same prompt: the API and the inbox never get different pictures.
+    prompt = stillPromptAt(prompt, i);
+    // What did not exist yet in this scene's year (lib/period.mjs), and from PRESENT_FROM on the things of its own year
+    // (styleFor): request text only, the cache key is unchanged. A year the prompt itself names wins (period.mjs promptYear).
+    const year = promptYear(prompt) ?? yearOfEra(script.scenes[i]?.era ?? script.era);
+    const period = periodNegative(year);
+    const style = styleFor(STYLE, year);
     const where = ` (sahne ${i + 1})`;
     // Real, photographed people: AI shots of them never show an invented face.
     const shown = hideRealFace(prompt, cast.filter((n) => REAL.has(n)));
     try {
-      const f = liftIfDark(await sceneImage(shown, cast));
+      const f = liftIfDark(await sceneImage(shown, cast, period, style));
       img.streak = 0;
       return f;
     } catch (e) {
@@ -1357,8 +1830,8 @@ export async function produce(scriptIn, o) {
       if (!e.remembered) log(`görsel güvenlik filtresine takıldı${where}, yumuşatılmış istemle deneniyor: ${String(e.message).slice(0, 120)}`);
     }
     const soft = softenPrompt(shown);
-    const tries = [() => sceneImage(soft, cast)];
-    if (IMG === 'openai' && RP_KEY) tries.push(() => fluxFallback(soft, cast));
+    const tries = [() => sceneImage(soft, cast, period, style)];
+    if (IMG === 'openai' && RP_KEY) tries.push(() => fluxFallback(soft, cast, period, style));
     for (const make of tries) {
       try {
         const f = liftIfDark(await make());
@@ -1433,7 +1906,9 @@ export async function produce(scriptIn, o) {
   /** The prompt a photo/title scene gave up to the cap (never serialized). */
   const capPrompt = new WeakMap();
   /** Already paid for (same key as sceneImage): counts toward the cap but is never the one cut — a re-render costs nothing. */
-  const aiCached = (prompt, cast = []) => {
+  const aiCached = (asked, cast = [], i = -1) => {
+    // The prompt safeImage asks with (stillPromptAt, then a real cast member's face hidden): its key is the cached one.
+    const prompt = hideRealFace(stillPromptAt(asked, i), cast.filter((n) => REAL.has(n)));
     const people = cast.filter((n) => script.cast?.[n]).map((n) => `${n}: ${script.cast?.[n] ?? ''}`).join('; ');
     return fileOk(join(PUBLIC, `${BUILD}/img-${hash(`${OAI_KEYS ? 'oai|' : ''}img|${prompt}|${people}|${STYLE}`)}.jpg`));
   };
@@ -1446,7 +1921,7 @@ export async function produce(scriptIn, o) {
     for (const kinds of [['words', 'slam'], ['title']]) {
       const cands = script.scenes.map((sc, i) => ({ sc, i }))
         // The first and the last picture are the film's frame (Napoleon ended 13 s on a borrowed letter).
-        .filter(({ sc, i }) => i > 0 && i < script.scenes.length - 1 && kinds.includes(sc.type) && !sc.image && sc.imagePrompt && !sc.bg && !aiCached(sc.imagePrompt, sc.cast) && !(sc.cast?.length && sc.type === 'photo'));
+        .filter(({ sc, i }) => i > 0 && i < script.scenes.length - 1 && kinds.includes(sc.type) && !sc.image && sc.imagePrompt && !sc.bg && !aiCached(sc.imagePrompt, sc.cast ?? [], i) && !(sc.cast?.length && sc.type === 'photo'));
       const need = Math.min(cands.length, aiWanted() - AI_CAP);
       if (need <= 0) continue;
       // Evenly spaced picks across the video: keeps AI pictures in every chapter.
@@ -1481,6 +1956,20 @@ export async function produce(scriptIn, o) {
         if (scene.video && liftedGamma.has(scene.image)) scene.liftGamma = liftedGamma.get(scene.image);
       } catch (e) {
         log(`arşiv görseli açılamadı, olduğu gibi kullanılıyor: ${e.message.slice(0, 100)}`);
+      }
+      // Arşiv adımı bayrağı yazmadıysa (eski iş): gerçek resim burada, diskte ölçülür; renkliyse bayrak konmaz.
+      if (scene.monoSource === undefined) {
+        try {
+          const orig = scene.image.replace(/\.lift\.jpg$/, '.jpg');
+          const src = fileOk(join(PUBLIC, orig)) ? orig : scene.image;
+          const out = ffOut(['-hide_banner', '-i', join(PUBLIC, src), '-frames:v', '1', '-an', '-vf', 'scale=96:-2,signalstats,metadata=mode=print', '-f', 'null', '-']);
+          if (monoFromSignalstats(out) === true) {
+            scene.monoSource = true;
+            log(`siyah-beyaz arşiv kaynağı: ${basename(src)}`);
+          }
+        } catch {
+          // ölçülemedi: renkli sayılır
+        }
       }
     }
     if (scene.imagePrompts?.length) {
@@ -1576,6 +2065,9 @@ export async function produce(scriptIn, o) {
       if (d.clip && donor.video) {
         for (const k of VIDEO_FIELDS) if (donor[k] !== undefined) sc[k] = donor[k];
         if (donor.archived) sc.archived = true;
+        // Klibin siyah-beyaz bayrağı klibin başka bölümüyle gider (Gimli 9ff721, 29 Ekim 2026).
+        if (donor.monoSource === true) sc.monoSource = true;
+        else delete sc.monoSource;
         clipBorrow.set(sc, donor);
       } else borrowCrop(sc, donor);
       // A collage genre would pin the same print again: a borrowed photo is always full frame.
@@ -1739,7 +2231,7 @@ export async function produce(scriptIn, o) {
       const d = imageSize(readFileSync(file));
       if (d?.w > 0 && d?.h > 0) return d;
       // Unknown header (a format the parser does not read): ffmpeg reports the stream size.
-      const m = ffOut(['-hide_banner', '-i', file]).match(/Video: .*?(\d{2,5})x(\d{2,5})/);
+      const m = ffOut(['-hide_banner', '-i', file], FF_PROBE_MS).match(/Video: .*?(\d{2,5})x(\d{2,5})/);
       return m ? { w: +m[1], h: +m[2] } : null;
     } catch {
       return null;
@@ -1822,8 +2314,14 @@ export async function produce(scriptIn, o) {
    * cache key; without it the key stays what it always was, so lines already
    * paid for stay cached.
    */
-  const voiced = script.scenes.filter((s) => s.say);
+  // A source-voice scene (src/pipeline/source-clips.js) carries the person's OWN voice from the clip: no TTS for it.
+  const voiced = script.scenes.filter((s) => s.say && !s.sourceVoice);
   // v4: the voice director performs every line knowing its neighbours (opening, punch lines, questions, chapter ends, reveals).
+  // ChatGPT stills: the cutaways the film will need (lib/inserts.mjs) join this same list, on estimated voice
+  // lengths — planned only after the voice, they were queued and skipped (Hastings hook: three 5-7 s holds).
+  if (MANUAL && o.inserts !== false) {
+    for (const p of insertPicturesAhead(script)) for (const pr of p.prompts) await safeImage(pr, [], p.i);
+  }
   // Stills waiting in the ChatGPT inbox: stop here with the list (voice and render would be wasted).
   if (manualImages) {
     const left = writeList(INBOX);
@@ -1868,9 +2366,17 @@ export async function produce(scriptIn, o) {
    * nothing usable for documentaries — ElevenLabs composes it.
    */
   let libScore = !!LIB && MUSIC_SOURCE === 'library' && LIB.music.length > 0;
-  if (libScore && !planScore({ script, lib: LIB, root: LIB_ROOT, genre: script.genre, seed: SEED_KEY, history: MUSIC_PRIOR, selector: MUSIC_SELECTOR }).cues?.some((c) => c.trackId)) {
-    libScore = false;
-    log('kütüphanede bu belgesele uygun müzik yok — müzik ElevenLabs ile bestelenecek (ek kredi)');
+  /*
+   * A library that has music but no track this story may hear (the serious pool is a hard filter that fails closed:
+   * untagged tracks never pass) stops the job: it is NEVER silently composed on paid ElevenLabs credit (owner's rule:
+   * ElevenLabs is for narration; spending needs approval). Composition only when the music source says 'eleven'.
+   */
+  if (libScore) {
+    const probe = planScore({ script, lib: LIB, root: LIB_ROOT, genre: script.genre, seed: SEED_KEY, history: MUSIC_PRIOR, selector: MUSIC_SELECTOR });
+    if (!probe.cues?.some((c) => c.trackId)) {
+      for (const n of probe.notes ?? []) log(n);
+      throw new Error(`müzik: kütüphanede bu hikâyeye (${probe.gravity ?? '?'}) uygun parça yok${probe.reason ? ` (${probe.reason})` : ''} — ücretli besteye geçilmedi; kütüphaneyi etiketleyin ya da müzik kaynağını açıkça 'eleven' yapın`);
+    }
   }
 
   /*
@@ -1926,20 +2432,57 @@ export async function produce(scriptIn, o) {
   const maxRerolls = Math.max(1, Math.floor(lines.length * 0.05));
   let rerolls = 0;
   let hiFi = true;
+  /*
+   * THE NARRATION'S LANGUAGE IS ENFORCED (Panama, Oct 2026: "ses arada İspanyolcaya kayıyor"). The multilingual model
+   * guesses each line's language on its own; a line full of Spanish place names (Penonomé, Chitré, Los Santos, Coclé)
+   * was read as Spanish. The script's locale goes with every line; a model that rejects language enforcement gets
+   * the line again without it, once, and the rest of the run skips it.
+   */
+  let langCode = (/^([a-z]{2})\b/i.exec(script.locale ?? '') || [])[1]?.toLowerCase() || null;
+  const ttsCall = async (path, body) => {
+    try {
+      return await el(path, langCode ? { ...body, language_code: langCode } : body, { timeoutMs: 120_000 });
+    } catch (e) {
+      if (!langCode || e.formatRejected || e.quota || !(e.status >= 400 && e.status < 500) || !/language/i.test(String(e.message))) throw e;
+      log(`ElevenLabs ${MODEL} dil zorlamasını kabul etmedi (${langCode}); dil kodsuz devam`);
+      langCode = null;
+      return el(path, body, { timeoutMs: 120_000 });
+    }
+  };
+  /*
+   * READ SPEED (1.16.16): our narrators read ~115-125 wpm; pace.mjs alone reaches ~135 (El Niño) and the
+   * outliers speak ~157-165. New takes are asked at ElevenLabs' own speed (1.1x reads naturally; atempo then has
+   * less to do). Not part of the cache key: takes already paid for stay cached and pace.mjs still tightens them.
+   * A slow or hushed direction keeps 1.0. o.voiceSpeed (0.9-1.2) overrides; 1 turns it off. A model that rejects
+   * the setting gets the line again without it, once, and the rest of the run skips it.
+   */
+  let voiceSpeed = Number.isFinite(Number(o.voiceSpeed)) && o.voiceSpeed !== null && o.voiceSpeed !== '' ? Math.min(1.2, Math.max(0.9, Number(o.voiceSpeed))) : VOICE_SPEED;
+  const speedOf = (l) => (voiceSpeed !== 1 && !SLOW_DIRECTION.test(l.text) ? voiceSpeed : 1);
   async function speak(l, rel, seed) {
-    const body = { text: l.text, model_id: MODEL, voice_settings: l.settings };
+    const sp = speedOf(l);
+    const body = { text: l.text, model_id: MODEL, voice_settings: sp !== 1 ? { ...l.settings, speed: sp } : l.settings };
+    const unspeed = (e) => {
+      if (sp === 1 || e.quota || !(e.status >= 400 && e.status < 500) || !/speed/i.test(String(e.message))) return false;
+      log(`ElevenLabs ${MODEL} okuma hızını kabul etmedi (${sp}x); hız ayarsız devam`);
+      voiceSpeed = 1;
+      body.voice_settings = l.settings;
+      return true;
+    };
     if (seed !== undefined) body.seed = seed;
     if (l.ctx?.previous_text) body.previous_text = l.ctx.previous_text;
     if (l.ctx?.next_text) body.next_text = l.ctx.next_text;
     let j;
     try {
       // 192 kbps instead of the 128 kbps default: the narration is transcoded twice more before YouTube.
-      j = await el(`/v1/text-to-speech/${VOICE}/with-timestamps${hiFi ? '?output_format=mp3_44100_192' : ''}`, body, { timeoutMs: 120_000 });
+      j = await ttsCall(`/v1/text-to-speech/${VOICE}/with-timestamps${hiFi ? '?output_format=mp3_44100_192' : ''}`, body);
     } catch (e) {
-      if (!e.formatRejected) throw e;
-      hiFi = false;
-      log('192 kbps ses bu abonelikte yok; varsayılan biçimle devam');
-      j = await el(`/v1/text-to-speech/${VOICE}/with-timestamps`, body, { timeoutMs: 120_000 });
+      if (unspeed(e)) j = await ttsCall(`/v1/text-to-speech/${VOICE}/with-timestamps${hiFi ? '?output_format=mp3_44100_192' : ''}`, body);
+      else if (!e.formatRejected) throw e;
+      else {
+        hiFi = false;
+        log('192 kbps ses bu abonelikte yok; varsayılan biçimle devam');
+        j = await ttsCall(`/v1/text-to-speech/${VOICE}/with-timestamps`, body);
+      }
     }
     writeAtomic(join(CACHE, rel), Buffer.from(j.audio_base64, 'base64'));
     const a = j.alignment;
@@ -1961,11 +2504,39 @@ export async function produce(scriptIn, o) {
    */
   const voiceOffset = (l) => (/\[(whispers?|quietly|softly)\]/i.test(l.text) ? -1.5 : /\[(dramatic|shouts?|excited)\]/i.test(l.text) || l.scene.mood === 'reveal' ? 1 : 0);
   const levelled = [];
-  function levelVoice(src, dst, target) {
-    const r = processVoice({ bin: FFMPEG, src, dst, target });
+  function levelVoice(src, dst, target, edit = '') {
+    const r = processVoice({ bin: FFMPEG, src, dst, target, edit });
     if (r.before.I !== null) levelled.push(r.before.I);
   }
 
+  /*
+   * NARRATION PACE (pace.mjs, 1.16.16): the outliers speak ~165 wpm, our takes read 123-146. Silences are
+   * found once per take (cached next to it); o.pace === false keeps every take as it was.
+   */
+  const PACE_OPTS = o.pace === false ? null : { ...(o.paceTargetWpm > 0 ? { targetWpm: o.paceTargetWpm } : {}), ...(o.paceMaxTempo >= 1 ? { maxTempo: Math.min(1.25, o.paceMaxTempo) } : {}) };
+  const paced = [];
+  function paceOf(l, meta) {
+    if (!PACE_OPTS || ['montage', 'title'].includes(l.scene.type) || !(meta.dur > 0)) return null;
+    const silFile = join(CACHE, `${meta.audio}.sil.json`);
+    let sil = null;
+    try {
+      sil = JSON.parse(readFileSync(silFile, 'utf8'));
+    } catch {}
+    if (!Array.isArray(sil)) {
+      try {
+        sil = detectSilences(FFMPEG, join(CACHE, meta.audio), meta.dur);
+        try {
+          writeAtomic(silFile, JSON.stringify(sil));
+        } catch {}
+      } catch (e) {
+        // A scan killed at its deadline: this run re-times the line by tempo only, and nothing is cached (the next run scans again).
+        log(`sessizlik taraması yapılamadı, satır yalnız tempoyla (${String(e?.message ?? e).slice(0, 80)}): "${l.text.slice(0, 50)}"`);
+        sil = [];
+      }
+    }
+    const plan = pacePlan({ silences: sil, dur: meta.dur, text: l.text, opts: PACE_OPTS });
+    return paceIdentity(plan) ? null : plan;
+  }
   let doneVoice = 0;
   await pool(lines, Math.min(CONC, 3), async (l) => {
     let meta = voiceMeta(l.key);
@@ -1989,18 +2560,69 @@ export async function produce(scriptIn, o) {
         }
       }
     }
-    const tag = `${VOICE_NORM}-${hash(`${meta.audio}|${voiceOffset(l)}`).slice(0, 6)}`;
+    // Pace (pace.mjs): long pauses inside the take shortened, a slow read played up to 1.15x — word times follow.
+    const pace = paceOf(l, meta);
+    const edit = paceFilter(pace);
+    const tag = `${VOICE_NORM}-${hash(`${meta.audio}|${voiceOffset(l)}${edit ? `|${edit}` : ''}`).slice(0, 6)}`;
     const wav = `${VOICE_DIR}/${l.key}-${tag}.wav`;
-    if (!fileOk(join(CACHE, wav))) levelVoice(join(CACHE, meta.audio), join(CACHE, wav), VOICE_LUFS + voiceOffset(l));
+    if (!fileOk(join(CACHE, wav))) levelVoice(join(CACHE, meta.audio), join(CACHE, wav), VOICE_LUFS + voiceOffset(l), edit);
     l.scene.voice = publishAs(wav, `${BUILD}/voice-${l.key}-${tag}.wav`);
     // docu.js counts these to know how much narration a re-render gets for free.
     if (CACHE !== PUBLIC) publishAs(`${VOICE_DIR}/${l.key}.json`, `${BUILD}/voice-${l.key}.json`);
-    l.scene.voiceDur = meta.dur;
-    l.scene.wordTimes = meta.words;
+    l.scene.voiceDur = paceIdentity(pace) ? meta.dur : pace.dur;
+    l.scene.wordTimes = paceWords(pace, meta.words);
+    if (!paceIdentity(pace)) paced.push([meta.dur, pace.dur]);
     doneVoice++;
     progress('voice', 35 + (doneVoice / Math.max(1, lines.length)) * 10);
   });
   guard();
+  /*
+   * SOURCE VOICE (1.16.19, source-clips.js): the person's own words from a real clip (Base Central opened on Mickey
+   * Rourke's own video). The clip's audio is levelled like a narration line and plays as this scene's voice; the
+   * quote's words are spread over its length for the captions and the subtitle.
+   */
+  for (const sc of script.scenes) {
+    if (!sc.sourceVoice?.file) continue;
+    const src = join(PUBLIC, sc.sourceVoice.file);
+    if (!fileOk(src)) {
+      log(`kaynak ses bulunamadı, sahne sessiz anlatımsız kalır: ${sc.sourceVoice.file}`);
+      delete sc.sourceVoice;
+      continue;
+    }
+    const tag = hash(`${sc.sourceVoice.file}|src|${VOICE_NORM}`).slice(0, 8);
+    const wavRel = `${VOICE_DIR}/src-${tag}.wav`;
+    if (!fileOk(join(CACHE, wavRel))) levelVoice(src, join(CACHE, wavRel), VOICE_LUFS);
+    sc.voice = publishAs(wavRel, `${BUILD}/voice-src-${tag}.wav`);
+    sc.voiceDur = Math.max(0.5, Number(sc.sourceVoice.dur) || 4);
+    const ws = String(sc.say || '').split(/\s+/).filter(Boolean);
+    sc.wordTimes = ws.map((word, k) => ({ word, t: +((k / Math.max(1, ws.length)) * sc.voiceDur * 0.95).toFixed(3) }));
+    log(`kaynak ses: "${String(sc.say).slice(0, 60)}" (${sc.voiceDur.toFixed(1)} sn, kişinin kendi sesi)`);
+  }
+  /*
+   * NATURAL SOUND (1.16.21, channel owner: "orada gibi"): a real event clip keeps its own sound — the crowd, the
+   * siren, the glass — levelled well under the narration (NAT_LUFS) and played from the scene's start for as long as
+   * the clip runs. Added to the event cues once the sound design has placed its own (script._natCues).
+   */
+  script._natCues = [];
+  script.scenes.forEach((sc, i) => {
+    if (!sc.natSound?.file) return;
+    const src = join(PUBLIC, sc.natSound.file);
+    if (!fileOk(src)) return;
+    const tag = hash(`${sc.natSound.file}|nat|${NAT_LUFS}`).slice(0, 8);
+    const rel = `${VOICE_DIR}/nat-${tag}.wav`;
+    try {
+      if (!fileOk(join(CACHE, rel))) processVoice({ bin: FFMPEG, src, dst: join(CACHE, rel), target: NAT_LUFS });
+    } catch {}
+    if (!fileOk(join(CACHE, rel))) return;
+    const dur = Math.min(Number(sc.natSound.dur) || 6, (Number(sc.voiceDur) || Number(sc.dur) || 4) + 0.4);
+    script._natCues.push({ scene: i, at: 0, file: publishAs(rel, `${BUILD}/nat-${tag}.wav`), dur: +dur.toFixed(2), gain: 1, nat: true });
+  });
+  if (script._natCues.length) log(`doğal ses: ${script._natCues.length} gerçek klibin kendi sesi anlatımın altında`);
+  if (paced.length) {
+    const a = paced.reduce((n, [x]) => n + x, 0);
+    const b = paced.reduce((n, [, y]) => n + y, 0);
+    log(`anlatım temposu: ${paced.length} satır sıkılaştı (${a.toFixed(0)} → ${b.toFixed(0)} sn; uzun duraklar kısaldı, yavaş okuma en çok ${PACE_OPTS?.maxTempo ?? 1.15}x)`);
+  }
   if (levelled.length > 1) log(`anlatım seviyesi: ${levelled.length} satır ${Math.min(...levelled).toFixed(1)}…${Math.max(...levelled).toFixed(1)} LUFS → ${VOICE_LUFS} LUFS`);
 
   /*
@@ -2024,7 +2646,10 @@ export async function produce(scriptIn, o) {
         } catch (e) {
           if (e?.cancelled) throw e;
         }
-        if (!file) break;
+        // ChatGPT inbox: the line's every cutaway is listed now — breaking after the first missing one asked for the
+        // second only on the NEXT resume (Saudi–Houthi news, Oct 2026: two stops for one line). Paid providers
+        // still stop at the first failure.
+        if (!file) { if (MANUAL) continue; break; }
         const d = sizeOf(join(PUBLIC, file));
         ins.push({ src: file, at: p.at[k], ...(d ? { imgW: d.w, imgH: d.h } : {}) });
       }
@@ -2035,11 +2660,19 @@ export async function produce(scriptIn, o) {
     });
     guard();
     if (made) log(`ara planlar: ${plan.length} doruk satırına ${made} yeni kare (anahtar kelimede kesme)`);
+    // A cutaway the voice made necessary that the estimate did not foresee: the render waits for it too (the voice
+    // is cached, the resume costs nothing) — never a silent skip.
+    if (MANUAL && manualImages) {
+      const left = writeList(INBOX);
+      throw Object.assign(new Error(`${left} ara plan görseli ChatGPT'den bekleniyor — ${join(INBOX, 'LISTE.txt')} içindeki tarifleri ChatGPT'de üret, aynı klasöre numarasıyla kaydet ve "Kaldığı yerden devam et". Seslendirme kayıtlı, yeniden ödenmez.`), { manualImages: left });
+    }
   }
-  // A line that must land (a chapter's last, a toll, a slam, a grieving beat) keeps a breath after it.
+  // A plain line ends with its voice (no dead air after the narration), then a line that must land keeps a breath.
   {
+    const tv = tightenToVoice(script);
+    if (tv.scenes) log(`tempo: ${tv.scenes} sahne sesine göre kısaldı (−${tv.saved} sn ölü süre)`);
     const br = applyBreath(script);
-    if (br.scenes) log(`nefes: ${br.scenes} satırdan sonra ek sessizlik (+${br.added} sn)`);
+    if (br.scenes) log(`nefes: ${br.scenes} satırdan sonra ek sessizlik (+${br.added} sn)${br.windows ? `, ${br.windows} müzik penceresi` : ''}`);
   }
 
   for (const sc of script.scenes) {
@@ -2192,7 +2825,7 @@ export async function produce(scriptIn, o) {
         prev = outLabel;
       }
       const tmp = join(PUBLIC, `${file}.tmp.wav`);
-      ff(['-y', '-hide_banner', '-loglevel', 'error', ...inputs, '-filter_complex', chain.replace(/;$/, ''), '-map', '[m]', '-f', 'wav', tmp]);
+      ff(['-y', '-hide_banner', '-loglevel', 'error', ...inputs, '-filter_complex', chain.replace(/;$/, ''), '-map', '[m]', '-f', 'wav', tmp], { timeout: ffDeadline(windows.at(-1).to) });
       renameSync(tmp, join(PUBLIC, file));
     }
     return { file, windows };
@@ -2239,7 +2872,8 @@ export async function produce(scriptIn, o) {
   let beatsSide = null;
   let found = null;
   if (libScore) {
-    libPlan = planScore({ script, sceneSeconds, lib: LIB, root: LIB_ROOT, genre: script.genre, seed: SEED_KEY, history: MUSIC_PRIOR, selector: MUSIC_SELECTOR });
+    // log: the plan's own warnings (thin pool, a death line with no mournful track left, a theme heard once).
+    libPlan = planScore({ script, sceneSeconds, lib: LIB, root: LIB_ROOT, genre: script.genre, seed: SEED_KEY, history: MUSIC_PRIOR, selector: MUSIC_SELECTOR, log });
     const used = libPlan.cues.filter((c) => c.trackId);
     log(`müzik (kütüphane): ${used.length} ipucu, ${new Set(used.map((c) => c.trackId)).size} parça — ${used.slice(0, 6).map((c) => `${c.title} (${Math.round(c.toSec - c.fromSec)} sn)`).join(' · ')}${used.length > 6 ? ' …' : ''}`);
     if (readJson(MUSIC_MARK)?.selector !== (libPlan.selector ?? 'v1')) writeAtomic(MUSIC_MARK, JSON.stringify({ selector: libPlan.selector ?? 'v1' }));
@@ -2298,7 +2932,7 @@ export async function produce(scriptIn, o) {
     const counts = new Map();
     for (const c of libPlan.cues) if (c.trackId) counts.set(c.trackId, (counts.get(c.trackId) ?? 0) + (c.toSec - c.fromSec));
     const main = libPlan.theme?.id ?? [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
-    if (!recordMusicHistory(MUSIC_HISTORY, { key: id, title: script.title, genre: script.genre, main, tracks: [...counts.keys()], prior: MUSIC_PRIOR })) log(`müzik geçmişi yazılamadı: ${MUSIC_HISTORY}`);
+    if (!recordMusicHistory(MUSIC_HISTORY, { key: id, title: script.title, genre: script.genre, channel: MUSIC_CHANNEL, main, tracks: [...counts.keys()], prior: MUSIC_PRIOR })) log(`müzik geçmişi yazılamadı: ${MUSIC_HISTORY}`);
   }
   const placedSec = placed.map((p) => p.frames / FPS);
 
@@ -2690,6 +3324,8 @@ export async function produce(scriptIn, o) {
   } else {
     script.ambienceCues = await elevenBeds();
   }
+  if (script._natCues?.length) script.eventCues = [...(script.eventCues ?? []), ...script._natCues];
+  delete script._natCues;
   progress('ambience', 63);
   guard();
 
@@ -2750,10 +3386,25 @@ export async function produce(scriptIn, o) {
   const result = { props: propsFile, script, bpm, warnings, musicCues: script.musicCues ?? [], sfxCredits };
   if (o.planOnly) return { ...result, durationSec: totalSec };
   rmSync(join(WORK, `${id}.raw.mp4`), { force: true }); // the single-pass render's leftover (older engine)
+  // ON-SCREEN NUMBERS, before the hour of rendering (El Niño, Oct 2026: "9 OCTOBER / 3.4 AVERAGE OF 2970" was only seen
+  // after the render): every counter's number and every tally as it will print, in the log, for review and QA.
+  try {
+    const { tallyItems: tally } = await import('../src/infographics/timing.js');
+    const shown = script.scenes.map((s, i) => {
+      if (s.type !== 'counter') return null;
+      const t = tally(s.wordTimes, { to: s.to });
+      return `sahne ${i}: ${t.length >= 2 ? t.map((x) => `${x.text} ${x.label}`.trim()).join(' · ') : `${s.prefix ?? ''}${s.to}${s.suffix ?? ''}`}`;
+    }).filter(Boolean);
+    if (shown.length) log(`ekrandaki sayılar: ${shown.join(' | ')}`);
+  } catch {}
+  // The outlier measures (edit-scorecard.mjs): tempo, maps, text cards, small photos — in the log before the render.
+  try {
+    log(scorecardLine(editScorecard(script, FPS, placeTimeline(script.scenes, FPS, script.beats ?? []))));
+  } catch {}
   log('render başlıyor');
   const rendered = await render({
     script, publicDir: PUBLIC, workDir: WORK, chunkDir: o.chunkDir ?? join(WORK, 'chunks'), id, ffmpeg: FFMPEG, bundleDir: o.bundleDir,
-    log, progress, cancelled, concurrency: o.renderConcurrency,
+    log, progress, cancelled, concurrency: o.renderConcurrency, patchScenes: o.patchScenes ?? null,
   });
   guard();
 
@@ -2761,7 +3412,7 @@ export async function produce(scriptIn, o) {
 
   progress('master', 97);
   log('mastering: ses ölçülüyor');
-  const m = masterAudio({ video: rendered.video, audio: rendered.audio, out: OUT, ffmpeg: FFMPEG, log });
+  const m = masterAudio({ video: rendered.video, audio: rendered.audio, out: OUT, ffmpeg: FFMPEG, log, seconds: totalSec });
   // Off target by more than 1 LU: the mix itself is unbalanced (e.g. hits far louder than the voice) — reported, not hidden.
   if (m.outputI !== null && Math.abs(m.outputI + 14) > 1) warnings.masterLoudness = m.outputI;
   rendered.cleanup();
@@ -2772,7 +3423,8 @@ export async function produce(scriptIn, o) {
    * Mbps a 12-minute video's chunks are ~2 GB per job.
    */
   const degraded = ['fallbackImages', 'borrowed', 'depthSkipped', 'refRefused'].some((k) => warnings[k]?.length) || warnings.missingAmbience > 0 || warnings.musicPromptFallback;
-  if (o.keepChunks === true || (o.keepChunks !== false && degraded)) rendered.prune();
+  // Kept by default since Oct 2026 (patch render needs last render's chunks); keepChunks:false drops them.
+  if (o.keepChunks !== false || degraded) rendered.prune();
   else rendered.drop();
 
   /* =========================================== 10. subtitles, chapters, cover */
@@ -2828,6 +3480,84 @@ function sfxCreditsOf(lib, root, sources) {
   return out.sort((a, b) => String(a.file).localeCompare(String(b.file)));
 }
 
+/** The music history's channels: a video plans against its own channel's last videos. */
+export const MUSIC_CHANNELS = ['news', 'history', 'finance', 'docu'];
+/**
+ * Which channel's music history a video belongs to: script.musicChannel, then script.channel when it is one of MUSIC_CHANNELS
+ * (the same field also carries the corner bug's display name, which is not), else from the format and
+ * the genre — news -> news, finance -> finance, epic -> history, anything else -> docu.
+ */
+export function musicChannelOf(script) {
+  // script.musicChannel: what the pipeline writes (docu.js musicMeta, from the format, genre and the channel's voice).
+  if (MUSIC_CHANNELS.includes(script?.musicChannel)) return script.musicChannel;
+  if (MUSIC_CHANNELS.includes(script?.channel)) return script.channel;
+  if (script?.format === 'news') return 'news';
+  if (script?.genre === 'finance') return 'finance';
+  if (script?.genre === 'epic') return 'history';
+  return 'docu';
+}
+
+/**
+ * Master constants.
+ * MEASURED (27 Ekim 2026, ses denetimi): the integrated level was never corrected after the AAC encode (Lula
+ * 20261026-29db03 ended at -14.6 LUFS; the warning only fired above 1 dB), and with the ceiling at 0.75
+ * (-2.5 dBFS) the loudest transients of a pre-master chunk peaking at -0.9 dBFS took ~6 dB of limiting after
+ * +4.8 dB of gain. Now: a gentle 1.5:1 bus compressor ahead of the same ceiling (the limiter does less),
+ * the TP re-encode guard still aiming at about -1.5 dBTP, and one more encode when I misses by > 0.4 LU.
+ */
+export const MASTER = {
+  /**
+   * Limiter ceiling, linear (~-2.5 dBFS). 0.82 (-1.7) was tried: the AAC encode overshoots ~1 dB, so the TP guard
+   * fired on nearly every video and its second encode aimed at ~0.73 anyway (27 Ekim 2026 review). The bus
+   * compressor ahead of it is what takes the load off the limiter.
+   */
+  ceiling: 0.75,
+  /** Bus compressor before the limiter: threshold 0.1 = -20 dBFS, 1.5:1, 20 ms / 250 ms. */
+  comp: 'acompressor=threshold=0.1:ratio=1.5:attack=20:release=250',
+  /** After the encode: |I - target| above this is corrected and encoded once more. */
+  tolI: 0.4,
+  /** After the encode: a true peak above this pulls the ceiling down (aiming at `tpAim`) for that encode. */
+  maxTP: -1.0,
+  tpAim: -1.5,
+};
+
+/** The master chain: linear gain, the bus compressor, a 4x-oversampled limiter (≈ true peak), back to 48 kHz. */
+export function masterChain(gainDb, ceiling = MASTER.ceiling) {
+  return `volume=${gainDb.toFixed(2)}dB,${MASTER.comp},aresample=192000,alimiter=limit=${ceiling.toFixed(3)}:attack=1:release=50:level=false:latency=1,aresample=48000`;
+}
+
+/**
+ * What one more encode must change after the measured encode `res` ({I, TP}), or nothing.
+ *  - TP above MASTER.maxTP: the ceiling comes down by the overshoot (and a little), aiming at MASTER.tpAim.
+ *  - |I - target| above MASTER.tolI: the gain moves by the miss.
+ * @returns {{redo:boolean, gain:number, ceiling:number, why:('tp'|'i')[]}}
+ */
+export function masterCorrection(res, { target = -14, gain, ceiling = MASTER.ceiling }) {
+  const why = [];
+  let g = gain;
+  let c = ceiling;
+  if (res?.TP !== null && res?.TP !== undefined && res.TP > MASTER.maxTP) {
+    c = Math.max(0.5, c * Math.pow(10, -(res.TP - MASTER.tpAim + 0.2) / 20));
+    why.push('tp');
+  }
+  if (res?.I !== null && res?.I !== undefined && Math.abs(res.I - target) > MASTER.tolI) {
+    g = clamp(g + (target - res.I), -20, 27);
+    why.push('i');
+  }
+  return { redo: why.length > 0, gain: g, ceiling: c, why };
+}
+
+/** I, LRA and true peak from an ebur128 summary (null when absent). */
+export function eburSummary(txt) {
+  const sum = String(txt ?? '').slice(Math.max(0, String(txt ?? '').lastIndexOf('Summary:')));
+  const num = (re) => {
+    const v = Number(sum.match(re)?.[1]);
+    return Number.isFinite(v) ? v : null;
+  };
+  const I = num(/I:\s+(-?[\d.]+) LUFS/);
+  return { I: I !== null && I > -70 ? I : null, LRA: num(/LRA:\s+(-?[\d.]+) LU\b/), TP: num(/Peak:\s+(-?[\d.]+) dBFS/) };
+}
+
 /**
  * Master to YouTube's level. Pass 1 measures the mix. The gain is then applied
  * LINEARLY and peaks are caught by a 4x-oversampled limiter (≈ true peak):
@@ -2835,29 +3565,24 @@ function sfxCreditsOf(lib, root, sources) {
  * (v3 narration alone has LRA 13; risers peaked at +1.8 dBFS), which squeezed
  * the dynamics, landed at -15 LUFS and resampled the output to 96 kHz. A
  * dry run through the same chain tells how much the limiter took, and the
- * gain is corrected once before the real encode. Output is always 48 kHz.
+ * gain is corrected once before the real encode; the encode is measured and,
+ * if its level or true peak missed (masterCorrection), encoded once more.
+ * Output is always 48 kHz.
  *
  * Either `raw` (one file with picture and sound) or the chunked render's
  * `video` (an mp4, or an ffconcat list of the muted chunks, stream-copied)
  * plus its `audio` (the one WAV mix) — then nothing is re-encoded but the sound.
- * @returns {{inputI:number|null, outputI:number|null, outputTP:number|null, gainDb:number}}
+ * `seconds` (the video's length) sets every pass's ffmpeg deadline; unknown: the longest.
+ * @returns {{inputI:number|null, outputI:number|null, outputTP:number|null, outputLRA:number|null, gainDb:number}}
  */
-export function masterAudio({ raw, video, audio, out, ffmpeg = 'ffmpeg', log = () => {}, target = -14 }) {
-  const run = (args) => {
-    const r = spawnSync(ffmpeg, args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, windowsHide: true });
-    return (r.stderr ?? '') + (r.stdout ?? '');
-  };
-  const measure = (file, chain) => {
-    const txt = run(['-hide_banner', '-nostats', '-i', file, '-vn', '-af', [chain, 'ebur128=peak=true'].filter(Boolean).join(','), '-f', 'null', '-']);
-    const sum = txt.slice(Math.max(0, txt.lastIndexOf('Summary:')));
-    const I = Number(sum.match(/I:\s+(-?[\d.]+) LUFS/)?.[1]);
-    const TP = Number(sum.match(/Peak:\s+(-?[\d.]+) dBFS/)?.[1]);
-    return { I: Number.isFinite(I) && I > -70 ? I : null, TP: Number.isFinite(TP) ? TP : null };
-  };
-  // The AAC encode overshoots the limiter by ~1 dB (1453: -1.5 dB in, -0.2 dBTP out), so the limiter sits
-  // lower and the encode is measured and corrected once (target true peak -1.5 dBTP).
-  let ceiling = 0.75;
-  const chainFor = (g) => `volume=${g.toFixed(2)}dB,aresample=192000,alimiter=limit=${ceiling.toFixed(3)}:attack=1:release=50:level=false:latency=1,aresample=48000`;
+export function masterAudio({ raw, video, audio, out, ffmpeg = 'ffmpeg', log = () => {}, target = -14, seconds = null }) {
+  const timeout = ffDeadline(seconds);
+  const run = (args) => ffText(ffmpeg, args, timeout);
+  const measure = (file, chain) => eburSummary(run(['-hide_banner', '-nostats', '-i', file, '-vn', '-af', [chain, 'ebur128=peak=true'].filter(Boolean).join(','), '-f', 'null', '-']));
+  // The AAC encode overshoots the limiter by ~1 dB (1453: -1.5 dB in, -0.2 dBTP out), so the encode is
+  // measured and corrected once (masterCorrection: true peak about -1.5 dBTP, level within 0.4 LU).
+  let ceiling = MASTER.ceiling;
+  const chainFor = (g) => masterChain(g, ceiling);
   const sound = audio ?? raw;
   const input = measure(sound);
   let gain = input.I === null ? 0 : clamp(target - input.I, -20, 24);
@@ -2869,10 +3594,10 @@ export function masterAudio({ raw, video, audio, out, ffmpeg = 'ffmpeg', log = (
     : ['-i', raw];
   const tmp = `${out}.tmp.mp4`;
   const encode = () => {
-    const r = spawnSync(ffmpeg, [
+    const r = ffSync(ffmpeg, [
       '-y', '-hide_banner', '-loglevel', 'error', ...inputs, '-af', chainFor(gain), '-ar', '48000',
       '-c:v', 'copy', '-c:a', 'aac', '-b:a', '320k', '-movflags', '+faststart', '-f', 'mp4', tmp,
-    ], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, windowsHide: true });
+    ], { timeout });
     if (r.status !== 0 || !fileOk(tmp)) {
       rmSync(tmp, { force: true });
       throw new Error(`mastering başarısız: ${String(r.stderr || r.error?.message || '').slice(-300)}`);
@@ -2882,15 +3607,18 @@ export function masterAudio({ raw, video, audio, out, ffmpeg = 'ffmpeg', log = (
   };
   log('mastering: son kodlama');
   let res = encode();
-  if (res.TP !== null && res.TP > -1.0) {
-    // Still hot after the encode: pull the ceiling down by the overshoot (and a little) and encode once more.
-    ceiling = Math.max(0.5, ceiling * Math.pow(10, -(res.TP + 1.5 + 0.2) / 20));
-    log(`mastering: tepe ${res.TP.toFixed(1)} dBTP, sınırlayıcı ${ceiling.toFixed(2)} ile yeniden kodlanıyor`);
+  const fix = masterCorrection(res, { target, gain, ceiling });
+  if (fix.redo) {
+    // Still hot, or off the level after the encode: correct the ceiling and/or the gain and encode once more.
+    if (fix.why.includes('tp')) log(`mastering: tepe ${res.TP.toFixed(1)} dBTP, sınırlayıcı ${fix.ceiling.toFixed(2)} ile yeniden kodlanıyor`);
+    if (fix.why.includes('i')) log(`mastering: seviye ${res.I.toFixed(1)} LUFS (hedef ${target}), kazanç ${fix.gain - gain >= 0 ? '+' : ''}${(fix.gain - gain).toFixed(1)} dB düzeltilip yeniden kodlanıyor`);
+    ceiling = fix.ceiling;
+    gain = fix.gain;
     res = encode();
   }
-  log(`mastering: ${input.I?.toFixed(1) ?? '?'} LUFS → ${res.I?.toFixed(1) ?? '?'} LUFS (kazanç ${gain >= 0 ? '+' : ''}${gain.toFixed(1)} dB), tepe ${res.TP?.toFixed(1) ?? '?'} dBTP, 48 kHz`);
-  if (res.I !== null && Math.abs(res.I - target) > 1) log(`uyarı: master seviyesi hedeften ${Math.abs(res.I - target).toFixed(1)} dB uzakta`);
-  return { inputI: input.I === null ? null : +input.I.toFixed(1), outputI: res.I === null ? null : +res.I.toFixed(1), outputTP: res.TP, gainDb: +gain.toFixed(2) };
+  log(`mastering: ${input.I?.toFixed(1) ?? '?'} LUFS → ${res.I?.toFixed(1) ?? '?'} LUFS (kazanç ${gain >= 0 ? '+' : ''}${gain.toFixed(1)} dB), tepe ${res.TP?.toFixed(1) ?? '?'} dBTP, LRA ${res.LRA?.toFixed(1) ?? '?'} LU, 48 kHz`);
+  if (res.I !== null && Math.abs(res.I - target) > MASTER.tolI) log(`uyarı: master seviyesi hedeften ${Math.abs(res.I - target).toFixed(1)} dB uzakta`);
+  return { inputI: input.I === null ? null : +input.I.toFixed(1), outputI: res.I === null ? null : +res.I.toFixed(1), outputTP: res.TP, outputLRA: res.LRA, gainDb: +gain.toFixed(2) };
 }
 
 /* ------------------------------------------------ timeline (Engine mirror) */
@@ -2914,9 +3642,20 @@ const srtTime = (s) => {
   return `${p(Math.floor(ms / 3600000))}:${p(Math.floor(ms / 60000) % 60)}:${p(Math.floor(ms / 1000) % 60)},${p(ms % 1000, 3)}`;
 };
 
+/*
+ * NO ORPHAN WORD (Eagle's Nest fire, Oct 2026): "On Friday night, 23 October 2026, it" (4 s), then "burned." alone for
+ * 0.4 s — the hook's payoff word; 23 cues under 0.7 s in that video, 25 in the France debt one, almost all one or two
+ * words cut off a sentence's end. A seven-word cue takes the one or two words left of its sentence (up to SRT_MAX_WORDS),
+ * and a short cue stays up to SRT_MIN_SEC while the scene and the next cue leave room.
+ */
+export const SRT_MAX_WORDS = 9;
+export const SRT_MIN_SEC = 0.8;
+const SENTENCE_END = /[.!?…]$/;
+
 /**
  * Subtitles from the narration's own word timings: cues of at most seven
- * words, broken early at sentence ends, each shown until the next begins.
+ * words (nine when only one or two of the sentence would be left), broken
+ * early at sentence ends, each shown until the next begins.
  * Performance tags ([whispers]) have timings too but are never shown.
  */
 export function buildSrt(script, placed, fps = FPS) {
@@ -2924,19 +3663,36 @@ export function buildSrt(script, placed, fps = FPS) {
   script.scenes.forEach((sc, i) => {
     if (!sc.wordTimes?.length) return;
     const base = placed[i].from / fps;
+    const sceneEnd = (placed[i].from + (placed[i].frames ?? 0)) / fps;
     const words = sc.wordTimes.filter((w) => !/^\[.*\]$/.test(w.word) && !/^[—–-]+$/.test(w.word));
+    // Words after k up to the end of its sentence (or of the line).
+    const leftOf = (k) => {
+      let n = 0;
+      for (let j = k + 1; j < words.length; j++) {
+        n++;
+        if (SENTENCE_END.test(words[j].word)) break;
+      }
+      return n;
+    };
     let cur = [];
     const flush = (end) => {
       if (!cur.length) return;
-      cues.push({ start: base + cur[0].t, end, text: cur.map((w) => w.word).join(' ').replace(/\s*\.\.\.\s*/g, '… ').trim() });
+      cues.push({ start: base + cur[0].t, end, sceneEnd, text: cur.map((w) => w.word).join(' ').replace(/\s*\.\.\.\s*/g, '… ').trim() });
       cur = [];
     };
     words.forEach((w, k) => {
       cur.push(w);
       const next = words[k + 1];
-      const sentenceEnd = /[.!?…]$/.test(w.word);
-      if (cur.length >= 7 || sentenceEnd || !next) flush(next ? base + next.t : base + (sc.voiceDur ?? w.t + 0.6));
+      const sentenceEnd = SENTENCE_END.test(w.word);
+      const left = leftOf(k);
+      const full = cur.length >= 7 && !(left <= 2 && cur.length + left <= SRT_MAX_WORDS);
+      if (full || sentenceEnd || !next) flush(next ? base + next.t : base + (sc.voiceDur ?? w.t + 0.6));
     });
+  });
+  cues.forEach((c, n) => {
+    if (c.end - c.start >= SRT_MIN_SEC - 1e-6) return;
+    const room = Math.min(cues[n + 1]?.start ?? Infinity, c.start + 1.0, c.sceneEnd > c.start ? c.sceneEnd : Infinity);
+    if (room > c.end) c.end = room;
   });
   return cues
     .map((c, n) => `${n + 1}\n${srtTime(c.start)} --> ${srtTime(Math.max(c.end, c.start + 0.4))}\n${c.text}\n`)
@@ -3488,7 +4244,7 @@ export function prepareSceneVideos(script, { PUBLIC, CACHE, BUILD, ff, ffOut, lo
     const key = `${sc.video}|${start}|${span.toFixed(1)}|${MOTION_RECIPE}`;
     let fr = motionCache[key];
     if (!Array.isArray(fr)) {
-      const out = ffOut(['-hide_banner', '-nostats', '-ss', start.toFixed(2), '-t', span.toFixed(2), '-i', abs, '-an', '-sn', '-dn', '-vf', MOTION_VF, '-f', 'null', '-']);
+      const out = ffOut(['-hide_banner', '-nostats', '-ss', start.toFixed(2), '-t', span.toFixed(2), '-i', abs, '-an', '-sn', '-dn', '-vf', MOTION_VF, '-f', 'null', '-'], ffDeadline(span));
       fr = parseFreezes(out).map((x) => [x.start, Number.isFinite(x.end) ? x.end : null]);
       motionCache[key] = fr;
       motionDirty = true;
@@ -3515,7 +4271,7 @@ export function prepareSceneVideos(script, { PUBLIC, CACHE, BUILD, ff, ffOut, lo
     };
     if (!fileOk(abs)) return drop(`dosya yok: ${sc.video}`);
     if (!(sc.videoDur > 0 && sc.videoW > 0 && sc.videoH > 0)) {
-      const p = parseVideoInfo(ffOut(['-hide_banner', '-i', abs]));
+      const p = parseVideoInfo(ffOut(['-hide_banner', '-i', abs], FF_PROBE_MS));
       if (!(sc.videoDur > 0) && p.dur > 0) sc.videoDur = +p.dur.toFixed(2);
       if (!(sc.videoW > 0 && sc.videoH > 0) && p.w > 0 && p.h > 0) {
         sc.videoW = p.w;
@@ -3723,6 +4479,8 @@ export function chunkKey({ script, placed, chunk, bundle, tctx = transitionConte
     look: { genre: script.genre, palette: script.palette ?? null, locale: script.locale ?? null, perfOff: script.perfOff ?? null, seed: script.seedKey ?? script.id ?? null, tr: script.transitionPalette ?? null, fxv: script.fxPalette ?? null, fxd: script.fxDensity ?? null },
     // The topic identity (src/topic) dresses chapter cards, grounds and wipes everywhere; keyed only when present (old keys unchanged).
     ...(script.topic ? { topic: script.topic } : {}),
+    // The channel's corner name (src/ChannelBug.tsx) rides over picture scenes; keyed only when present.
+    ...(script.channel ? { ch: script.channel } : {}),
     tctx,
     range: [chunk.start, chunk.end],
     around,
@@ -3866,7 +4624,7 @@ export function fitWav(file, frames, fps = FPS) {
  * muxes and levels them. Remotion's per-render temp audio stays chunk-sized.
  * @returns {Promise<{video:string, audio:string, chunks:number, reused:number, cleanup:()=>void, prune:()=>void, drop:()=>void}>}
  */
-export async function render({ script, publicDir, workDir, chunkDir, id = 'video', ffmpeg = 'ffmpeg', bundleDir: givenBundle, log, progress, cancelled, concurrency }) {
+export async function render({ script, publicDir, workDir, chunkDir, id = 'video', ffmpeg = 'ffmpeg', bundleDir: givenBundle, log, progress, cancelled, concurrency, patchScenes = null }) {
   const cancelledError = () => Object.assign(new Error('iptal edildi'), { cancelled: true });
   const bundleDir = givenBundle ?? (await ensureBundle(log));
   let remotionVersion = 'unknown';
@@ -3896,12 +4654,34 @@ export async function render({ script, publicDir, workDir, chunkDir, id = 'video
   const tctx = transitionContext(script.scenes);
   const style = styleOf(script);
   const aBase = audioKey({ script, bundle, sig });
+  // Content-only keys (the same inputs without the engine code): a patch render finds last render's chunks by them.
+  const aPatch = audioKey({ script, bundle: 'patch', sig });
   const named = (c) => ({
     ...c,
     video: join(chunkDir, `v-${chunkKey({ script, placed, chunk: c, bundle, tctx, sig, style })}.mp4`),
     audio: join(chunkDir, `a-${key16(`${aBase}|${c.start}|${c.end}`)}.wav`),
+    vb: chunkKey({ script, placed, chunk: c, bundle: 'patch', tctx, sig, style }),
+    ab: key16(`${aPatch}|${c.start}|${c.end}`),
   });
   let chunks = planChunks(script.scenes, placed).map(named);
+  /*
+   * PATCH RENDER (El Niño news, Oct 2026: one wrong number card at 3:36, and an engine fix that changed the bundle
+   * would have re-rendered all 8 chunks — two hours — for nine seconds). With patchScenes, a chunk that does not hold
+   * (or touch) a patched scene reuses last render's file for the same content, whatever engine drew it; its sound too.
+   */
+  const MANIFEST = join(chunkDir, 'last-render.json');
+  if (Array.isArray(patchScenes) && patchScenes.length) {
+    const last = readJson(MANIFEST);
+    let kept = 0;
+    for (const c of chunks) {
+      const touched = patchScenes.some((i) => i >= c.a - 1 && i <= c.b + 1);
+      const ov = last?.chunks?.find((o) => o.vb === c.vb);
+      if (!touched && ov && fileOk(ov.video) && !fileOk(c.video)) { c.video = ov.video; kept++; }
+      const oa = last?.chunks?.find((o) => o.ab === c.ab);
+      if (oa && fileOk(oa.audio) && !fileOk(c.audio)) c.audio = oa.audio;
+    }
+    log(`yama render: sahne ${patchScenes.join(', ')} — ${kept}/${chunks.length} parça son render'dan aynen alındı`);
+  }
 
   // Per-video site: the bundle's code plus this video's assets as its public/.
   const site = join(workDir, 'site');
@@ -3930,7 +4710,12 @@ export async function render({ script, publicDir, workDir, chunkDir, id = 'video
   }
   let ok = false;
   try {
-    const { selectComposition, renderMedia, ensureBrowser, makeCancelSignal } = await import('@remotion/renderer');
+    const renderer = await import('@remotion/renderer');
+    const { selectComposition, renderMedia, ensureBrowser, makeCancelSignal } = renderer;
+    // selectComposition and every renderMedia open their own Chrome with Remotion's fixed 25 s connect wait, under
+    // the same thermal guard as the cover drawer: the same 90 s wait (thumbnail.mjs, loaded here: it imports this file).
+    const { raiseBrowserConnectTimeout } = await import('./thumbnail.mjs');
+    raiseBrowserConnectTimeout(renderer);
     await ensureBrowser({ onBrowserDownload: () => {
       log('render tarayıcısı indiriliyor (ilk seferde bir kez, ~100 MB)');
       return { version: null, onProgress: () => {} };
@@ -4064,13 +4849,14 @@ export async function render({ script, publicDir, workDir, chunkDir, id = 'video
     writeAtomic(audioList, list(chunks.map((c) => c.audio)));
     const audio = join(workDir, `${id}.mix.wav`);
     const tmp = `${audio}.tmp.wav`;
-    const r = spawnSync(ffmpeg, ['-y', '-hide_banner', '-loglevel', 'error', '-f', 'concat', '-safe', '0', '-i', audioList, '-c', 'copy', '-f', 'wav', tmp], { encoding: 'utf8', windowsHide: true, maxBuffer: 16 * 1024 * 1024 });
+    const r = ffSync(ffmpeg, ['-y', '-hide_banner', '-loglevel', 'error', '-f', 'concat', '-safe', '0', '-i', audioList, '-c', 'copy', '-f', 'wav', tmp], { maxBuffer: 16 * 1024 * 1024, timeout: ffDeadline(frameCount / FPS) });
     if (r.status !== 0 || !fileOk(tmp)) {
       rmSync(tmp, { force: true });
       throw new Error(`ses parçaları birleştirilemedi: ${String(r.stderr || r.error?.message || '').slice(-300)}`);
     }
     renameSync(tmp, audio);
     ok = true;
+    writeAtomic(MANIFEST, JSON.stringify({ at: new Date().toISOString(), chunks: chunks.map(({ a, b, start, end, vb, ab, video, audio }) => ({ a, b, start, end, vb, ab, video, audio })) }));
 
     const current = new Set(chunks.flatMap((c) => [basename(c.video), basename(c.audio)]));
     return {

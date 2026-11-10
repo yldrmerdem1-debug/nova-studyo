@@ -3,6 +3,8 @@ import { AbsoluteFill, Easing, interpolate, useCurrentFrame, useVideoConfig } fr
 import { FONT } from '../fonts';
 import type { Genre, Scene, TopicIcon } from '../types';
 import { cueFrames, h01, motifColors, type TopicCtx } from './context';
+import { motifPalette } from './motifs';
+import { alpha, readable } from '../looks/color';
 import { motifCaptionRect } from './caption';
 import { useLook } from '../looks/context';
 import { ICONS } from './icons-data';
@@ -129,7 +131,20 @@ export const IconLayer: React.FC<{ t: TopicCtx; scene: Scene; genre: Genre; durF
   const look = useLook();
   const slots = iconSlots(scene, icons, textKeepOut(t, scene, genre, look.textStyle));
   if (!slots.length) return null;
-  const { accent } = motifColors(t, genre);
+  /*
+   * The look decides (motifPalette -> isLightLook): in a paper look the icon is drawn in the motif's ink on a paper pool,
+   * the accent pushed until it reads on paper; in a dark look a white glow line on a soft local pool (<= 0.5, it is
+   * the icon's own scrim, not a frame vignette). Gimli 9ff721 önce/sonra, 29 Ekim 2026: icons.tsx drew the night
+   * palette — white glow on a 0.62 black pool — inside every look.
+   */
+  const P = motifPalette(t, genre);
+  const lightIcons = P.light === true;
+  const base = motifColors(t, genre).accent;
+  const accent = lightIcons ? readable(base, P.ground, 3) : base;
+  const pool = lightIcons
+    ? `radial-gradient(circle, ${alpha(P.ground, 0.78)} 0%, ${alpha(P.ground, 0.45)} 45%, ${alpha(P.ground, 0)} 70%)`
+    : 'radial-gradient(circle, rgba(0,0,0,0.5) 0%, rgba(0,0,0,0.26) 45%, rgba(0,0,0,0) 70%)';
+  const lineInk = lightIcons ? P.ink : '#ffffff';
   const at = cueFrames(
     slots.map((s) => ({ at: s.icon.at, label: s.icon.at ? undefined : s.icon.label })),
     scene.wordTimes,
@@ -180,20 +195,20 @@ export const IconLayer: React.FC<{ t: TopicCtx; scene: Scene; genre: Genre; durF
               </svg>
             ) : null}
             <div style={{ position: 'absolute', left: x - size, top: y + fy - size, width: size * 2, height: size * 2, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
-              {/* A dark pool for contrast on a bright photo; the glow reads on any ground. */}
-              <div style={{ position: 'absolute', inset: 40, borderRadius: '50%', background: 'radial-gradient(circle, rgba(0,0,0,0.62) 0%, rgba(0,0,0,0.35) 45%, rgba(0,0,0,0) 70%)', opacity: p }} />
+              {/* A local pool for contrast (dark under a glow, paper in a light look); the line reads on any ground. */}
+              <div style={{ position: 'absolute', inset: 40, borderRadius: '50%', background: pool, opacity: p }} />
               {glow ? <div style={{ position: 'absolute', inset: 58, borderRadius: '50%', border: `1.5px solid ${accent}`, boxShadow: `0 0 18px ${accent}, inset 0 0 18px ${accent}66`, opacity: 0.55 * p, transform: `scale(${0.9 + 0.1 * p})` }} /> : null}
               <div style={{ transform: `scale(${pop})`, opacity: flick }}>
                 <LineIcon
                   id={s.icon.id}
                   size={size}
-                  color={glow ? '#ffffff' : accent}
+                  color={glow ? lineInk : accent}
                   stroke={1.5}
                   draw={p}
-                  style={{ filter: glow ? `drop-shadow(0 0 3px ${accent}) drop-shadow(0 0 12px ${accent}) drop-shadow(0 0 30px ${accent})` : `drop-shadow(0 2px 6px rgba(0,0,0,0.8))`, overflow: 'visible' }}
+                  style={{ filter: glow ? (lightIcons ? `drop-shadow(0 0 6px ${accent}88)` : `drop-shadow(0 0 3px ${accent}) drop-shadow(0 0 12px ${accent}) drop-shadow(0 0 30px ${accent})`) : `drop-shadow(0 2px 6px rgba(0,0,0,${lightIcons ? 0.25 : 0.6}))`, overflow: 'visible' }}
                 />
               </div>
-              {s.icon.label ? <BrushTag text={s.icon.label} color={accent} p={interpolate(f, [a + 6, a + 16], [0, 1], clamp)} /> : null}
+              {s.icon.label ? <BrushTag text={s.icon.label} color={accent} ink={readable('#111111', accent, 4.5)} p={interpolate(f, [a + 6, a + 16], [0, 1], clamp)} /> : null}
             </div>
           </React.Fragment>
         );

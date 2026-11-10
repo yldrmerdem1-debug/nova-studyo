@@ -108,8 +108,8 @@ export const BurnFx: React.FC<OverlayProps> = ({ f, fps, seed, gain = 1 }) => {
 
 export const FlareFx: React.FC<OverlayProps> = ({ f, dur, fps, hit, seed, genre, focus, gain = 1 }) => {
   const L = lightOf(genre);
-  const h = hit ?? Math.round(dur * 0.4);
-  const bloom = interpolate(f - h, [-6, 0, 16], [0, 1, 0], clamp);
+  // The bloom lands on a real impact only (timing.ts mainHit, 29 Ekim 2026); without one the flare just glides.
+  const bloom = hit === null ? 0 : interpolate(f - hit, [-6, 0, 16], [0, 1, 0], clamp);
   const base = interpolate(f, [0, 0.6 * fps], [0, 0.42], clamp);
   const o = Math.min(1, (base + bloom * 0.55) * Math.max(1, gain));
   const y = Math.min(0.62, Math.max(0.24, focus[1] - 0.04)) * 100;
@@ -278,7 +278,11 @@ export const DustFx: React.FC<OverlayProps> = ({ f, seed }) => {
   const hy = random(`${seed}hy${hk}`) * 800 + 100;
   const hr = random(`${seed}hr${hk}`) * 360;
   const scratch = random(`${seed}scr${Math.floor(f / 2)}`) > 0.86;
-  const breathe = 0.05 * (random(`${seed}br${f}`) - 0.5);
+  /*
+   * No full-frame "breathe" any more (29 Ekim 2026, Gimli 20261028-9ff721 / Kartal Yuvası 950730: kanal sahibi "anlık
+   * efektler doğal değil"): a white-or-black sheet at a random ±2.5% every frame read as flicker over the whole picture,
+   * and half of its frames darkened pictures already at luma 52-56. The specks, the hair and the scratch stay.
+   */
   return (
     <AbsoluteFill style={{ pointerEvents: 'none' }}>
       {specks}
@@ -297,7 +301,6 @@ export const DustFx: React.FC<OverlayProps> = ({ f, seed }) => {
       {scratch ? (
         <div style={{ position: 'absolute', top: 0, bottom: 0, left: `${random(`${seed}sx${Math.floor(f / 2)}`) * 100}%`, width: 1.5, background: 'rgba(250,245,230,0.22)' }} />
       ) : null}
-      <AbsoluteFill style={{ background: breathe > 0 ? '#fff' : '#000', opacity: Math.abs(breathe) }} />
     </AbsoluteFill>
   );
 };
@@ -315,14 +318,26 @@ export const FlashFx: React.FC<OverlayProps> = ({ f, hit, genre }) => {
 
 /* --------------------------------------------------------- vignette pulse */
 
-export const VignettePulseFx: React.FC<OverlayProps> = ({ f, fps, hits, gain = 1 }) => {
-  // A steady vignette that tightens once on every hit. The old resting heartbeat (a lub-dub
-  // every 0.9 s) read as flicker on charts and graphics (1929 world-imports chart, user).
+/*
+ * A REAL PULSE (29 Ekim 2026, Gimli 20261028-9ff721 / Kartal Yuvası 950730: luma 52-56, %21-39 kare luma < 40; kanal
+ * sahibi "her video siyah, anlık efektler doğal değil"). The old one rested at 0.34 black at the edges for the whole
+ * scene (0.58 on a hit, up to 0.92 with gain) on top of the global vignette of 0.6-0.9 — a permanent black ring, not a
+ * pulse. Now it rests at PULSE_REST (≤ 0.1), tightens only within ±PULSE_WINDOW frames of a real hit (no hit: it stays
+ * at rest), and never stacks over a global vignette that is already PULSE_GLOBAL_MAX or stronger.
+ */
+export const PULSE_REST = 0.08;
+export const PULSE_PEAK = 0.26;
+export const PULSE_WINDOW = 20;
+export const PULSE_GLOBAL_MAX = 0.35;
+
+export const VignettePulseFx: React.FC<OverlayProps> = ({ f, fps, hits, genre, gain = 1 }) => {
+  if ((Number(genre?.vignette) || 0) >= PULSE_GLOBAL_MAX) return null;
   let spike = 0;
-  for (const h of hits) spike = Math.max(spike, interpolate(f - h, [-3, 0, 20], [0, 1, 0], clamp));
+  for (const h of hits) spike = Math.max(spike, interpolate(f - h, [-PULSE_WINDOW, 0, PULSE_WINDOW], [0, 1, 0], { ...clamp, easing: Easing.inOut(Easing.sin) }));
   const k = interpolate(f, [0, 0.6 * fps], [0, 1], clamp);
-  const strength = Math.min(0.92, k * (0.34 + 0.24 * spike) * Math.max(1, gain));
-  const inner = 46 - 9 * spike;
+  const strength = Math.min(0.4, k * PULSE_REST + spike * PULSE_PEAK * Math.min(1.3, Math.max(1, gain)));
+  if (strength < 0.005) return null;
+  const inner = 52 - 10 * spike;
   return <AbsoluteFill style={{ pointerEvents: 'none', background: `radial-gradient(ellipse at 50% 48%, rgba(0,0,0,0) ${inner}%, rgba(0,0,0,${strength.toFixed(3)}) 100%)` }} />;
 };
 

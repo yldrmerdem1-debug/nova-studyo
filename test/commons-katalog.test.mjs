@@ -36,7 +36,7 @@ test("katalog: küçük, lisansı uygun olmayan, svg ve tekrar dosyalar girmez",
     } } };
   };
   const cat = await buildCommonsCatalog({ queries: ["Golan Heights", "Yom Kippur War"], fetchJsonFn });
-  assert.equal(calls.length, 2);
+  assert.equal(calls.filter((u) => !/srnamespace=14/.test(u)).length, 2, "one keyword search per query (category lookups aside)");
   assert.deepEqual(cat.map((e) => e.file), ["File:Shot tanks in Golan Heights.jpg"], "tekrar ve uygunsuzlar elenir");
   assert.equal(cat[0].date, "1973");
   assert.match(cat[0].desc, /description/);
@@ -59,7 +59,7 @@ test("bölüm: en ilgili dosyalar önce; istem bloğu uydurmayı ve tekrar kulla
 test("katalog işin klasöründe saklanır: aynı sorgularla yeniden taranmaz", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "katalog-"));
   let n = 0;
-  const fetchJsonFn = async () => { n++; return { query: { pages: { 1: page("File:Golda Meir2.jpg", 2466, 3533) } } }; };
+  const fetchJsonFn = async (url) => { if (!/srnamespace=14/.test(url)) n++; return { query: { pages: { 1: page("File:Golda Meir2.jpg", 2466, 3533) } } }; };
   const a = await commonsCatalogFor({ dir, queries: ["Golda Meir"], fetchJsonFn });
   const b = await commonsCatalogFor({ dir, queries: ["Golda Meir"], fetchJsonFn });
   assert.equal(n, 1);

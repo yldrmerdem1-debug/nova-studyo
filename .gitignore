@@ -9,7 +9,7 @@ docu-engine/out/
 *.log
 
 # user data: settings (API keys), jobs, previews — never commit
-data/
+/data/
 *.env
 .env*
 

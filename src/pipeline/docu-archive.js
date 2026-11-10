@@ -43,11 +43,18 @@ import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { readJson, writeJson, downloadFile, run, fetchJson, UA } from "../util.js";
-import { searchQuery, photoKey, kapaliSaglayicilar, geciciSaglayiciHatasi } from "./media.js";
-import { selectedProvenance, commonsMetadata, permissionUsable } from "./provenance.js";
+import { searchQuery, photoKey, photoTwinKey, tekFotoSayfasi, kapaliSaglayicilar, geciciSaglayiciHatasi, markMonoSource } from "./media.js";
+import { selectedProvenance, commonsKey, commonsMetadata, permissionUsable } from "./provenance.js";
 import { callVisionJSON } from "../llm.js";
+import { pickInbox } from "./docu-pick-inbox.js";
 
 const ARCHIVE_TYPES = new Set(["photo", "title", "words", "slam", "headline", "document", "quote"]);
+/**
+ * A file the script names (`commons: "File:..."`) is also fetched for a split's own side and a counter's picture:
+ * neither is searched, but skipping a NAMED real photo sent both to AI (Panama, Oct 2026: the Sagaing bridge split
+ * and the USGS La Tronosa map counter came back as AI stills).
+ */
+const NAMED_TYPES = new Set([...ARCHIVE_TYPES, "split", "counter"]);
 const ADAY = 4;
 /** Algısal kopyalar elendiğinde görme modeline yine 4 aday gidebilsin diye fazladan alınan. */
 const ADAY_YEDEK = 3;
@@ -93,6 +100,62 @@ export function numberedNameConflict(search, title) {
     for (const x of t.matchAll(other)) if (x[1] !== num) return true;
   }
   return false;
+}
+/*
+ * BAŞKA ÜLKENİN KLİBİ — stok sitesinin başlığı/slug'ı hikâyede geçmeyen bir ülkeyi, şehri ya da o ülkeye özgü bir
+ * bayramı söylüyorsa aday baştan elenir (Panama depremi, Ekim 2026: "Mulino sakin olun dedi" cümlesinin altına
+ * "indian-festival-ganesha-festival" klibi, Hindistan bayraklarıyla girdi; seçicinin kredisi yoktu, fark eden olmadı).
+ * Gruplar: hikâyede grubun herhangi bir sözcüğü geçiyorsa o ülkenin klibi serbesttir.
+ */
+// "|" separates the group's names; a name may be two words ("costa rica", "new york") and matches only whole.
+const PLACE_GROUPS = [
+  "india|indian|hindu|ganesha|ganesh|diwali|holi|mumbai|delhi|kolkata|bangalore|jaipur|varanasi|kerala",
+  "china|chinese|beijing|shanghai|shenzhen|guangzhou",
+  "japan|japanese|tokyo|kyoto|osaka",
+  "korea|korean|seoul|busan",
+  "thailand|thai|bangkok|phuket",
+  "vietnam|vietnamese|hanoi|saigon",
+  "indonesia|indonesian|bali|jakarta|malino",
+  "philippines|filipino|manila",
+  "hawaii|hawaiian|waikiki|honolulu",
+  "mexico|mexican|cancun|guadalajara",
+  "brazil|brazilian|sao paulo",
+  "costa rica|costa rican|alajuela",
+  "guatemala|guatemalan", "honduras", "nicaragua", "el salvador", "cuba|cuban|havana", "jamaica|jamaican",
+  "colombia|colombian|bogota|medellin|cali|pereira|cartagena",
+  "venezuela|venezuelan|caracas", "ecuador|ecuadorian|quito", "peru|peruvian|lima|cusco", "chile|chilean",
+  "argentina|argentinian|buenos aires", "bolivia", "uruguay", "paraguay",
+  "panama|panamanian",
+  "france|french|paris", "italy|italian|rome|roman|venice|milan|florence", "spain|spanish|madrid|barcelona",
+  "germany|german|berlin|munich", "britain|british|england|london|scotland|scottish", "ireland|irish|dublin",
+  "portugal|portuguese|lisbon", "netherlands|dutch|amsterdam", "greece|greek|athens", "turkey|turkish|istanbul|ankara",
+  "russia|russian|moscow", "ukraine|ukrainian|kyiv|kiev", "poland|polish|warsaw", "czech|prague", "hungary|budapest",
+  "austria|vienna", "switzerland|swiss|zurich", "sweden|swedish|stockholm", "norway|norwegian|oslo",
+  "egypt|egyptian|cairo", "morocco|moroccan|marrakech", "dubai|uae|emirates|abu dhabi", "saudi arabia|saudi|riyadh|mecca",
+  "israel|israeli|jerusalem|tel aviv", "iran|iranian|tehran", "iraq|baghdad", "pakistan|karachi|lahore",
+  "bangladesh|dhaka", "nepal|kathmandu", "sri lanka", "maldives", "singapore", "hong kong", "taiwan|taipei",
+  "australia|australian|sydney|melbourne", "new zealand|auckland", "canada|canadian|toronto|vancouver|montreal",
+  "new york|manhattan|brooklyn|nypd", "los angeles|hollywood|lapd",
+  // Fransa videosu (21 Ekim 2026, izleyici notu): Paris isyanı anlatılırken 2020 Minneapolis (George Floyd) yangını, BLM
+  // tabelalı ABD yürüyüşü girdi. ABD başlıkları/şehirleri: hikâye Amerika'yı anmıyorsa elenir ("us" zamir olduğu için yok).
+  "united states|america|american|usa|minneapolis|minnesota|st paul|saint paul|ferguson|baltimore|kenosha|louisville|seattle|atlanta|houston|texas|california|florida|denver|philadelphia|detroit|boston|black lives matter|blm",
+  "policia|carabineros|guardia civil", "san francisco", "las vegas", "chicago", "miami",
+  "nigeria|lagos", "kenya|nairobi", "south africa|cape town|johannesburg",
+].map((g) => g.split("|"));
+const placeNorm = (t) => ` ${String(t || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z]+/g, " ").trim()} `;
+const groupHits = (text, g) => g.some((name) => text.includes(` ${name} `));
+/** Hikâyenin (başlık, bölümler, anlatım, arama, alt yazılar) söylediği ülke gruplarının indisleri. */
+export function storyPlaceGroups(text) {
+  const t = placeNorm(text);
+  const out = new Set();
+  PLACE_GROUPS.forEach((g, i) => { if (groupHits(t, g)) out.add(i); });
+  return out;
+}
+/** Adayın başlığı hikâyede olmayan bir ülke grubunu söylüyor mu? */
+export function foreignPlaceConflict(storyGroups, title) {
+  const t = placeNorm(title);
+  if (t.trim() === "") return false;
+  return PLACE_GROUPS.some((g, i) => !storyGroups.has(i) && groupHits(t, g));
 }
 const hash = (s) => crypto.createHash("sha1").update(s).digest("hex").slice(0, 12);
 const stripTags = (t) => String(t || "").replace(/\[[^\]]*\]\s*/g, "").trim();
@@ -214,6 +277,497 @@ function videoPromptLines(scene) {
 }
 
 /**
+ * Aynı resim/klip birbirinden uzak sahnelerde tekrar ediyor mu (Yom Kippur: geçiş fotoğrafı 3 kez, aynı Kissinger
+ * portresi 2 kez; Ekim 2026 kare incelemesi). Yan yana sahneler (aynı anın devamı), önceki-kare zeminleri ve
+ * son 3 sahnedeki bilinçli kapanış dönüşü sayılmaz. → [{ file, scenes: [i, j, …] }]
+ */
+export function duplicatePictures(scenes = []) {
+  const uses = new Map();
+  scenes.forEach((s, i) => {
+    if (!s || s.bg === "prev" || s.heldBg) return;
+    const file = s.video || s.image;
+    if (!file) return;
+    if (!uses.has(file)) uses.set(file, []);
+    uses.get(file).push(i);
+  });
+  const tail = scenes.length - 3;
+  const out = [];
+  for (const [file, idx] of uses) {
+    const far = idx.filter((i, k) => k > 0 && i - idx[k - 1] > 1 && i < tail);
+    if (far.length) out.push({ file, scenes: idx });
+  }
+  return out;
+}
+
+/** Tahmini sahne süresi (sn): yazarın dur'u ya da anlatım (2,6 kelime/sn) + nefes. */
+const sceneSec = (s) => Math.max(Number(s?.dur) || 0, String(s?.say || "").replace(/\[[^\]]*\]/g, " ").trim().split(/\s+/).filter(Boolean).length / 2.6 + 0.4);
+const CARD_TYPES = new Set(["board", "flow", "stat", "icons", "bars", "donut", "scale", "document", "timeline", "quote", "map", "split", "explainer", "ui-card", "chart"]);
+/**
+ * Aynı resim art arda sahnelerde ekranda uzun kalıyor mu (önceki-kare zinciri ya da aynı dosya)? Panama (Ekim 2026):
+ * bir sahne karta dönünce zincir kaydı, aynı sokak klibi üç sahne ~25 sn, aynı USGS haritası ~21 sn kaldı.
+ * → [{ file, scenes: [i…], sec }] (en az 3 sahne ya da maxSec'ten uzun).
+ */
+export function longHolds(scenes = [], { maxSec = 15 } = {}) {
+  const out = [];
+  let cur = null;
+  // Gerçek görüntünün sürdüğü satırlar (footage-hold.js, en çok 30 sn) bekleyen kare değildir: klip oynamaya devam eder.
+  const close = () => { if (cur && !(cur.moving && cur.sec <= 32) && cur.scenes.length >= 2 && (cur.scenes.length >= 3 || cur.sec > maxSec)) out.push({ file: cur.file, scenes: cur.scenes, sec: +cur.sec.toFixed(1) }); cur = null; };
+  scenes.forEach((s, i) => {
+    if (!s || CARD_TYPES.has(s.type)) { close(); return; }
+    const own = s.bg === "prev" || s.heldBg ? null : s.video || s.image || null;
+    if (cur && (own === null || own === cur.file)) { cur.scenes.push(i); cur.sec += sceneSec(s); return; }
+    close();
+    if (own) cur = { file: own, scenes: [i], sec: sceneSec(s), moving: !!s.video };
+  });
+  close();
+  return out;
+}
+
+/* ================================================================ yazı yüzde, ad başkasının resminde */
+
+/*
+ * YAZI YÜZÜN ÜSTÜNE BİNMEZ, AD BAŞKASININ RESMİNE YAZILMAZ (26 Ekim 2026 işleri; kare incelemesi 27 Ekim):
+ *  - Lula (haber, 20261026-29db03): 0:13'te kancanın başlığı "HOW BRAZIL REALLY VOTED" Lula'nın resmî portresinde
+ *    ağzının üstündeydi (künye "Foto oficial de Luiz Inácio Lula da Silva"); 4:17'de "52" anahtar kelimesi Flávio
+ *    Bolsonaro'nun yüzünün ortasında (künye "Entrevistas Diversas - Senador Flávio Bolsonaro"). Ön izleme kapısı başlığı
+ *    altı turda da "text_on_face" buldu; düzeltmesi ("other-style") yalnızca yazı stilini değiştirdi, yazı kadrajın
+ *    ortasında kaldı. Shorts'ta kural 10 Ekim'den beri vardı (docu-shorts.js lowOverFaces), uzun videoda yoktu.
+ *  - Çernobil (tarih, 20261026-24122a): 0:54'te "Their names were Oleksiy Ananenko…" satırının dev "ANANENKO"su önceki
+ *    sahnenin AI kontrol odası resmindeki BAŞKA adamların yüzlerindeydi — izleyici onları Ananenko sanar. Kapı
+ *    "wrong_face" buldu ama düzeltmesi satırın AI istemine not yazmaktı: satır önceki karenin resmini taşıyordu, değişmedi.
+ * Kural (ücretsiz, deterministik; docu.js finishEngineDocu her planda, kapının yamalarından sonra uygular):
+ *  - resim yüz gösteriyor mu: isim kartı, seçicinin yüz konumu (künyede face), derinlik/cast, künye başlığında senaryodaki
+ *    bir kişinin adı, tarifte insan sözcüğü (AI istemi ya da stok künyesi; Shorts'un FACE_LOOK'unun uzun video hâli);
+ *  - yüzlü resmin üstündeki büyük yazı (anahtar kelime, vuruş, başlık, yazı kartı) textAt "low" alır, yüz karenin alt
+ *    yarısındaysa "top" — motor bloğu alt üçte bire indirir ve bir boy küçültür (docu-engine/src/looks/text.tsx band);
+ *  - ekrandaki AD (isim kartı, anahtar kelime, vuruş kelimesi, fotoğraf altyazısı) yalnızca o kişiyi gerçekten gösteren
+ *    resmin üstünde durur: sahnenin gerçek resmi ve künyesi o kişiyi adlandırıyor ya da seçici o isim kartıyla yüzü
+ *    doğruladı (künyede face). AI resmi gerçek bir kişiyi göstermez. Değilse isim kartı o kişinin ilk uygun fotoğraf
+ *    sahnesine taşınır (yoksa kalkar); kart ve vuruş yazısız kalır (adı anlatım söyler), altyazı kalkar.
+ */
+/** Yüzlü resmin tarif sözcükleri (docu-shorts.js FACE_LOOK'un uzun video hâli; Commons künyeleri Portekizce/İspanyolca da). */
+const YUZ_TARIFI = /\b(portraits?|faces?|headshot|man|men|woman|women|boys?|girls?|child|children|persons?|president|senator|senador|deputy|deputado|minister|ministro|governor|governador|mayor|prefeito|king|queen|emperor|sultan|general|admiral|officers?|soldiers?|engineers?|workers?|technicians?|operators?|scientists?|doctors?|nurses?|pilots?|divers?|firefighters?|policem[ae]n|crew|staff|preacher|pastor|priest|wife|husband|mother|father|singer|actor|host|anchor|politician|candidate|leader|supporters?|protesters?|voters?|smiling|speaking|interview|entrevistas?|foto oficial|retrato|official (?:photo|portrait))\b/i;
+/** Uzak çekim: yüzler küçük — yakın/orta çekim ya da yüz sözcüğü yoksa yazı yerinde kalır. */
+const UZAK_CEKIM = /\b(wide|aerial|distant|far away|silhouettes?|from above|bird'?s-eye|drone|skyline)\b/i;
+const YAKIN_CEKIM = /\b(portraits?|faces?|headshot|close-?up|medium|tight|interview|entrevistas?|foto oficial|retrato)\b/i;
+/*
+ * Künyede unvan sözcüğü çoğu kez bir yerin ya da şeyin adıdır (inceleme, 27 Ekim 2026): Suudi–Husi 20261011-3c27b1'in
+ * kanca başlığı (sahne 2) "King Khalid International Airport" künyesi yüzünden, "general aviation" künyeleri de aynı
+ * yüzden alt üçte bire iniyordu. Arşiv künyesinde king/queen/general ancak portre/yakın çekim sözcüğüyle yüz sayılır
+ * (AI isteminde "a king on his throne" bir kişidir, değişmez).
+ */
+const KUNYE_UNVAN = /\b(?:kings?|queens?|general)\b/gi;
+/**
+ * Tarif yüzün GÖRÜNMEDİĞİNİ söylüyor: kimse yok, "no faces" (AI istemleri yüzü bilerek saklar), silüet, arkadan, ya da
+ * yalnızca el/parmak/nesne yakın çekimi (Lula: "Close-up of a voter's finger pressing the keypad").
+ */
+const YUZ_YOK = /\b(empty|nobody|no one|no (?:visible |readable )?(?:people|persons?|faces?|figures?|humans?|crowds?)|deserted|unoccupied|faceless|silhouettes?|silhouetted|from behind|back to (?:the )?camera|faces? (?:in shadow|hidden|obscured|turned away)|vazio|vazia)\b/i;
+const DETAY = /\b(?:close-?up|detail(?: shot)?|macro) of (?:[\p{L}'’]+\s+){0,3}?(?:hands?|fingers?|keypad|keyboard|screen|documents?|papers?|page|ballots?|dials?|gauges?|buttons?|coins?|bills?|cash|maps?|letters?|boots?|feet)\b/iu;
+/** Yüz karenin bu yüksekliğinin altındaysa yazı üst banda çıkar. */
+export const FACE_LOW_Y = 0.62;
+
+const KIRIL = { а: "a", б: "b", в: "v", г: "g", ґ: "g", д: "d", е: "e", є: "ye", ё: "e", ж: "zh", з: "z", и: "i", і: "i", ї: "i", й: "y", к: "k", л: "l", м: "m", н: "n", о: "o", п: "p", р: "r", с: "s", т: "t", у: "u", ф: "f", х: "kh", ц: "ts", ч: "ch", ш: "sh", щ: "shch", ъ: "", ы: "y", ь: "", э: "e", ю: "yu", я: "ya" };
+/** Ad karşılaştırması: küçük harf, Kiril → Latin ("Ананенко" → "ananenko"), aksansız, yalnızca harf/rakam sözcükleri. */
+export function adNorm(t) {
+  return String(t || "").toLowerCase().replace(/[Ѐ-ӿ]/g, (c) => KIRIL[c] ?? c).normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .replace(/ı/g, "i").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+}
+const AD_EKI = new Set(["da", "de", "do", "dos", "das", "di", "du", "del", "della", "van", "von", "der", "den", "ter", "bin", "ibn", "al", "el", "la", "le", "y", "e"]);
+/** Ad önündeki unvanlar (docu-engine/lib/produce.mjs TITLE_UPPER'ın aynası; motor uygulamanın dışında, içe aktarılamaz). */
+const UNVAN = new Set(["Vice President", "Prime Minister", "Senator", "Sen", "President", "Minister", "Governor", "Mayor", "Judge", "Justice", "Chancellor", "King", "Queen", "Prince", "Princess", "Emperor", "Empress", "Tsar", "Czar", "Pope", "Cardinal", "Archbishop", "Bishop", "General", "Admiral", "Colonel", "Col", "Captain", "Capt", "Lieutenant", "Lt", "Sergeant", "Sgt", "Commander", "Marshal", "Sheriff", "Detective", "Dr", "Doctor", "Professor", "Prof", "Rev", "Reverend", "Mr", "Mrs", "Ms", "Sir", "Dame", "Lord", "Lady", "Ayatollah", "Sheikh", "Sultan", "Rabbi", "Imam"].flatMap((t) => t.toLowerCase().split(" ")));
+/*
+ * Ad olmayan parçalar (unvan, yaş, sıradan sözcük): "ananenko_young" → yalnızca "ananenko". produce.mjs NAME_STOP'un aynası
+ * (inceleme, 27 Ekim 2026): "Judge Robert Potter" (Bakker 20261006-af567d) "judge"ı, "Bill"/"Will"/"Grace"/"Hope" gibi
+ * adlar sıradan sözcüğü ad parçası yapıyordu — ekrandaki "JUDGE" ya da "WILL" o kişinin adı sanılıp kalkabilirdi.
+ */
+const AD_DISI = new Set([
+  ...UNVAN, "senior", "junior", "father", "mother", "young", "old", "older", "elder",
+  ..."the a an and or but so then now yet still in on at of for from by with to into after before when while during since until as his her their its our my your this that these those there here what who whom why how where which it he she they we you saint st jr sr ii iii iv remember meanwhile however today tonight yesterday tomorrow later earlier".split(" "),
+  ..."january february march april may june july august september october november december monday tuesday wednesday thursday friday saturday sunday".split(" "),
+  ..."court house senate congress parliament assembly building tower palace square street avenue road bridge river lake mountain station airport hospital university college school church cathedral museum bank exchange market office department ministry committee council commission agency bureau police army navy force party group company corporation inc ltd llc fund foundation institute center centre hall plant reactor unit prison jail federal national supreme state city county republic kingdom union united states new north south east west central great royal international world global times post journal news daily magazine tribune herald press gazette globe portrait motors electric staff will hope grace faith joy bill".split(" "),
+]);
+/*
+ * ÜLKE ADI KİŞİNİN AD PARÇASI DEĞİLDİR (inceleme, 27 Ekim 2026; sıradaki İsrail 2026 seçim videosu): "Israel Katz" isim
+ * kartı "israel"i Savunma Bakanı'nın ad parçası yapıyordu (anlatım "Israel"i tek başına da söylediği için ilk adı da
+ * sayılıyordu) — "ISRAEL" vuruşu başkasının resminde Katz'ın adı sanılıp siliniyor, AI notunda "Israel votes on Tuesday"
+ * "The person votes…" oluyordu. Katz "katz"la tanınır. Ad dizisine katılması engellenmez: "Defense Minister Israel Katz"
+ * bütünüyle "the person" olur. Halkın adı da kişi değildir: "israeli_voter" cast anahtarı "Israeli"yi, "tel_aviv_protester"
+ * "Aviv"i kişi yapıyordu (peopleNames). produce.mjs PLACE_NAMES ve docu-script.js PLACE_WORDS ile AYNI.
+ */
+const YER_ADI = new Set("israel israeli israelis gaza palestine palestinian palestinians iran iranian iranians iraq iraqi syria syrian lebanon lebanese egypt egyptian yemen yemeni saudi saudis arabia arab arabs qatar qatari oman turkey turkiye turkish russia russian russians ukraine ukrainian ukrainians belarus china chinese taiwan japan japanese korea korean india pakistan pakistani afghanistan afghan america american americans britain british england scotland ireland irish france germany italy italian spain spanish portugal europe european africa african asia brazil brazilian argentina mexico mexican canada canadian venezuela venezuelan cuba cuban hungary hungarian poland polish soviet jewish muslim houthi houthis idf jerusalem tel aviv moscow beijing tehran kyiv kiev hamas hezbollah kremlin".split(" "));
+const adParcalari = (ad) => adNorm(ad).split(" ").filter((w) => w.length >= 4 && !AD_DISI.has(w) && !AD_EKI.has(w) && !YER_ADI.has(w));
+/** Bir kişinin adı mı ("Bartl Wimmer", "Luiz Inácio Lula da Silva"); kurum ("SEC Office of Inspector General") değil. Virgül/parantez öncesi. */
+function kisiAdi(t, { tek = false } = {}) {
+  const ad = String(t || "").split(/[,(;:—–]/)[0].trim();
+  const parca = ad.split(/\s+/).filter(Boolean);
+  if (!parca.length || parca.length > 6 || (!tek && parca.length < 2) || !/^\p{Lu}/u.test(parca[0])) return null;
+  return parca.every((w) => AD_EKI.has(w) || /^\p{Lu}[\p{L}'’.-]*$/u.test(w)) ? ad : null;
+}
+
+/**
+ * Senaryodaki gerçek kişiler: isim kartları (`name`), alıntıların sahipleri (`who`, kişi adıysa) ve anlatımda hep büyük
+ * harfle geçen cast anahtarları ("ananenko_young" → Ananenko; "firefighter" anlatımda küçük harfle geçer, kişi değil).
+ * YÖNETMENİN (arşivden önceki) senaryosu verilir: AI'a düşen sahnenin kartı arşivde silinir, kişi yine bilinir.
+ * `ilkAd`: anlatım kişiyi yalnızca ilk adıyla da anıyor ("Harold marched north", "Napoleon") — künyede ilk adı tek başına
+ * da onu adlandırır (namesIn kunye).
+ * → [{ ad, parcalar: ["oleksiy", "ananenko"], ilkAd? }]
+ */
+export function peopleNames(script) {
+  const out = new Map();
+  const add = (ad) => {
+    const parcalar = adParcalari(ad);
+    const k = parcalar.join(" ");
+    if (parcalar.length && !out.has(k)) out.set(k, { ad: String(ad).trim(), parcalar });
+  };
+  const scenes = script?.scenes || [];
+  for (const s of scenes) {
+    const kart = kisiAdi(s?.name, { tek: true });
+    if (kart) add(kart);
+    for (const w of [s?.who, s?.speaker]) { const ad = kisiAdi(w); if (ad) add(ad); }
+  }
+  const buyuk = new Set();
+  const kucuk = new Set();
+  for (const m of scenes.map((s) => String(s?.say || "")).join(" ").matchAll(/\p{L}+/gu)) (/^\p{Lu}/u.test(m[0]) ? buyuk : kucuk).add(adNorm(m[0]));
+  // Cast anahtarı yalnızca kartı/alıntısı olmayan kişi için ("ananenko" zaten "Oleksiy Ananenko"nun parçası).
+  const bilinen = () => new Set([...out.values()].flatMap((p) => p.parcalar));
+  for (const k of Object.keys(script?.cast || {})) {
+    for (const w of adParcalari(k.replace(/[_-]+/g, " "))) if (buyuk.has(w) && !kucuk.has(w) && !bilinen().has(w)) add(w[0].toUpperCase() + w.slice(1));
+  }
+  // Tek başına geçen büyük harfli sözcükler: ardından büyük harfli bir söz gelmiyor ("Harold had been waiting" evet;
+  // "Imre Nagy", "Imre Sinkovits" hayır — Imre orada yalnızca ilk ad).
+  const anlatim = scenes.map((s) => String(s?.say || "")).join(" \n ").normalize("NFC");
+  const tekBasina = new Set([...anlatim.matchAll(/\p{Lu}\p{L}*(?!\p{L})(?![ \t]+\p{Lu})/gu)].map((m) => iskelet(adNorm(m[0]))));
+  return [...out.values()].map((p) => (p.parcalar.length > 1 && tekBasina.has(iskelet(p.parcalar[0])) ? { ...p, ilkAd: true } : p));
+}
+
+/**
+ * Harf çevirisi farkı ad farkı değildir: Commons künyesi "Ананенко Олексій" / "Борис Баранов", senaryo "Oleksiy Ananenko" /
+ * "Borys Baranov". İskelet: y/iy/ій → i, kh → h, çift harf tek ("oleksiy" ~ "oleksii" → "oleksi", "borys" ~ "boris").
+ */
+const iskelet = (w) => w.replace(/kh/g, "h").replace(/iy|ij|yi|ii/g, "i").replace(/y/g, "i").replace(/(.)\1+/g, "$1");
+const sozler = (t) => new Set(adNorm(t).split(" ").filter(Boolean).map(iskelet));
+
+/*
+ * ORTAK İLK AD BAŞKA KİŞİ DEĞİLDİR (inceleme, 27 Ekim 2026): ad parçalarından herhangi biri yetiyordu. Macaristan
+ * 20261011-a5d8bf'te parlamento fotoğrafının stok etiketi "…, imre steindl" (binanın mimarı) Imre Nagy sayıldı, yazı
+ * boşuna alt üçte bire indi; "Imre Nagy portrait.jpg" Imre Sinkovits'i de getirdi; Çernobil 20261026-24122a'da "Boris
+ * Shcherbina" kartı Borys Baranov'u da sayıyordu (iskelet borys ~ boris) — Baranov'un yanlış resimdeki kartı fotoğrafına
+ * taşınacağına "kartı zaten var" diye siliniyordu.
+ *  - Aynı parçaları paylaşanlardan DAHA ÇOK parçası eşleşen kişi kalır ("Boris Shcherbina" → yalnızca Shcherbina).
+ *  - kunye (Commons başlığı, stok etiketi, resmin kimliği): yalnızca ilk ad yetmez — soyadı ya da ilk ad dışındaki bir
+ *    parça gerekir ("Lula" Luiz Inácio Lula da Silva'yı adlandırır), meğer anlatım kişiyi ilk adıyla anıyor olsun
+ *    (ilkAd: "Bayeux Tapestry scene57 Harold death" Harold'dır).
+ */
+/** Metinde adı geçen kişiler (ad parçası tam sözcük olarak geçiyor; en iyi eşleşen kişi, künyede soyadı). */
+export function namesIn(text, people = [], { kunye = false } = {}) {
+  const toks = sozler(text);
+  const hits = people.map((p) => ({ p, w: [...new Set(p.parcalar.map(iskelet))].filter((w) => toks.has(w)) })).filter((h) => h.w.length);
+  const best = hits.filter((h) => !hits.some((o) => o.w.length > h.w.length && h.w.every((w) => o.w.includes(w))));
+  return best.filter((h) => !kunye || h.p.parcalar.length < 2 || h.p.ilkAd || h.w.some((w) => w !== iskelet(h.p.parcalar[0]))).map((h) => h.p);
+}
+
+/*
+ * GERÇEK AD AI İSTEMİNE GİTMEZ (inceleme, 27 Ekim 2026; Lula 20261026-29db03): ön izleme kapısı AI karesini yeniden
+ * ürettirirken isteme anlatımı ekliyordu ("it must plainly show what the narration says: His opponent was Senator Flávio
+ * Bolsonaro, of the PL, Jair Bolsonaro's eldest son.") — motor yüzü gizlese de gerçek kişinin adı görüntü modeline
+ * gidiyordu. Anlatımdaki gerçek kişi adları önündeki unvanla birlikte "the person" olur, iyelik eki kalır: "His opponent
+ * was the person, of the PL, the person's eldest son." Adsız anlatım aynen kalır (istem, dolayısıyla önbellek anahtarı).
+ */
+/*
+ * İnceleme (27 Ekim 2026, gerçek işlerin anlatımı ve sıradaki İsrail videosu):
+ *  - Cümle sonu dizinin sonudur: "…strikes on the Houthis. Trump declined." "…on the person declined." oluyor, "No reopening
+ *    date for King Khalid. No word on…" iki cümleyi birleştiriyordu (Suudi–Husi 20261011-3c27b1). Baş harf ("Bernard L.
+ *    Madoff") ve unvan kısaltması ("Dr.", "Adm.") cümle bitirmez.
+ *  - Kısaltma (IMF, CEO, ECB) ad değildir: cast anahtarı "imf_chief" (20261015-3c14ff) anlatımdaki her "IMF"yi
+ *    "the person" yapıyordu ("The person traced $1.4 trillion…").
+ *  - Tireli ad ve "al-" önekli ad adın parçasıdır: "Ben-Gvir", "Baharav-Miara" hiç eşleşmiyordu; "Coalition spokesman
+ *    the person al-Maliki" adın yarısını görüntü modeline bırakıyordu.
+ */
+const AD_SOZU = String.raw`(?:(?:al|el|ad|an|ar|as|ash|at|az|abu|abd|bin|ibn)[-‐])?\p{Lu}[\p{L}\p{M}'’.-]*`;
+const AD_DIZISI = new RegExp(String.raw`(?<![\p{L}\p{M}'’-])${AD_SOZU}(?:[ \t]+(?:(?:da|de|do|dos|das|di|du|del|della|van|von|der|den|ter|bin|ibn|al|el|la|le)[ \t]+)?${AD_SOZU})*`, "gu");
+const KISALTMA = new Set(["mr", "mrs", "ms", "dr", "prof", "rev", "sen", "rep", "gov", "gen", "adm", "col", "capt", "cpt", "lt", "sgt", "cmdr", "flt", "st", "jr", "sr", "mt", "ft", "vs"]);
+/** Metindeki gerçek kişi adlarını (names: realCast, isim kartları; cast anahtarı da olur) "the person" yapar. */
+export function hideNames(text, names = []) {
+  const t = String(text || "").normalize("NFC");
+  const parcalar = new Set((names || []).flatMap((n) => adNorm(String(n).replace(/_+/g, " ")).split(" "))
+    .filter((w) => w.length >= 3 && !AD_DISI.has(w) && !AD_EKI.has(w) && !YER_ADI.has(w) && !/^\d+$/.test(w)).map(iskelet));
+  if (!parcalar.size) return t;
+  const yalin = (w) => w.replace(/(?:['’]s)?\.?$/u, "");
+  const kok = (w) => adNorm(yalin(w));
+  const var_ = (k) => parcalar.has(k) || (k.length > 3 && k.endsWith("s") && parcalar.has(k.slice(0, -1)));
+  const adMi = (w) => {
+    if (!/\p{Ll}/u.test(yalin(w))) return false;
+    const k = kok(w).split(" ").filter((x) => x && !AD_EKI.has(x)).map(iskelet);
+    return k.length > 0 && (k.some((x) => x.length >= 4 && var_(x)) || k.every(var_));
+  };
+  const cumleSonu = (w) => /\.$/u.test(w) && !/^(?:\p{Lu}\.)+$/u.test(w) && !KISALTMA.has(adNorm(w));
+  return t.replace(AD_DIZISI, (butun) => {
+    const p = butun.split(/([ \t]+)/);
+    const parca = [];
+    for (let k = 0, from = 0; k < p.length; k += 2) {
+      if (k < p.length - 1 && !cumleSonu(p[k])) continue;
+      parca.push(gizle(p.slice(from, k + 1).join("")));
+      if (k + 1 < p.length) parca.push(p[k + 1]);
+      from = k + 2;
+    }
+    return parca.join("");
+  }).replace(/\b(?:(the)|an?)\s+the person/gi, (m, the) => (the ? `${the} person` : `${m[0] === "A" ? "A" : "a"} person`))
+    .replace(/(^|[.!?]\s+)the person/g, "$1The person");
+  function gizle(dizi) {
+    const p = dizi.split(/([ \t]+)/); // çift: sözcük, tek: boşluk
+    const soz = p.filter((_, k) => k % 2 === 0);
+    const ad = soz.map(adMi);
+    if (!ad.includes(true)) return dizi;
+    const iyelik = (k) => /['’]s\.?$/u.test(soz[k]);
+    // Adın önündeki unvan ve adın parçası olabilecek büyük harfli sözcükler ("Luiz Inácio" Lula'nın), sıradan sözcük değil
+    // ("When", "Monday"); başkasının iyeliği ("Brazil's President Lula") dizinin dışında kalır.
+    const katilir = (k) => AD_EKI.has(soz[k]) || UNVAN.has(kok(soz[k])) || !AD_DISI.has(kok(soz[k]));
+    let a = ad.indexOf(true);
+    let b = ad.lastIndexOf(true);
+    while (a > 0 && !iyelik(a - 1) && katilir(a - 1)) a--;
+    while (b < soz.length - 1 && !iyelik(b) && katilir(b + 1) && !UNVAN.has(kok(soz[b + 1]))) b++;
+    // Başkasının iyeliğinden sonraki unvan dizide kalır: "Brazil's President the person".
+    while (a < b && a > 0 && iyelik(a - 1) && UNVAN.has(kok(soz[a]))) a++;
+    while (b > a && AD_EKI.has(soz[b])) b--;
+    while (a < b && AD_EKI.has(soz[a])) a++;
+    const ek = soz[b].match(/(?:['’]s)?\.?$/u)[0];
+    return `${p.slice(0, 2 * a).join("")}the person${ek}${p.slice(2 * b + 1).join("")}`;
+  }
+}
+
+/** Sahnenin künyesi: dosyasıyla eşleşen (ses klibi araya girince scene-N kayar), yoksa scene-i (docu.js sceneCredit). */
+function kunyeOf(credits, s, i) {
+  const file = s?.video || s?.image;
+  return (file && Object.values(credits || {}).find((c) => c?.file === file)) || credits?.[`scene-${i}`] || null;
+}
+
+/** Kendi resmi olan sahne (motorun AI ürettiği dahil: imagePrompt ve bg yok; montajın kareleri). */
+const resimli = (p) => !!p && !p.bg && !p.heldBg && !!(p.image || p.video || p.imagePrompt || (p.type === "montage" && (p.images?.length || p.imagePrompts?.length)));
+
+/**
+ * Yazının altındaki resmin sahnesi: kendi resmi, ya da bg "prev"/"next" ise motorun tuttuğu komşu resim (lib/produce.mjs
+ * ile aynı arama: önceki/sonraki resimli sahne; "next" bulamazsa önceki). → { s, i, held } | null
+ */
+export function pictureOf(scenes = [], i) {
+  const s = scenes[i];
+  if (!s) return null;
+  const back = () => { for (let j = i - 1; j >= 0; j--) if (resimli(scenes[j])) return { s: scenes[j], i: j, held: true }; return null; };
+  if (s.bg === "next") {
+    for (let j = i + 1; j < scenes.length; j++) if (resimli(scenes[j])) return { s: scenes[j], i: j, held: true };
+    return back();
+  }
+  if (s.bg === "prev" || s.heldBg) return back();
+  return resimli(s) ? { s, i, held: false } : null;
+}
+
+/**
+ * Resmin kimliği (adların arandığı metin): yalnızca GERÇEK resimde — doğrulanmış isim kartı, künye başlığı/sayfası, ve
+ * seçici isim kartıyla yüzü doğruladıysa (künyede face) aranan sorgu. AI resmi kimseyi göstermez: boş.
+ */
+function resimKimligi(p, c) {
+  if (!p?.archived) return "";
+  let sayfa = String(c?.sayfa || "");
+  try { sayfa = decodeURIComponent(sayfa); } catch {}
+  return [p.name, c?.eser, sayfa, Array.isArray(c?.face) ? p.search : ""].filter(Boolean).join(" ");
+}
+
+/** Gösterilen adların parçalarının hepsi resmin kimliğinde mi? Eksik kalan kişiler. */
+function adlarResimdeDegil(shown, kimlik, people) {
+  const s = sozler(shown);
+  const k = sozler(kimlik);
+  return people.filter((p) => {
+    const gorunen = p.parcalar.map(iskelet).filter((w) => s.has(w));
+    return gorunen.length > 0 && !gorunen.every((w) => k.has(w));
+  });
+}
+
+/**
+ * Resimde (yazının altında) yüz var mı → { at: [x, y] | null } | null. Derinlik katmanlı resimde motor yazıyı kişinin boş
+ * tarafına zaten koyar: null.
+ */
+export function pictureFace(p, c, people = []) {
+  if (!p || p.layers) return null;
+  const at = Array.isArray(c?.face) ? c.face : p.name && Array.isArray(p.focus) ? p.focus : null;
+  if (p.name || at) return { at };
+  // Gerçek resimde tarif künyedir (Commons başlığı, stok açıklaması); AI resminde istemin kendisi.
+  const tarif = p.archived ? String(c?.eser || c?.metin || "") : String(p.imagePrompt || "");
+  if (YUZ_YOK.test(tarif) || DETAY.test(tarif)) return null;
+  if (p.depth || p.cast?.length) return { at: null };
+  if (p.archived && namesIn([c?.eser, c?.sayfa].join(" "), people, { kunye: true }).length) return { at: null };
+  if (!YUZ_TARIFI.test(p.archived && !YAKIN_CEKIM.test(tarif) ? tarif.replace(KUNYE_UNVAN, " ") : tarif)) return null;
+  if (UZAK_CEKIM.test(tarif) && !YAKIN_CEKIM.test(tarif)) return null;
+  return { at: null };
+}
+
+/** Ekranda AD taşıyabilen yazı: isim kartı, kartın anahtar kelimesi (anahtar modda sözü), vuruş kelimesi, altyazı. */
+export function shownName(s) {
+  if (!s) return "";
+  if (s.type === "photo") return [s.name, s.caption].filter(Boolean).join(" ");
+  if (s.type === "words") return s.textMode === "none" ? "" : s.textMode === "key" ? String(s.keyword || s.text || "") : String(s.keyword || "");
+  if (s.type === "slam") return [s.word, s.sub].filter(Boolean).join(" ");
+  return "";
+}
+
+/*
+ * AD YALNIZCA BAŞKASINI GÖSTEREN RESİMDEN KALKAR (inceleme, 27 Ekim 2026): kural adı "o kişi olmayan" her resimden
+ * kaldırıyordu. Bakker 20261006-af567d sahne 11 "a young singer named Tammy Faye LaValley" karlı bir Michigan sokağının AI
+ * resminde, Hastings 20261010-989df5 sahne 66 "not where Harold had been waiting" denizin stok görüntüsünde ("view of the
+ * horizon in the sea while a sailboat") bütün yazısını kaybetti — o karelerde kimse yanlış tanıtılmıyordu. Ad artık
+ * yalnızca resim bir yüz/kişi gösteriyorsa (pictureFace; derinlik katmanlı resim de kendi tarifiyle) ya da ne gösterdiği
+ * bilinmiyorsa (künyesiz arşiv resmi, istemsiz resim) kalkar. Kişisiz istem, kişisiz Commons/stok başlığı yazıyı korur.
+ */
+function kisiYaDaBilinmez(pic, c, people) {
+  const p = pic.s;
+  if (pictureFace(p.layers ? { ...p, layers: undefined } : p, c, people)) return true;
+  return !String(p.archived ? c?.eser || c?.metin || "" : p.imagePrompt || "").trim();
+}
+
+const BUYUK_YAZI = (s) => (s?.type === "words" && s.textMode !== "none" && !!(s.text || s.keyword))
+  || (s?.type === "slam" && !!s.word)
+  || (s?.type === "title" && !s.chapterCard && !s.rankCard && !!(s.title || s.kicker));
+
+/**
+ * KURALI UYGULAR (yerinde; saf — dosya, ağ, model yok). `people`: peopleNames(yönetmenin senaryosu).
+ * `names` false (AI modu: yüzler cast portresi, kartın altına motor "canlandırma" yazar) ise yalnızca yazı yüzden iner.
+ * → { low, top, dropped: [{scene, ad, what}], moved: [{from, to, ad}], keep: [sahne] }
+ */
+export function faceSafeText(scenes = [], { credits = {}, people = [], names = true, logFn = () => {} } = {}) {
+  const rep = { low: 0, top: 0, dropped: [], moved: [], keep: [] };
+  const kunye = (i) => kunyeOf(credits, scenes[i], i);
+  const kimlik = (pic) => (pic ? resimKimligi(pic.s, kunye(pic.i)) : "");
+  if (names && people.length) {
+    // 1) İsim kartı: yalnızca kendi gerçek resminde ve o kişiyi gösteriyorsa. Değilse kişinin ilk doğrulanmış fotoğrafına.
+    scenes.forEach((s, i) => {
+      if (s?.type !== "photo" || !s.name) return;
+      const own = !s.bg && !s.heldBg && s.archived ? { s, i } : null;
+      const c = own ? kunye(i) : null;
+      const kim = namesIn(s.name, people);
+      if (own && (Array.isArray(c?.face) || !adlarResimdeDegil(s.name, resimKimligi(s, c), kim).length)) return;
+      const { name: ad, role } = s;
+      delete s.name;
+      delete s.role;
+      if (!kim.length) { rep.dropped.push({ scene: i, ad, what: "isim kartı" }); return; }
+      const taken = scenes.some((x) => x?.name && namesIn(x.name, people).some((p) => kim.includes(p)));
+      const j = taken ? -1 : scenes.findIndex((x, k) => k !== i && x?.type === "photo" && !x.name && x.archived && !x.bg && !x.heldBg
+        && !adlarResimdeDegil(ad, resimKimligi(x, kunye(k)), kim).length && namesIn(resimKimligi(x, kunye(k)), kim, { kunye: true }).length);
+      if (j >= 0) {
+        Object.assign(scenes[j], { name: ad, ...(role ? { role } : {}) });
+        rep.moved.push({ from: i, to: j, ad });
+      } else rep.dropped.push({ scene: i, ad, what: "isim kartı" });
+    });
+    // 2) Kart/vuruş/altyazıdaki ad: altındaki resim o kişi değilse yazı kalkar (anlatım adı söyler).
+    scenes.forEach((s, i) => {
+      if (!s || !["photo", "words", "slam"].includes(s.type)) return;
+      const yazi = s.type === "photo" ? String(s.caption || "") : shownName(s);
+      const kim = namesIn(yazi, people);
+      if (!kim.length) return;
+      const pic = pictureOf(scenes, i);
+      if (!pic) return; // düz zemindeki ad kimsenin yüzünde değil
+      const eksik = adlarResimdeDegil(yazi, kimlik(pic), kim);
+      if (!eksik.length) {
+        // Doğru kişinin resmindeki ad: ara plan (başka resim) altına girmesin.
+        if (s.type === "words" && s.textMode === "key" && !pic.held && !s.noInserts) { s.noInserts = true; rep.keep.push(i); }
+        return;
+      }
+      // Resimde kimse yoksa ad kimseyi yanlış tanıtmaz: yazı kalır (kisiYaDaBilinmez).
+      if (!kisiYaDaBilinmez(pic, kunye(pic.i), people)) return;
+      const ad = eksik.map((p) => p.ad).join(", ");
+      if (s.type === "photo") { delete s.caption; rep.dropped.push({ scene: i, ad, what: "altyazı" }); return; }
+      if (s.type === "slam") {
+        const word = s.word;
+        delete s.word; delete s.sub; delete s.at;
+        Object.assign(s, { type: "words", text: word, textMode: "none" });
+        rep.dropped.push({ scene: i, ad, what: "vuruş" });
+        return;
+      }
+      s.textMode = "none";
+      rep.dropped.push({ scene: i, ad, what: "yazı kartı" });
+    });
+  }
+  // 3) Yüzlü resmin üstündeki büyük yazı alt üçte bire (yüz alttaysa üst banda).
+  scenes.forEach((s, i) => {
+    if (!BUYUK_YAZI(s) || s.layers || s.textAt) return;
+    const pic = pictureOf(scenes, i);
+    if (!pic) return;
+    const yuz = pictureFace(pic.s, kunye(pic.i), people);
+    if (!yuz) return;
+    s.textAt = yuz.at && yuz.at[1] >= FACE_LOW_Y ? "top" : "low";
+    rep[s.textAt]++;
+  });
+  if (rep.low || rep.top) logFn(`Yazı yüzden iniyor: ${rep.low + rep.top} sahnede büyük yazı yüzlü resmin ${rep.top ? `alt üçte birinde (${rep.low}) ya da üst bandında (${rep.top})` : "alt üçte birinde"}`);
+  for (const m of rep.moved) logFn(`İsim kartı "${m.ad}" sahne ${m.from + 1}'in resmi o kişi değil — kişinin gerçek fotoğrafına (sahne ${m.to + 1}) taşındı`);
+  for (const d of rep.dropped) logFn(`Ad başka kişinin resminde: sahne ${d.scene + 1} ${d.what} ("${String(d.ad).slice(0, 60)}") kaldırıldı — resim o kişiyi göstermiyor`);
+  return rep;
+}
+
+/**
+ * KANCADA TAM EKRAN — başlıktan önceki (en çok ilk 20 sn) düşük çözünürlüklü GERÇEK görüntü motorda küçük bir kutu
+ * olarak kalıyordu (Panama, Ekim 2026: Pereira deprem anı 792x720, ilk 4 sn ekranın ortasında pul gibi). Kancada
+ * gerçek anın büyüklüğü netlikten önemlidir: 16:9 kırpılıp 1920x1080'e büyütülür. Dikey kaynak (kırpınca yarısı
+ * gider) ve 640 px altı aday değildir. → hedef sahne indisleri.
+ */
+export function hookFillTargets(scenes = [], { withinSec = 20 } = {}) {
+  const out = [];
+  let t = 0;
+  for (let i = 0; i < scenes.length; i++) {
+    const s = scenes[i];
+    if (!s || s.type === "title" || t > withinSec) break;
+    const w = Number(s.videoW) || 0, h = Number(s.videoH) || 0;
+    if (s.video && s.archived && w >= 640 && h > 0 && w / h >= 1 && (w < 1280 || h < 720)) out.push(i);
+    t += sceneSec(s);
+  }
+  return out;
+}
+/** hookFillTargets'ı uygular: kırpılmış/büyütülmüş kopya `-fill.mp4` + karesi; sahnenin video alanları ona döner. */
+export async function fillHookFootage(scenes, { publicDir, ffmpeg = "ffmpeg", logFn = () => {}, runner = run } = {}) {
+  let n = 0;
+  for (const i of hookFillTargets(scenes)) {
+    const s = scenes[i];
+    const src = path.join(publicDir, s.video);
+    if (!fs.existsSync(src)) continue;
+    const rel = s.video.replace(/\.[a-z0-9]+$/i, "") + "-fill.mp4";
+    const out = path.join(publicDir, rel);
+    const still = rel.replace(/\.mp4$/, ".jpg");
+    try {
+      if (!fs.existsSync(out)) {
+        const w = s.videoW, h = s.videoH;
+        const ch = Math.min(h, Math.round((w * 9) / 16 / 2) * 2);
+        const cw = Math.min(w, Math.round((ch * 16) / 9 / 2) * 2);
+        await runner(ffmpeg, ["-nostdin", "-y", "-v", "error", "-i", src, "-an", "-vf", `crop=${cw}:${ch}:(iw-${cw})/2:(ih-${ch})/2,scale=1920:1080:flags=lanczos,unsharp=5:5:0.6,setsar=1,fps=30`, "-c:v", "libx264", "-preset", "veryfast", "-crf", "17", "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-threads", "2", out]);
+        await runner(ffmpeg, ["-nostdin", "-y", "-v", "error", "-ss", "0.5", "-i", out, "-frames:v", "1", "-q:v", "2", path.join(publicDir, still)]);
+      }
+      Object.assign(s, { video: rel, image: still, videoW: 1920, videoH: 1080, imgW: 1920, imgH: 1080, fit: "cover" });
+      n++;
+    } catch (e) {
+      logFn(`Kanca görüntüsü büyütülemedi (sahne ${i + 1}): ${String(e?.message || e).slice(0, 120)}`);
+    }
+  }
+  if (n) logFn(`Kanca: ${n} düşük çözünürlüklü gerçek görüntü tam ekrana büyütüldü`);
+  return n;
+}
+
+/*
+ * SAYAÇ YIL MI, ÖLÇÜ MÜ? (Kartal Yuvası, 24 Ekim 2026): "The house stood at 1,834 meters" sayacı (to 1834, etiket
+ * "METERS ABOVE SEA LEVEL") yıl sayıldı, 5 kat ağırlıkla. 2026 haberinin ilk bölümü "1834 dönemi", hikâye "1939" oldu;
+ * dönem denetimi binanın bugünkü 25 gerçek fotoğrafını "dönem dışı" diye reddetti, AI istemlerine "1834'te elektrik
+ * ışığı yok" yazıldı. Sayaç yalnızca açıkça yılsa (s.year) ya da etiketi/anlatımı bir ölçü söylemiyorsa yıldır; yıl
+ * binlik ayırıcıyla yazılmaz ("1,834").
+ */
+const OLCU = /\b(met(?:er|re)s?|feet|foot|ft|km|kilomet\w*|miles?|tons?|tonnes?|kg|kilos?|people|men|women|soldiers|troops|workers|crew|sailors|euros?|dollars?|pounds?|percent|altitude|above sea|sea level|deep|depth|high|height|long|wide|horsepower|rounds?|votes?|seats?|cases|deaths|dead)\b|%|€|\$|£/i;
+export function counterYear(s) {
+  if (s?.type !== "counter") return null;
+  const to = Number(s.to);
+  if (s.year) return Number.isFinite(to) ? to : null;
+  if (!(Number.isInteger(to) && to >= 1000 && to <= 2029) || s.prefix || s.suffix || s.unit) return null;
+  if (OLCU.test(`${s.label || ""} ${s.kicker || ""} ${s.caption || ""}`)) return null;
+  const said = String(s.say || "");
+  if (said.includes(to.toLocaleString("en-US"))) return null;
+  const after = new RegExp(`\\b${to}\\b\\s*(\\S+(?:\\s+\\S+)?)`).exec(said);
+  if (after && OLCU.test(after[1])) return null;
+  return to;
+}
+
+/**
  * Hikâyenin dönemi (anlatımda geçen yıllardan). Stok karede "modern jet, cam kokpit,
  * bayraklı gösteri paraşütçüsü" 1971 hikâyesine sızıyordu: seçici yılı bilmiyordu.
  */
@@ -227,7 +781,8 @@ export function hikayeDonemi(script) {
     // 1000 öncesi değil: "1453" tanınmıyordu (1500+ arıyordu) ve 1453 videosu dönem kurallarının hiçbirini almadı.
     for (const m of String(metin).matchAll(/\b(1\d\d\d|20[0-2]\d)\b/g)) yillar.push(+m[1]);
     // Ekrana basılan yıl sayacı hikâyenin kendi yılıdır; arama sorgusundaki tablo/eser yılı değil: 5 kat ağırlık.
-    if (s.type === "counter" && (s.year || (Number.isInteger(s.to) && s.to >= 1000 && s.to <= 2029 && !s.prefix && !s.suffix))) yillar.push(s.to, s.to, s.to, s.to, s.to);
+    const sy = counterYear(s);
+    if (sy) yillar.push(sy, sy, sy, sy, sy);
   }
   if (!yillar.length) return "";
   yillar.sort((a, b) => a - b);
@@ -240,7 +795,8 @@ function sahneYillari(s) {
   const yillar = [];
   const metin = [s.say, s.search, s.text, s.title, s.kicker, s.caption, s.role, ...(s.imagePrompts || []).map((p) => p?.search)].filter(Boolean).join(" ");
   for (const m of String(metin).matchAll(/\b(1\d\d\d|20[0-2]\d)\b/g)) yillar.push(+m[1]);
-  if (s.type === "counter" && (s.year || (Number.isInteger(s.to) && s.to >= 1000 && s.to <= 2029 && !s.prefix && !s.suffix))) yillar.push(s.to, s.to, s.to, s.to, s.to);
+  const sy = counterYear(s);
+  if (sy) yillar.push(sy, sy, sy, sy, sy);
   return yillar;
 }
 /** Bundan geniş (yıl) hikâye tek dönemle yargılanmaz. */
@@ -251,21 +807,30 @@ export const GENIS_HIKAYE_YIL = 150;
  * çelişiyor" diye reddedildi. Sahne kendi yılını taşıyorsa o; yoksa bölümünün dönemi; yılı hiç
  * geçmeyen bölüm, hikâye bugüne uzanıyorsa (ya da haber formatıysa) bugün. Geri sayım (her madde
  * kendi yılı), senaryonun kendi `era`sı ve elle verilmiş sahne `era`sı dokunulmaz.
+ *
+ * KARTAL YUVASI (24 Ekim 2026, haber): 7. bölüm 1952'yi (açılış yılı sayacı) anınca yılsız bütün satırları 1952 oldu — "The history
+ * itself was told elsewhere" (1999'da açılan Dokumentation Obersalzberg) ve "Nobody has said what survived" (2026).
+ * Dönem denetimi merkezin doğru fotoğrafını "modern cam bina" diye reddetti. Haberde planın arka plan bölümleri
+ * (`background`: bölüm indeksleri, backgroundChapters) biliniyorsa yılsız satır tarihî yılı YALNIZCA arka plan
+ * bölümünde alır; öteki bölümlerde bugündür. Rakamla yıl taşıyan satır her yerde kendi yılını alır.
  */
-export function sceneEras(script, { now = new Date().getFullYear(), news = false } = {}) {
+export function sceneEras(script, { now = new Date().getFullYear(), news = false, background = null } = {}) {
   if (!script?.scenes?.length || script.era || script.format === "ranking") return script;
   const all = script.scenes.flatMap(sahneYillari).sort((a, b) => a - b);
   const genis = all.length > 0 && all.at(-1) - all[0] >= GENIS_HIKAYE_YIL;
   if (!genis && !news) return script;
   const bugune = news || (all.length > 0 && all.at(-1) >= now - 5);
+  const arkaPlan = news && Array.isArray(background) ? new Set(background.map(Number)) : null;
   const bolum = new Map();
   for (const s of script.scenes) {
     if (bolum.has(s.chapter)) continue;
+    if (arkaPlan && !arkaPlan.has(Number(s.chapter))) { bolum.set(s.chapter, String(now)); continue; }
     const own = script.scenes.filter((x) => x.chapter === s.chapter);
     // Bugünde geçen bölüm geçmişe tek cümleyle döner ("1979'da da öyle denmişti"): o tek yıl bölümün
     // dönemi değildir. Yıl taşıyan sahne azsa (%15'ten az) bölüm bugündür; o sahne kendi yılını alır.
+    // Planın arka plan bölümü bunu sormaz: bölümün kendisi geçmiştir.
     const yilli = own.filter((x) => sahneYillari(x).length).length;
-    const d = bugune && yilli < own.length * 0.15 ? "" : hikayeDonemi({ scenes: own });
+    const d = bugune && !arkaPlan && yilli < own.length * 0.15 ? "" : hikayeDonemi({ scenes: own });
     bolum.set(s.chapter, d ? String(donemYili(d)) : bugune ? String(now) : "");
   }
   let n = 0;
@@ -278,6 +843,16 @@ export function sceneEras(script, { now = new Date().getFullYear(), news = false
     return { ...s, era };
   });
   return n ? { ...script, scenes } : script;
+}
+/**
+ * Haber planının arka plan bölümleri (docu-bible.json `value.chapters[i].background`, plan editörü dahil) → sahne
+ * bölüm indeksleri. Plan haber planı değilse (alan yok) ya da bölüm sayısı senaryoya uymuyorsa null: bilinmiyor.
+ */
+export function backgroundChapters(bible, script = null) {
+  const ch = bible?.chapters;
+  if (!Array.isArray(ch) || !ch.some((c) => typeof c?.background === "boolean")) return null;
+  if (Array.isArray(script?.chapters) && script.chapters.length !== ch.length) return null;
+  return ch.flatMap((c, i) => (c?.background === true ? [i] : []));
 }
 /**
  * Hikâyenin ana yılı (hikayeDonemi metninin ilk yılı) ya da null. 100–2099 ve MÖ/BC yılları (negatif):
@@ -373,10 +948,34 @@ export function arsivOnce(liste, { eski = false, riskli = false } = {}) {
   return arsiv.length ? [...arsiv, ...liste.filter((c) => STOK_SAGLAYICI.has(c?.provider))] : liste;
 }
 
-function pickPrompt(scene, n, video = false, donem = "") {
-  const satirlar = [pickPromptBase(scene, n), ...donemSatirlari(donem)].join("\n");
+function pickPrompt(scene, n, video = false, donem = "", konu = "") {
+  // Hikâyenin adı: seçici satırı tek başına görüyordu ("police at the gates" → herhangi bir ülkenin polisi).
+  const yer = konu ? [`Bu videonun hikâyesi: "${konu}". Kare bu hikâyenin geçtiği ülkeden/yerden olmalı (anlatıcı başka bir ülkeyi anmıyorsa).`] : [];
+  const satirlar = [pickPromptBase(scene, n), ...yer, ...donemSatirlari(donem)].join("\n");
   return video ? [satirlar, ...videoPromptLines(scene)].join("\n") : satirlar;
 }
+
+/*
+ * KAREDEKİ YAZI VE YER DE KANITTIR (17 Ekim 2026, Ebola ilk render'ı): seçici Ebola aşısı anlatılırken "COVID" yazan
+ * şişeleri, Ebola ölüm oranı anlatılırken arka plandaki TV'de başka bir haber (CNN, Suudi cinayeti) akan haber odasını
+ * ve Doğu Kongo anlatılırken karlı bir Alp köyünü seçti. Fotoğrafın içinde okunan yazı ve görünen coğrafya da konuyu
+ * söyler.
+ */
+export const SCENE_TRUTH_LINES = [
+  "karede OKUNAN yazı başka bir konuyu söylüyorsa uygunsuz: ekranında başka bir haber akan TV/monitör (haber bandı, yayın), başka bir hastalığın, ürünün ya da ülkenin adını taşıyan etiket/tabela/şişe (Ebola anlatılırken 'COVID' yazan aşı şişeleri)",
+  "karedeki coğrafya ve iklim anlatılan yerle çelişiyorsa uygunsuz (Orta Afrika anlatılırken karlı dağ, Alp köyü, Avrupa tarlası; çöl anlatılırken orman)",
+  // Fransa videosu (21 Ekim 2026, izleyici notu): Fransız okul kapısı anlatılırken "POLICIA" yazılı polis, Fransız
+  // istihbaratı anlatılırken NYPD araçları, République anlatılırken Amerikan K-9 Crown Victoria, Avrupa okulları
+  // anlatılırken Arapça yazılı yıkık oda; çenesi kırılan çocuğun "pipetle beslendiği" satırında kokteyl bardağı.
+  "karede BAŞKA bir ülkenin polisi, üniforması, polis aracı, bayrağı, tabelası ya da yazısı görünüyorsa uygunsuz — anlatıcı o ülkeyi anmıyorsa (Fransa anlatılırken 'POLICIA', 'NYPD', Amerikan polis arabası ya da K-9 aracı, ABD protesto tabelaları; Avrupa anlatılırken Arapça yazılı duvar). Hikâye bir ülkede geçiyorsa insanlar, araçlar ve yazılar o ülkenin olmalı",
+  "satırın DUYGUSU korunur ve söz kelimesi kelimesine resmedilmez: trajik ya da acı bir satırda bar, kokteyl, parti, yemek, tatil karesi uygunsuz ('ameliyattan sonra yalnızca pipetle beslenebildi' satırına kokteyl bardağındaki pipet değil; hastane, ameliyat sonrası bakım ya da o çocuğun hikâyesine ait bir kare)",
+  // Gimli Glider (28 Ekim 2026): "emekliliğe yakın yorgun bir uçak değildi" satırına seçici, uçağın 2008'de Mojave'de
+  // depoda çekilmiş fotoğrafını koydu ("2008 anlatım aralığında" diye) — doğru uçak, yanlış an.
+  // Husi–Suudi haberi (28 Ekim 2026): 10:27'deki bölüm kartı Husilerin sloganını ("Amerika'ya ölüm, İsrail'e ölüm,
+  // Yahudilere lanet") tam ekran gösterdi — reklam dostu değil, anlatım da onu okumuyordu.
+  "karede OKUNAN nefret ya da ölüm sloganı (\"Death to America\", \"Curse on the Jews\", bir grubu hedef alan pankart) uygunsuz: reklam dostu değil ve anlatıcı onu okumuyor; hareketin kendisi bayrak, kalabalık ya da lideriyle gösterilir",
+  "kare satırın anlattığı ANI göstermeli: satır bir şeyi yeni, genç ya da ilk hâliyle anlatıyorsa yıllar sonraki (emekli, depoda, yıkık, yaşlanmış) hâlinin fotoğrafı uygunsuz; satır sonunu anlatıyorsa ilk günlerinin fotoğrafı da öyle — hikâyenin başka bir yılı 'anlatım aralığında' diye kabul edilmez",
+];
 
 function pickPromptBase(scene, n) {
   if (scene.source === "stock") {
@@ -387,7 +986,10 @@ function pickPromptBase(scene, n) {
       `İstenen görüntü: ${scene.search}${scene.imagePrompt ? ` — tarif: ${scene.imagePrompt}` : ""}`,
       ``,
       `${n} aday var (Aday 1..${n}). Sahneye en SİNEMATİK ve en uygun olanı seç: ruh hâli, ışık, kompozisyon.`,
+      // Bakker (Ekim 2026): "para sayan eller" her finans videosuna uyar, bu hikâyeye değil.
+      `Önce anlatıcının söylediği şeyi GÖSTEREN aday (söylenen nesne, eylem, yer); yalnızca havası benzeyen jenerik kare (para sayan eller, boş koridor, gökyüzü, şehir silüeti) ancak hiçbiri göstermiyorsa.`,
       `Şunlar UYGUNSUZ, seçme: dönemle çelişen modern nesneler (1900'ler anlatılırken akıllı telefon, modern araba, LED), gülümseyen poz vermiş "stok" insanlar, filigran/logo/yazı, illüstrasyon ya da 3D render, bulanık/küçük kareler.`,
+      ...SCENE_TRUTH_LINES,
       `Birden çok aday eşitse piksel boyutu büyük ve yatay olanı seç. Hiçbiri uymuyorsa 0 döndür.`,
       `Bu sahnede isim kartı yok: namedPersonIsMainSubject=true döndür.`,
     ].join("\n");
@@ -405,6 +1007,7 @@ function pickPromptBase(scene, n) {
     `- başlığında BAŞKA bir özel ad geçen fotoğraf (aranan Apollo 13 iken "Apollo 11", "Eagle", "Apollo 8"; aranan kişi yerine başka biri) — başlık, fotoğrafın ne olduğunun kanıtıdır`,
     `- büyük filigran, logo, üstüne basılmış yazı; ekran görüntüsü, grafik, harita (sahne harita istemiyorsa)`,
     `- çok bulanık, çok küçük, anlaşılmayan kare`,
+    ...SCENE_TRUTH_LINES.map((l) => `- ${l}`),
     // Video 16:9 ve tam ekran: iki doğru aday arasında küçük tarama büyütülünce bulanıklaşır.
     `Birden çok aday konuyu EŞİT derecede doğru gösteriyorsa piksel boyutu BÜYÜK olanı seç (boyutlar aday etiketlerinde); o da eşitse yatay kadrajlı olanı — video 16:9 ve tam ekran gösterilecek.`,
     ...(ad ? [
@@ -421,7 +1024,7 @@ function pickPromptBase(scene, n) {
 /** Görme kararı: OpenAI anahtarı varsa onunla (Anthropic kredisi bittiğinde de çalışır), yoksa Claude ile. */
 /** Exported for the picker A/B test (scratchpad vision-ab); the pipeline calls it through `pick`. */
 export async function visionPick(scene, thumbs, { settings, usage, logFn, titles = [], sizes = [], video = null }) {
-  const prompt = pickPrompt(scene, thumbs.length, !!video, settings._donem || "");
+  const prompt = pickPrompt(scene, thumbs.length, !!video, settings._donem || "", settings._konu || "");
   const PICK_SCHEMA = video ? VIDEO_PICK_SCHEMA : PICK_SCHEMA_FOTO;
   const label = (i) => {
     const [w, h] = sizes[i] || [];
@@ -442,8 +1045,9 @@ export async function visionPick(scene, thumbs, { settings, usage, logFn, titles
         user: prompt,
         schema: PICK_SCHEMA,
         images: thumbs.map((t, i) => ({ etiket: label(i), data: t.toString("base64"), mediaType: "image/jpeg" })),
-        // Gerçek kişi/olay: Sonnet 5.5. Stok (genel atmosfer): çağıran Haiku koyar.
-        model: settings.claudeVisionModel || "claude-sonnet-5-5",
+        // Gerçek kişi/olay: Opus 5.5 — kimlik, yüz, dönem burada belirlenir (Bakker'ın "şaheser" görsellerini
+        // Opus kontakt sayfalarından seçmişti; Nova Sonnet'le seçiyordu). Stok (atmosfer): çağıran Sonnet 5.5 koyar.
+        model: settings.claudeVisionModel || "claude-opus-5-5",
         maxTokens: 2000,
         usage,
         logFn,
@@ -458,8 +1062,9 @@ export async function visionPick(scene, thumbs, { settings, usage, logFn, titles
     const content = [{ type: "input_text", text: prompt }];
     thumbs.forEach((t, i) => {
       content.push({ type: "input_text", text: label(i) });
-      // Video ızgarasında 9 küçük kare var: "low" (512 px) onları okunmaz yapar.
-      content.push({ type: "input_image", image_url: `data:image/jpeg;base64,${t.toString("base64")}`, detail: video ? "auto" : settings.openaiVisionDetail || "low" });
+      // Video ızgarasında 9 küçük kare var: "low" (512 px) onları okunmaz yapar. Fotoğrafta da "high": 512 px'te
+      // yüz, üniforma, tabela, başlık okunmuyordu — kimlik seçimi kör yapılıyordu.
+      content.push({ type: "input_image", image_url: `data:image/jpeg;base64,${t.toString("base64")}`, detail: video ? "auto" : settings.openaiVisionDetail || "high" });
     });
     const DENEME = 5;
     const geriCekil = (attempt) => 3000 * attempt + Math.random() * 1000;
@@ -543,7 +1148,9 @@ async function fetchWithRetry(url, dest, opts) {
  */
 export function simplerQuery(q) {
   const words = String(q).split(/\s+/).filter((w) => w && !/^\d+$/.test(w));
-  const cap = (w) => /^[A-ZÇĞİÖŞÜ]/.test(w);
+  // "al-Houthi", "el-Sisi", "bin-Salman" are surnames. Houthi–Saudi news, 28 Oct 2026: the lowercase particle
+  // dropped the surname ("Mohammed Ali al-Houthi Sanaa" → "Mohammed Ali Sanaa"), and the name card fell to AI.
+  const cap = (w) => /^[A-ZÇĞİÖŞÜ]/.test(w) || /^(?:al|el|ad|an|ar|as|ash|at|az|bin|ibn|abu|abd)-[A-ZÇĞİÖŞÜ]/.test(w);
   // Bir kişi adıyla başlıyorsa (iki büyük harfli kelime) ad + varsa bağlam özel adı; yoksa ilk üç anlamlı kelime.
   const out = cap(words[0]) && cap(words[1] || "") && !/^(Apollo|NASA|USS)$/.test(words[0])
     ? words.filter(cap).slice(0, 3).join(" ")
@@ -768,6 +1375,13 @@ const KUME_TAVANI = 8;
 export const pickMemoKey = (cacheKey) => `m-${cacheKey}`;
 const adayAnahtarlari = (a) => [photoKey(a.url), sayfaAnahtari(a)].filter(Boolean);
 /**
+ * Bir fotoğraf adayının "uygun değil" anahtarları: dosya adresi; tek fotoğraflık stok sayfasında (Pixabay, Pexels,
+ * Unsplash) sayfası da — Pixabay'in imzalı dosya adresi her aramada değişir, sayfası değişmez (media.js stablePhotoRefs).
+ */
+const fotoAnahtarlari = (a) => (tekFotoSayfasi(a) ? adayAnahtarlari(a) : [photoKey(a.url)]);
+/** Aday kümesindeki kimlik (küme kararı, seçilen aday): tek fotoğraflık stok sayfasında sayfa, değilse dosya adresi. */
+const adayKimligi = (a) => (tekFotoSayfasi(a) ? sayfaAnahtari(a) : photoKey(a.url));
+/**
  * Önbellekteki bir seçimi geçersiz sayar (QA/dönem denetimi reddi): kayıt silinir, seçilen
  * kaynak (adres + sayfa) o sahnenin "uygun değil" listesine girer, kayıtlı küme kararları düşer.
  * Yeniden seçim böylece aynı kaynağı ikinci kez seçip AI'a düşmez, sıradaki adaya bakar.
@@ -780,8 +1394,8 @@ export function forgetCachedPick(cache, cacheKey, now = Date.now()) {
   m.bad ||= {};
   m.sets = {};
   // Klipte sayfa da: aynı klibin başka dosyası (HD/SD) aynı sayfadadır. Fotoğrafta sayfa
-  // paylaşılabilir (müze nesnesinin başka görünüşleri), yalnızca dosya adresi.
-  if (h?.url) for (const k of cacheKey.startsWith("v-") ? adayAnahtarlari(h) : [photoKey(h.url)]) m.bad[k] = now;
+  // paylaşılabilir (müze nesnesinin başka görünüşleri), yalnızca dosya adresi — tek fotoğraflık stok sayfası hariç.
+  if (h?.url) for (const k of cacheKey.startsWith("v-") ? adayAnahtarlari(h) : fotoAnahtarlari(h)) m.bad[k] = now;
   cache[mk] = m;
   if (!(cacheKey in cache)) return false;
   delete cache[cacheKey];
@@ -993,8 +1607,9 @@ export function atmosphereFootage(script, { max = 30, year = null } = {}) {
  * (produce.mjs openingMotion). Kişi, belge, yazı kartı asla.
  */
 // Word forms count: "snowy Siberia at dusk", "foggy harbour", "a test tube cracks", "flickering light" (Black Death
-// opening: "snowy" missed "snow" and no opening scene moved).
-const HAREKET = /\b(sea|ocean|waves?|surf|storm\w*|fire|flames?|smok\w*|fog\w*|mist\w*|rain\w*|snow\w*|blizzard|crowds?|march(?:ing)?|charg(?:e|ing)|battle|train|locomotive|steam\w*|ships?|sails?|river|waterfall|clouds?|horses?|cavalry|banners?|flags?|candles?|lanterns?|explosions?|dust\w*|wind\w*|torrent|crack(?:s|ing)?|shatter\w*|spill\w*|flicker\w*|sirens?|blue lights?|taiga)\b/i;
+// opening: "snowy" missed "snow" and no opening scene moved). But "window" is not wind: wind\w* sent a café still
+// lit through a window to Kling as a climax shot (Panama, Oct 2026).
+const HAREKET = /\b(sea|ocean|waves?|surf|storm\w*|fire|flames?|smok\w*|fog\w*|mist\w*|rain\w*|snow\w*|blizzard|crowds?|march(?:ing)?|charg(?:e|ing)|battle|train|locomotive|steam\w*|ships?|sails?|river|waterfall|clouds?|horses?|cavalry|banners?|flags?|candles?|lanterns?|explosions?|dust\w*|wind(?:s|y|blown|swept)?|torrent|crack(?:s|ing)?|shatter\w*|spill\w*|flicker\w*|sirens?|blue lights?|taiga)\b/i;
 /**
  * Doruk hareketi: açılıştan sonra, hikâyenin en gergin anlarından en çok `max` AI karesi resimden videoya
  * (ucuz model; motor scene.aiMotion === "climax" görünce Kling 2.5 Turbo 720p ister). Seçim: gerçek klibi ya da
@@ -1087,11 +1702,36 @@ export async function resolveArchive(docu, { dir, publicDir, buildPrefix, settin
   const yalnizAi = new Set([...(aiOnly || [])].map(String));
   const reddedildi = (u) => reddedilen.size > 0 && !!u && reddedilen.has(photoKey(u));
   const search = deps.search || searchQuery;
-  const pick = deps.pick || visionPick;
+  /*
+   * SEÇİM KUTUSU (docu-pick-inbox.js): an answered set is taken from the box; when the picker's credit runs out the
+   * remaining sets go to the box as contact sheets instead of stopping the job, and the pass ends asking for them.
+   * On by default (Ayarlar: docuManualPick=false turns it off); a test passing its own picker turns it on explicitly.
+   */
+  const inboxOn = dir && (settings?.docuManualPick === true || (settings?.docuManualPick !== false && !deps.pick));
+  const inbox = inboxOn ? (deps.pickInbox || pickInbox)(dir, { ffmpeg: settings?.ffmpegPath || "ffmpeg" }) : null;
+  const basePick = deps.pick || visionPick;
+  let manualPicks = false;
+  const pick = async (scene, thumbs, opts = {}) => {
+    const k = inbox ? inbox.keyOf(scene, opts) : null;
+    if (inbox?.answered(k)) return inbox.answer(k);
+    if (!manualPicks) {
+      try {
+        return await basePick(scene, thumbs, opts);
+      } catch (e) {
+        if (!inbox || !/kota\/kredi bitti/.test(String(e?.message || ""))) throw e;
+        manualPicks = true;
+        logFn(`Arşiv seçicisinin kredisi bitti (${String(e.message).split(":")[0]}): kalan seçimler seçim kutusuna yazılıyor`);
+      }
+    }
+    inbox.ask(k, scene, thumbs, opts);
+    throw Object.assign(new Error("elle seçim bekleniyor"), { manualPick: true });
+  };
   const download = deps.download || fetchWithRetry;
   const downloadVideo = deps.downloadVideo || deps.download || videoIndir;
   const footageSearch = deps.footageSearch || (deps.search ? null : ekGoruntuKaynaklari);
   const girdi = deps.input || ((u) => u);
+  // Hikâyenin söylediği ülkeler: başka ülkenin stok klibi/fotoğrafı aday listesine girmez (foreignPlaceConflict).
+  const placeGroups = storyPlaceGroups([docu?.title, ...(docu?.chapters || []).map((c) => (typeof c === "string" ? c : c?.title)), ...(docu?.scenes || []).map((x) => [x?.say, x?.search, x?.caption, x?.text, x?.title].filter(Boolean).join(" "))].filter(Boolean).join(" "));
   klipUA = String(settings?.httpUserAgent || "").trim() || KLIP_UA;
   const cacheFile = path.join(dir, "docu-archive.json");
   const cache = readJson(cacheFile, {}) || {};
@@ -1126,7 +1766,7 @@ export async function resolveArchive(docu, { dir, publicDir, buildPrefix, settin
     writeJson(cacheFile, cache);
   };
   const reddedilmisAday = (m, a) => adayAnahtarlari(a).some((k) => m.bad[k]);
-  const kumeAnahtari = (liste, video) => hash(`${video ? "v" : "p"}|${liste.map((a) => photoKey(a.url)).join("\n")}`);
+  const kumeAnahtari = (liste, video) => hash(`${video ? "v" : "p"}|${liste.map(adayKimligi).join("\n")}`);
   let kayittanKarar = 0;
   /**
    * Görme kararı, hafızalı: aynı aday kümesine daha önce verilmiş karar yeniden ödenmez.
@@ -1137,7 +1777,7 @@ export async function resolveArchive(docu, { dir, publicDir, buildPrefix, settin
     const kume = kumeAnahtari(liste, video);
     const k = m.sets[kume];
     if (k) {
-      const sira = k.c ? liste.findIndex((a) => photoKey(a.url) === k.c) + 1 : 0;
+      const sira = k.c ? liste.findIndex((a) => adayKimligi(a) === k.c) + 1 : 0;
       if (!k.c || sira > 0) {
         kayittanKarar++;
         return { choice: sira, reason: k.r || "", namedPersonIsMainSubject: k.nm !== false, segment: k.seg || 1, ...(Array.isArray(k.f) ? { faceX: k.f[0], faceY: k.f[1] } : {}), kayittan: true };
@@ -1146,8 +1786,8 @@ export async function resolveArchive(docu, { dir, publicDir, buildPrefix, settin
     const karar = await sor();
     const secim = Math.trunc(Number(karar?.choice) || 0);
     const c = liste[secim - 1];
-    if (c) m.sets[kume] = { c: photoKey(c.url), r: String(karar.reason || "").slice(0, 300), nm: karar.namedPersonIsMainSubject !== false, seg: Math.max(1, Math.trunc(Number(karar.segment) || 1)), at: Date.now(), ...(yuzOf(karar) ? { f: yuzOf(karar) } : {}) };
-    else for (const a of liste) m.bad[photoKey(a.url)] = Date.now();
+    if (c) m.sets[kume] = { c: adayKimligi(c), r: String(karar.reason || "").slice(0, 300), nm: karar.namedPersonIsMainSubject !== false, seg: Math.max(1, Math.trunc(Number(karar.segment) || 1)), at: Date.now(), ...(yuzOf(karar) ? { f: yuzOf(karar) } : {}) };
+    else for (const a of liste) for (const k of video ? adayAnahtarlari(a) : fotoAnahtarlari(a)) m.bad[k] = Date.now();
     hafizaYaz(cacheKey, m);
     return karar;
   };
@@ -1175,8 +1815,9 @@ export async function resolveArchive(docu, { dir, publicDir, buildPrefix, settin
   for (let i = 0; i < script.scenes.length; i++) {
     const s = script.scenes[i];
     const ad = String(s.commons || "").trim();
-    if (!ad || !ARCHIVE_TYPES.has(s.type) || yalnizAi.has(String(i))) continue;
-    const k = ad.toLowerCase().replace(/^(file|image):/, "").replace(/_/g, " ");
+    if (!ad || !NAMED_TYPES.has(s.type) || yalnizAi.has(String(i))) continue;
+    // Gimli Glider (28 Ekim 2026): "(cropped)" kopyası ayrı dosya sayılıyordu, Toronto fotoğrafı iki sahneye gitti.
+    const k = commonsKey(ad);
     if (adiylaDosya.has(k)) { logFn(`Commons dosyası ikinci kez istendi, bu sahne arama yapacak: ${ad}`); continue; }
     try {
       const got = await commonsFile(ad, { publicDir, buildPrefix, ffmpeg: settings.ffmpegPath || "ffmpeg", deps });
@@ -1184,6 +1825,9 @@ export async function resolveArchive(docu, { dir, publicDir, buildPrefix, settin
       if (reddedildi(got.credit?.url) || reddedildi(got.credit?.sayfa)) { logFn(`Commons dosyası daha önce reddedildi, sahne aranacak: ${ad}`); continue; }
       s.image = got.file;
       s.archived = true;
+      // Gimli 9ff721 önce/sonra, 29 Ekim 2026: gerçekten siyah-beyaz kaynak işaretlenir (motor ona soluk notu verebilir);
+      // renkli Commons fotoğrafı bölümün mono/duotone notuyla griye boyanmaz. Diskteki dosya ölçülür, indirme yok.
+      markMonoSource(s, path.join(publicDir, got.file), { ffmpeg: settings.ffmpegPath || "ffmpeg" });
       if (got.imgW > 0 && got.imgH > 0) {
         s.imgW = got.imgW;
         s.imgH = got.imgH;
@@ -1223,6 +1867,19 @@ export async function resolveArchive(docu, { dir, publicDir, buildPrefix, settin
   const kullanildi = (pk, dh) => ayrilan.has(pk) || ozetKullanildi(dh);
   const ayir = (pk, dh) => ayrilan.set(pk, dh || null);
   const birak = (pk) => ayrilan.delete(pk);
+  // Adıyla alınan Commons dosyaları da bu videoda kullanıldı. Kartal Yuvası (24 Ekim 2026): yalnızca adiylaDosya'ya
+  // yazılıyordu; dosyayı ikinci kez isteyen sahnenin araması aynı fotoğrafı (Openverse/upload adresiyle) yeniden seçti,
+  // üç fotoğraf iki kez ekrana geldi. Künyenin sayfası da anahtar: thumb adresi upload adresiyle eşleşmeyebilir.
+  // Gimli Glider (28 Ekim 2026): the by-name file was reserved without its picture hash and without its Flickr id, so
+  // the search took the Flickr copy of the same photo for the title card. Both are reserved now.
+  for (const i of adiyla) {
+    const c = credits[`scene-${i}`];
+    const img = script.scenes[i]?.image;
+    const dh = img && fs.existsSync(path.join(publicDir, img)) ? await dosyaOzeti(ffmpeg, path.join(publicDir, img), path.join(tmp, `adiyla-${i}.gray`)) : null;
+    for (const k of [photoKey(c?.url), photoKey(c?.sayfa), sayfaAnahtari(c), photoTwinKey(c?.eser, c?.url, c?.sayfa)]) if (k) ayir(k, dh);
+  }
+  const ikizKullanildi = (x) => { const k = photoTwinKey(x?.eser, x?.url, x?.sayfa); return !!k && ayrilan.has(k); };
+  const ikiziAyir = (x, dh) => { const k = photoTwinKey(x?.eser, x?.url, x?.sayfa); if (k) ayir(k, dh); };
 
   const indir = async (url, key) => {
     const raw = path.join(tmp, `full-${key}.bin`);
@@ -1372,6 +2029,7 @@ export async function resolveArchive(docu, { dir, publicDir, buildPrefix, settin
             return true;
           })
           .filter((a) => !numberedNameConflict(s.search, a.eser || a.metin))
+          .filter((a) => !foreignPlaceConflict(placeGroups, `${a.eser || ''} ${a.metin || ''} ${a.sayfa || ''}`))
           .slice(0, ADAY + ADAY_YEDEK);
         // Bu sahne için daha önce "uygun değil" denmiş klipler yeniden gösterilmez (önizleme
         // indirmesi de yapılmaz); penceredekilerin hepsi öyleyse bu sorgu için karar zaten verilmiş.
@@ -1411,7 +2069,7 @@ export async function resolveArchive(docu, { dir, publicDir, buildPrefix, settin
         if (!ok.length && indirilemedi) failed = true;
         if (!ok.length) continue;
         // Stok KLİPTE de Sonnet: araç, kokpit, kıyafet gibi dönem hatalarını Haiku kaçırıyordu (Cooper: modern jetler).
-        const secimAyari = { ...settings, _donem: donemOf(s) };
+        const secimAyari = { ...settings, _donem: donemOf(s), _konu: docu?.title || "" };
         karar = await hafizaliSecim(`v-${key}`, VIDEO_PICK_VERSION, ok, true, () => pick(s, onizler.map((o) => o.buf), {
           settings: secimAyari, usage, logFn,
           titles: ok.map((a) => a.eser || a.metin || ""),
@@ -1509,13 +2167,14 @@ export async function resolveArchive(docu, { dir, publicDir, buildPrefix, settin
         }
       }
       const pk = photoKey(h.url || h.file);
-      if (kullanildi(pk, h.dhash)) {
+      if (kullanildi(pk, h.dhash) || ikizKullanildi(h)) {
         logFn(`Aynı fotoğraf önbellekte iki sahneye yazılmış; "${s.search}" için yeniden aranacak`);
         delete cache[key];
         degisti = true;
         continue;
       }
       ayir(pk, h.dhash);
+      ikiziAyir(h, h.dhash);
     }
     if (degisti) writeJson(cacheFile, cache);
 
@@ -1566,7 +2225,7 @@ export async function resolveArchive(docu, { dir, publicDir, buildPrefix, settin
                 const kim = /Anthropic/.test(String(e.message)) ? "Anthropic (Claude)" : "OpenAI";
                 throw new Error(`Arşiv seçimi durdu: ${kim} kredisi bitti.` + " Kredi yükleyip \"Kaldığı yerden devam et\" deyin — bulunan görüntüler korunur, eksik sahneler AI'a çevrilmez.");
               }
-              logFn(`Görüntü araması başarısız (${String(e.message).slice(0, 100)}), sahne için fotoğrafa bakılıyor; sonraki denemede yeniden aranacak`);
+              if (!e?.manualPick) logFn(`Görüntü araması başarısız (${String(e.message).slice(0, 100)}), sahne için fotoğrafa bakılıyor; sonraki denemede yeniden aranacak`);
             }
             vhit = r.hit;
             // Fotoğraf yolundaki kural: yalnızca temiz bir karar "uygun klip yok" diye kaydedilir.
@@ -1583,6 +2242,8 @@ export async function resolveArchive(docu, { dir, publicDir, buildPrefix, settin
             s.videoH = vhit.videoH;
             s.image = vhit.file;
             s.archived = true;
+            // Klibin afişi ölçülür (siyah-beyaz arşiv filmi → scene.monoSource; Gimli 9ff721, 29 Ekim 2026).
+            markMonoSource(s, path.join(publicDir, vhit.file || vhit.video), { ffmpeg });
             if (vhit.imgW > 0 && vhit.imgH > 0) { s.imgW = vhit.imgW; s.imgH = vhit.imgH; }
             if (s.name && vhit.namedMain === false) {
               logFn(`"${s.name}" seçilen klibin ana konusu değil — klip kalıyor, isim kartı kaldırıldı`);
@@ -1650,7 +2311,9 @@ export async function resolveArchive(docu, { dir, publicDir, buildPrefix, settin
             const tamEkran = TAM_EKRAN_TIPLER.has(s.type);
             // Aynı sahnenin yeniden denemesinde küçük resimler tekrar indirilmesin.
             const thumbBellek = new Map();
-            const sorgular = [s.search, simplerQuery(s.search)].filter(Boolean);
+            // A name card also searches the person's name alone: Commons files are titled by the name, and a place word
+            // ("Mohammed Ali al-Houthi Sanaa", "Tommy Pigott State Department spokesperson") keeps them out of the results.
+            const sorgular = [...new Set([s.search, simplerQuery(s.search), s.name ? String(s.name).trim() : null].filter(Boolean))];
             // Yarışı kaybeden sahne (seçtiği fotoğrafı başka işçi o an ayırdı) AYNI
             // listeyi bir kez daha görür: sıradaki doğru aday çoğu zaman oradadır. Eskiden
             // doğrudan sade sorguya geçiyor, o da yoksa sahne ücretli AI görseline düşüyordu.
@@ -1664,10 +2327,11 @@ export async function resolveArchive(docu, { dir, publicDir, buildPrefix, settin
               // 1990 öncesi hikâyede uçak/araç/şehir karesi: kurum arşivi adayları stok sitelerinden önce.
               // 1850 öncesi hikâyede zamansız olmayan kare: stok sitesi adayı yok (sanayiOncesiAdaylar).
               const adaylar = arsivOnce(sanayiOncesiAdaylar(list, s, yilOf(s)), { eski: eskiOf(s), riskli: modernRiskli(q) })
-                .filter((a) => a.type !== "video" && a.url && !ayrilan.has(photoKey(a.url)) && !reddedildi(a.url) && !reddedildi(a.sayfa))
+                .filter((a) => a.type !== "video" && a.url && !ayrilan.has(photoKey(a.url)) && !ikizKullanildi(a) && !reddedildi(a.url) && !reddedildi(a.sayfa))
                 // Aynı dosyanın iki adresi aynı listede: küçük resmi iki kez indirmeye gerek yok.
                 .filter((a) => { const k = photoKey(a.url); if (listede.has(k)) return false; listede.add(k); return true; })
                 .filter((a) => !numberedNameConflict(s.search, a.eser || a.metin))
+                .filter((a) => !foreignPlaceConflict(placeGroups, `${a.eser || ''} ${a.metin || ''} ${a.sayfa || ''}`))
                 // Başlık/slam'da fotoğraf tam ekran: küçük tarama pikselli görünür.
                 .filter((a) => !tamEkran || !tamEkranaKucuk(a))
                 .slice(0, ADAY + ADAY_YEDEK);
@@ -1702,10 +2366,10 @@ export async function resolveArchive(docu, { dir, publicDir, buildPrefix, settin
               }
               if (!ok.length && indirilemedi) failed = true;
               if (!ok.length) continue;
-              // Stok (genel atmosfer) sahnesinde kimlik riski yok: ucuz model yeter — ama 1990 öncesi
-              // hikâyede değil: Haiku Ryanair logolu jeti 1971'e koymuştu (Cooper QA). Orada tam model.
-              // Gerçek kişi/olay (archive) sahnesinde gpt-4.1 kalır — mini yanlış görevi seçmişti.
-              const secimAyari = s.source === "stock" && !eskiOf(s) ? { ...settings, _donem: donemOf(s), openaiVisionModel: settings.openaiStockVisionModel || "gpt-6-luna", claudeVisionModel: settings.claudeStockVisionModel || "claude-haiku-4-5-20251001" } : { ...settings, _donem: donemOf(s) };
+              // Stok (genel atmosfer) sahnesinde kimlik riski yok: Sonnet 5.5 yeter (Haiku 4.5 kaldırıldı, kanal
+              // sahibi Ekim 2026) — ama 1990 öncesi hikâyede değil: Haiku Ryanair logolu jeti 1971'e koymuştu
+              // (Cooper QA). Orada ve gerçek kişi/olay (archive) sahnesinde tam model (Opus 5.5 / ayardaki).
+              const secimAyari = s.source === "stock" && !eskiOf(s) ? { ...settings, _donem: donemOf(s), _konu: docu?.title || "", openaiVisionModel: settings.openaiStockVisionModel || "gpt-6-luna", claudeVisionModel: settings.claudeStockVisionModel || "claude-sonnet-5-5" } : { ...settings, _donem: donemOf(s), _konu: docu?.title || "" };
               karar = await hafizaliSecim(key, PICK_VERSION, ok, false, () => pick(s, thumbs.map((t) => t.buf), {
                 settings: secimAyari, usage, logFn,
                 titles: ok.map((a) => a.eser || a.metin || ""),
@@ -1716,13 +2380,13 @@ export async function resolveArchive(docu, { dir, publicDir, buildPrefix, settin
               cOzet = c ? thumbs[secim - 1].dhash : null;
               raced = false;
               // Paralel işçiler aynı fotoğrafı (ya da başka sitedeki kopyasını) seçmesin: seçildiği anda ayır.
-              if (c && kullanildi(photoKey(c.url), cOzet)) {
+              if (c && (kullanildi(photoKey(c.url), cOzet) || ikizKullanildi(c))) {
                 c = null;
                 raced = true;
                 if (yarisTekrari++ < 1) qi--; // aynı sorgu, kalan adaylarla bir kez daha
                 continue;
               }
-              if (c) { reserved = photoKey(c.url); ayir(reserved, cOzet); break; }
+              if (c) { reserved = photoKey(c.url); ayir(reserved, cOzet); ikiziAyir(c, cOzet); break; }
             }
             if (!c) {
               if (raced) logFn(`"${s.search}" için seçilen fotoğraf başka bir sahneye gitti; bu sefer AI ile canlandırılacak, sonraki denemede yeniden aranacak`);
@@ -1746,7 +2410,7 @@ export async function resolveArchive(docu, { dir, publicDir, buildPrefix, settin
               const kim = /Anthropic/.test(String(e.message)) ? "Anthropic (Claude)" : "OpenAI";
               throw new Error(`Arşiv seçimi durdu: ${kim} kredisi bitti.` + " Kredi yükleyip \"Kaldığı yerden devam et\" deyin — bulunan fotoğraflar korunur, eksik sahneler AI'a çevrilmez.");
             }
-            logFn(`Arşiv araması başarısız (${String(e.message).slice(0, 100)}), sahne bu sefer AI'a düşüyor; sonraki denemede yeniden aranacak`);
+            if (!e?.manualPick) logFn(`Arşiv araması başarısız (${String(e.message).slice(0, 100)}), sahne bu sefer AI'a düşüyor; sonraki denemede yeniden aranacak`);
             if (reserved) birak(reserved);
             failed = true;
             hit = null;
@@ -1761,6 +2425,8 @@ export async function resolveArchive(docu, { dir, publicDir, buildPrefix, settin
         if (hit?.file && fs.existsSync(path.join(publicDir, hit.file))) {
           s.image = hit.file;
           s.archived = true;
+          // Gerçekten siyah-beyaz arşiv fotoğrafı → scene.monoSource (Gimli 9ff721 önce/sonra, 29 Ekim 2026); renkli kalır renkli.
+          markMonoSource(s, path.join(publicDir, hit.file), { ffmpeg });
           if (hit.imgW > 0 && hit.imgH > 0) {
             s.imgW = hit.imgW;
             s.imgH = hit.imgH;
@@ -1811,5 +2477,11 @@ export async function resolveArchive(docu, { dir, publicDir, buildPrefix, settin
   if (kayittanKarar) logFn(`Arşiv seçici: ${kayittanKarar} karar kayıttan (aynı adaylar yeniden ödenmedi)`);
   if (klipSayisi) logFn(`Hareketli görüntü: ${klipBulundu}/${klipSayisi} sahne arşiv/stok klibiyle`);
   logFn(`Arşiv/stok: ${found}/${targets.length} görsel gerçek görüntüyle (${klipBulundu} klip, ${found - klipBulundu} fotoğraf), kalanı AI ile`);
+  // Seçim kutusu: kredisi biten seçicinin bıraktığı kümeler — geçiş "bitti" sayılmaz (docu-archive-done.json yazılmaz),
+  // bulunanlar kayıtlı kalır; seçimler yazılıp devam edilince yalnızca bekleyen sahneler yeniden sorulur.
+  if (inbox?.pendingCount()) {
+    const n = inbox.writeList();
+    throw Object.assign(new Error(`${n} arşiv seçimi bekleniyor (seçicinin kredisi yok) — ${inbox.files.list} içindeki kümelerin sayfalarına bakıp ${inbox.files.answers} dosyasına aday numaralarını yaz ve "Kaldığı yerden devam et". Bulunan ${Object.keys(credits).length} gerçek görsel korunuyor.`), { manualPicks: n });
+  }
   return { script, credits };
 }

@@ -833,3 +833,6 @@ details.advanced .editor-form-options { margin-top: 10px; }
 
 /* Sinematik Belgesel kalite uyarıları (kütüphane kartı) */
 .docu-warn ul{margin:6px 0 0;padding-left:18px}.docu-warn li{font-size:12px;line-height:1.5;color:var(--muted)}
+
+/* 1.16.16: "SON GÜNCELLEME" rozeti (Tarih sekmesi → Haritalı anlatım) */
+.new-badge{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:999px;background:var(--accent,#e8a33d);color:#111;font-size:10px;font-weight:800;letter-spacing:.06em;vertical-align:middle}

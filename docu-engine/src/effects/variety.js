@@ -30,10 +30,20 @@ export const COLLAGE_GENRES = new Set(['documentary', 'crime', 'inspire']);
 export const BLEED_MIN_AR = 1.25;
 export const BLEED_MAX_AR = 2.4;
 export const coverUpscale = (w, h) => Math.max(W / w, H / h);
+/*
+ * BIG PORTRAIT AND SQUARE STILLS FILL TOO (1.16.16): measured on our last three films (Red Sea cables, AI bubble,
+ * Black Buck), 16-23 photo scenes per film were small cards on a blurred plate, and most of them were not small at
+ * all: 2160x2880, 2468x2880, 2560x2528 portraits and squares, shown whole only for their shape. The outliers show such
+ * a picture full-bleed, cropped round its subject. A portrait or square still whose 16:9 cover crop needs at most
+ * 1.35x its own pixels (≥ ~1420 px wide) now fills the frame round its focus (heads sit at the default focus); smaller
+ * ones, panoramas, portrait footage (phone video) and marked documents/scans stay whole.
+ */
+export const PORTRAIT_BLEED_MAX_UP = 1.35;
 export function fullBleedOK(w, h, video = false) {
   if (!w || !h || w <= 0 || h <= 0) return true;
   const a = w / h;
-  return a >= BLEED_MIN_AR && a <= BLEED_MAX_AR && coverUpscale(w, h) <= (video ? 2.05 : 1.9);
+  if (a < BLEED_MIN_AR) return !video && coverUpscale(w, h) <= PORTRAIT_BLEED_MAX_UP;
+  return a <= BLEED_MAX_AR && coverUpscale(w, h) <= (video ? 2.05 : 1.9);
 }
 export function isLowResStill(w, h) {
   if (!w || !h || w <= 0 || h <= 0) return false;
@@ -203,8 +213,8 @@ function holdBias(s, fit) {
 const GENRE_FX = {
   documentary: { 'light-leak': 3, 'film-burn': 2, halftone: 3, dust: 3, 'flash-frame': 3, 'zoom-blur': 2, 'vignette-pulse': 1, chroma: 1, shake: 1, flare: 1, vhs: 1, bokeh: 1, 'dolly-zoom': 1, 'speed-ramp': 2 },
   finance: { glitch: 3, chroma: 3, 'scan-lines': 3, 'flash-frame': 2, 'zoom-blur': 2, halftone: 2, vhs: 1, shake: 1, 'vignette-pulse': 1, 'dolly-zoom': 1, 'speed-ramp': 2 },
-  horror: { 'vignette-pulse': 3, dust: 3, vhs: 2, chroma: 2, 'flash-frame': 2, shake: 2, glitch: 1, 'film-burn': 1, 'dolly-zoom': 2, 'zoom-blur': 1, 'speed-ramp': 1 },
-  crime: { vhs: 2, 'vignette-pulse': 2, chroma: 2, 'flash-frame': 3, 'scan-lines': 2, halftone: 2, glitch: 1, shake: 2, dust: 1, 'dolly-zoom': 1, 'zoom-blur': 1, 'speed-ramp': 2 },
+  horror: { 'vignette-pulse': 1, dust: 3, vhs: 2, chroma: 2, 'flash-frame': 2, shake: 2, glitch: 1, 'film-burn': 1, 'dolly-zoom': 2, 'zoom-blur': 1, 'speed-ramp': 1 },
+  crime: { vhs: 2, 'vignette-pulse': 1, chroma: 2, 'flash-frame': 3, 'scan-lines': 2, halftone: 2, glitch: 1, shake: 2, dust: 1, 'dolly-zoom': 1, 'zoom-blur': 1, 'speed-ramp': 2 },
   epic: { flare: 3, 'light-leak': 2, 'film-burn': 2, dust: 3, 'zoom-blur': 2, shake: 2, 'flash-frame': 2, bokeh: 1, 'vignette-pulse': 1, 'dolly-zoom': 1, 'speed-ramp': 2 },
   science: { flare: 3, bokeh: 3, 'scan-lines': 2, chroma: 2, 'light-leak': 1, 'zoom-blur': 2, glitch: 1, 'flash-frame': 2, 'speed-ramp': 2 },
   inspire: { 'light-leak': 3, bokeh: 3, 'film-burn': 2, flare: 2, dust: 1, halftone: 1, 'flash-frame': 1, 'zoom-blur': 1, 'speed-ramp': 2 },
@@ -226,7 +236,8 @@ const FX_MOODS = {
   'flash-frame': ['reveal', 'tension', 'dread', 'triumph'],
   'rack-focus': ['reveal', 'curious', 'sad', 'tension'],
   shake: ['tension', 'dread', 'reveal'],
-  'vignette-pulse': ['tension', 'dread', 'sad'],
+  // Not on a sad beat any more: it blackened grieving lines (Gimli 20261028-9ff721, 29 Ekim 2026).
+  'vignette-pulse': ['tension', 'dread'],
   'scan-lines': ['curious', 'tension', 'calm', 'dread'],
   bokeh: ['calm', 'triumph', 'sad', 'curious'],
   'push-in': ['curious', 'calm', 'tension', 'dread', 'reveal', 'sad', 'triumph'],
@@ -243,6 +254,50 @@ const OVER_PICTURE = new Set(['halftone', 'vhs', 'film-burn', 'dust']);
 const TEXTURE = new Set(['halftone', 'vhs', 'dust', 'scan-lines']);
 /** Scene types that draw their own camera and type work: overlays only, and fewer. */
 const SELF_DRIVEN = new Set(['map', 'headline', 'board', 'document', 'timeline', 'split', 'quote', 'chart']);
+/** Loud devices (edit-grammar.mjs FX_LOUD): only on an impact. */
+const LOUD_FX = new Set(['flash-frame', 'shake', 'zoom-blur', 'speed-ramp', 'dolly-zoom']);
+/** Hit-timed devices that need a real beat (impact, slam, keyword) — never "the stressed word" of a quiet line. */
+const BEAT_FX = new Set(['chroma', 'glitch', 'vignette-pulse']);
+/** vignette-pulse per film (edit-grammar.mjs VIGNETTE_PULSE_CAP). */
+export const VIGNETTE_PULSE_CAP = 2;
+/** Per-film caps for the engine's own picks: the pulse, and the loud devices at edit-grammar.mjs FX_CAP.open. */
+const DERIVED_CAP = { 'vignette-pulse': VIGNETTE_PULSE_CAP, 'flash-frame': 3, shake: 1, 'zoom-blur': 2, 'speed-ramp': 2, 'dolly-zoom': 1 };
+
+/** An impact (edit-grammar.mjs isImpact): energy 4-5, a slam, a reveal at energy 3+; never a quiet beat. */
+export function isImpactScene(s) {
+  const e = energyOf(s) || 3;
+  const quiet = moodOf(s) === 'sad' || moodOf(s) === 'calm' || e <= 1 || s?.pace === 'hold' || s?.type === 'quote';
+  return !quiet && (e >= 4 || s?.type === 'slam' || (moodOf(s) === 'reveal' && e >= 3));
+}
+
+/*
+ * NARRATION BEAT (29 Ekim 2026, Gimli 20261028-9ff721 / Kartal Yuvası 950730; kanal sahibi "anlık efektler doğal
+ * değil"): effects were sprinkled — the score was mostly a seeded random (x1.2), so quiet informative shots took a pulse
+ * or a flash while real beats went clean. An effect now earns its place from what the narrator says: a spoken number,
+ * a named entity (a capital not at a sentence start), a turn word (but / yet / then / suddenly / never ...), an impact,
+ * a slam or the scene's keyword. Same idea as docu-art-director.js narrationBeat. 0 = a quiet informative shot.
+ */
+const TURN_WORDS = /\b(but|yet|then|suddenly|never|until|instead|however|except)\b/i;
+const NUMBER_WORDS = /\b(hundreds?|thousands?|millions?|billions?|trillions?|dozens?|two|three|four|five|six|seven|eight|nine|ten|twelve|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)\b/i;
+const NOT_NAMES = new Set(['I', 'A', 'An', 'The', 'And', 'But', 'Or', 'It', 'He', 'She', 'They', 'We', 'You', 'His', 'Her', 'Their', 'This', 'That', 'In', 'On', 'At', 'Of']);
+export function narrationBeat(s) {
+  if (!s || (s.type === 'title' && s.chapterCard)) return 0;
+  const say = String(s.say ?? (s.wordTimes ?? []).map((w) => w?.word ?? '').join(' ')).replace(/\[[^\]]*\]/g, ' ');
+  let b = 0;
+  if (s.type === 'slam') b += 1.2;
+  else if (isImpactScene(s)) b += 0.9;
+  if (s.keyword) b += 0.6;
+  if (/\d/.test(say) || NUMBER_WORDS.test(say)) b += 0.5;
+  const toks = say.split(/\s+/).filter(Boolean);
+  const bare = (w) => w.replace(/[^\p{L}\p{N}'-]/gu, '');
+  if (toks.some((w, i) => i > 0 && !/[.!?:…]["')\]]*$/.test(toks[i - 1]) && /^\p{Lu}/u.test(bare(w)) && bare(w).length >= 2 && !NOT_NAMES.has(bare(w)))) b += 0.4;
+  if (TURN_WORDS.test(say)) b += 0.5;
+  return +b.toFixed(2);
+}
+/** A scene below this beat stays clean, whatever the density asks. */
+export const FX_BEAT_MIN = 0.5;
+/** The seeded share of a placement score: a tie-break only. */
+export const FX_TIE_BREAK = 0.1;
 
 function fxFits(fx, s, collage) {
   const mood = moodOf(s);
@@ -254,7 +309,12 @@ function fxFits(fx, s, collage) {
   if (fx === 'dolly-zoom' && (s.video || s.layers)) return false;
   if (OVER_PICTURE.has(fx) && !hasPic) return false;
   if (HIT_FX.has(fx) && !(s.keyword || s.type === 'slam' || s.wordTimes?.length || s.say)) return false;
-  if (SELF_DRIVEN.has(s.type) && !['light-leak', 'vignette-pulse', 'dust', 'scan-lines', 'bokeh', 'flash-frame'].includes(fx)) return false;
+  // Loud devices on impacts only; beat devices on a real beat; the pulse only on a dread/tension impact (29 Ekim 2026).
+  const impact = isImpactScene(s);
+  if (LOUD_FX.has(fx) && !impact) return false;
+  if (BEAT_FX.has(fx) && !(impact || s.keyword || s.type === 'slam')) return false;
+  if (fx === 'vignette-pulse' && !impact) return false;
+  if (SELF_DRIVEN.has(s.type) && !['light-leak', 'dust', 'scan-lines', 'bokeh', 'flash-frame'].includes(fx)) return false;
   if (s.type === 'title' && s.chapterCard) return false;
   if (s.type === 'montage' && !['flash-frame', 'chroma', 'glitch', 'vhs', 'dust', 'halftone'].includes(fx)) return false;
   return true;
@@ -337,8 +397,9 @@ export function transitionStyle(script, { genre, legacyPool = [], signature }) {
 
 /**
  * Decide every open choice of a script's scenes: camera and fit for each
- * picture scene, effects for ~22-32% of scenes (never over 35%, never the same
- * effect on consecutive scenes), in a video-specific vocabulary.
+ * picture scene, effects for ~12-18% of scenes (never over 35%, only on a
+ * narration beat, never the same effect on consecutive scenes), in a
+ * video-specific vocabulary.
  *
  * Explicit script fields always win: `camera`/`fit` per scene; if ANY scene
  * has `fx`, no effects are derived (the art director decided, and "none" is a
@@ -405,24 +466,26 @@ export function deriveStyle(script, { collage = false } = {}) {
 
   /* ---- effects ---- */
   const explicit = scenes.some((s) => Array.isArray(s.fx));
-  const density = Math.min(0.35, Math.max(0, Number.isFinite(script.fxDensity) ? script.fxDensity : 0.22 + seeded(`${seed}den`) * 0.1));
+  // Default share lowered with the art director's minPictureFxShare (.22 -> .12, 29 Ekim 2026): fewer, earned effects.
+  const density = Math.min(0.35, Math.max(0, Number.isFinite(script.fxDensity) ? script.fxDensity : 0.12 + seeded(`${seed}den`) * 0.06));
   const vocabBase = GENRE_FX[genre] ?? GENRE_FX.documentary;
   let vocab = Array.isArray(script.fxPalette) && script.fxPalette.length ? [...new Set(script.fxPalette)] : drawDistinct(vocabBase, 5 + Math.floor(seeded(`${seed}vn`) * 3), `${seed}v`);
   if (!vocab.length) vocab = Object.keys(vocabBase);
   const fx = scenes.map((s) => (Array.isArray(s.fx) ? [...s.fx] : []));
   if (!explicit && n) {
     const want = Math.floor(density * n);
-    // Where an effect earns its place: turning points, story beats, strong moods; then the rest by seed.
+    // Where an effect earns its place: the narration's beat (narrationBeat), a mood turn and energy a little; the seed only
+    // breaks ties (<= FX_TIE_BREAK). A scene without a beat stays clean (FX_BEAT_MIN), even if the density is not reached.
     const score = scenes.map((s, i) => {
       if (s.type === 'title' && s.chapterCard) return -1;
-      let p = seeded(`${seed}sc${i}`) * 1.2;
+      const beat = narrationBeat(s);
+      if (beat < FX_BEAT_MIN) return -1;
+      let p = beat + seeded(`${seed}sc${i}`) * FX_TIE_BREAK;
       const prev = scenes[i - 1];
-      if (prev && moodOf(prev) !== moodOf(s)) p += 1.2;
-      if (s.type === 'slam' || s.keyword) p += 1;
-      if (['reveal', 'dread', 'triumph'].includes(moodOf(s))) p += 0.7;
-      if (SELF_DRIVEN.has(s.type)) p -= 0.8;
+      if (prev && moodOf(prev) !== moodOf(s)) p += 0.3;
+      if (SELF_DRIVEN.has(s.type)) p -= 0.4;
       const e = energyOf(s);
-      if (e) p += (e - 3) * 0.45;
+      if (e) p += (e - 3) * 0.2;
       return p;
     });
     const order = scenes.map((_, i) => i).filter((i) => score[i] >= 0).sort((a, b) => score[b] - score[a] || a - b);
@@ -440,14 +503,15 @@ export function deriveStyle(script, { collage = false } = {}) {
       if (!chosen.has(i)) continue;
       const s = scenes[i];
       const ban = new Set([...(fx[i - 1] ?? []), ...(fx[i + 1] ?? [])]);
-      const cands = vocab.filter((k) => !ban.has(k) && fxFits(k, s, collage));
+      const cands = vocab.filter((k) => !ban.has(k) && fxFits(k, s, collage) && (used[k] ?? 0) < (DERIVED_CAP[k] ?? Infinity));
       if (!cands.length) continue;
       // Rotate: an effect used recently weighs less, so the vocabulary is spent evenly.
       const weights = Object.fromEntries(cands.map((k) => [k, (vocabBase[k] ?? 1) / (1 + (used[k] ?? 0) * 0.8)]));
       const first = weightedPick(weights, seeded(`${seed}fx${i}`));
       const list = [first];
       // Sometimes a second, different-kind layer (a texture under a hit, a light over a camera move).
-      if (seeded(`${seed}fx2${i}`) < 0.22) {
+      // Only on an impact: a quiet beat never carries two devices (29 Ekim 2026).
+      if (isImpactScene(s) && seeded(`${seed}fx2${i}`) < 0.22) {
         const second = cands.filter((k) => k !== first && !(TEXTURE.has(k) && TEXTURE.has(first)) && HIT_FX.has(k) !== HIT_FX.has(first));
         if (second.length) list.push(second[Math.floor(seeded(`${seed}fx2k${i}`) * second.length)]);
       }

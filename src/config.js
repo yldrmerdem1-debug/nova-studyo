@@ -39,8 +39,11 @@ export const DEFAULT_SETTINGS = {
   // Senarist: "claude-opus-5-5" (plan Opus + bölümler Sonnet) ya da "gpt-6.1-sol" (ikisi de GPT 6.1).
   docuWriterModel: "claude-opus-5-5",
   // AI görselleri: "openai" (GPT Image API) | "replicate" | "manual" (ChatGPT'de elle, API kredisi harcamaz:
-  // eksikler <iş>/gorsel-kutusu/LISTE.txt'e yazılır, 01.png… bırakılınca devam eder).
+  // eksikler <iş>/gorsel-kutusu/LISTE.txt'e yazılır, 01.png… bırakılınca devam eder). İşin ayar kopyasına girmez
+  // (SNAPSHOT_KEYS): kredi bitince burada değiştirilen kaynak devam eden işe de geçer.
   docuImageProvider: "openai",
+  // Video bitince Nova bu kadar Short üretir (0-3); her biri farklı açıdan.
+  docuAutoShorts: 2,
   // Görsel analizde OpenAI'ye giden küçük resim ayrıntısı: auto (soluk filigran ve yazı okunur).
   openaiVisionDetail: "auto",
   useWebSearch: true,
@@ -72,10 +75,16 @@ export const DEFAULT_SETTINGS = {
   // (açılış alçak ve sakin, vurucu satır kararlı, soru meraklı, bölüm sonu yumuşak; duyguya göre
   // sürekli kararlılık; satırlar arası bağlam). eleven_v3: eski okuma ve önbellekteki sesler.
   docuVoiceModel: "eleven_v4",
-  // Kanal sesi (Ekim 2026, kanal sahibinin seçimi): tarih = Brian, gündem/haber = David Castlemore,
-  // finans = Michael C. Vincent. Stüdyoda stil seçilince bu ses gelir (ses hesapta varsa); elle değiştirilebilir.
-  docuStyleVoices: { epic: "nPczCjzI2devNBz1zQrb", news: "XjLkpWUlnhS8i7gGz3lZ", finance: "uju3wxzG5OhpWcoi3SMy" },
+  // Kanal sesi (kanal sahibinin seçimi): tarih = Quentin (10 Ekim 2026; Brian YouTube'da çok yaygın, "yapay zekâ sesi"
+  // diye tanınıyor), gündem/haber = Daniel, İngiliz radyo haber sunucusu (10 Ekim 2026; David Castlemore'a kanal
+  // sahibi "çok kötü" dedi), finans = Michael C. Vincent. Stüdyoda stil seçilince bu ses gelir (ses hesapta varsa);
+  // elle değiştirilebilir.
+  docuStyleVoices: { epic: "Aa6nEBJJMKJwJkCx8VU2", news: "3WqHLnw80rOZqJzW9YRB", finance: "uju3wxzG5OhpWcoi3SMy" },
   docuShortsVoiceModel: "eleven_v4",
+  // 1.16.16: kanal adı (köşe damgası, tutmuşların hepsinde var) — boşsa damga yok. Okuma hızı: yeni sesler ElevenLabs'in
+  // kendi hızıyla (1,1x doğal duyulur; anlatıcılarımız ~115-125 kelime/dk, tutmuşlar ~157-165). 1 = kapalı.
+  docuChannelNames: { epic: "", news: "", finance: "" },
+  docuVoiceSpeed: 1.1,
   // Uzun video 2.5D derinlik katmanları (kişi kesme + silme): sahne başına ücretli Replicate çağrısı.
   docuDepthLayers: false,
   replicateVideoModel: "kwaivgi/kling-v2.5-turbo-pro",
@@ -318,7 +327,11 @@ export function audioLibraryInfo(st = getSettings()) {
   return info;
 }
 
-const SNAPSHOT_KEYS = Object.keys(DEFAULT_SETTINGS).filter(k => !/Key$/.test(k) && !['ffmpegPath','ffprobePath','keepIntermediate','audioLibraryDir'].includes(k));
+// İşletme seçimleri de kopyaya girmez. KUSUR (25 Ekim 2026): OpenAI görsel kredisi bitince Nova "Ayarlar'da görsel
+// kaynağını ChatGPT kutusu yapın" diyor (credit-preflight.js), ama docuImageProvider işin kopyasında donuyordu;
+// "Kaldığı yerden devam et" yeni kaynağı hiç görmüyor, job.json elle düzeltilmek zorunda kalıyordu. Yaratıcı
+// ayarlar (ses, model, görünüm) işle donmaya devam eder; görsel kaynağı her zaman güncel ayardan.
+const SNAPSHOT_KEYS = Object.keys(DEFAULT_SETTINGS).filter(k => !/Key$/.test(k) && !['ffmpegPath','ffprobePath','keepIntermediate','audioLibraryDir','docuImageProvider'].includes(k));
 export function snapshotSettings() {
   const current = getSettings();
   return JSON.parse(JSON.stringify(Object.fromEntries(SNAPSHOT_KEYS.map(k => [k, current[k]]))));

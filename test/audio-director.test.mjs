@@ -50,7 +50,12 @@ const SHAPES = {
   rise: (t, d) => (t < d / 2 ? 0.12 : 0.12 + 0.88 * Math.min(1, (t - d / 2) / (d / 4))),
   hit: (t) => (t < 1 ? 1 : 0.6),
 };
-function track(id, { dur = 80, freq = 220, amp = 0.4, shape = 'flat', mood = {}, genre = {}, energy = 3, culture = 'western orchestral', vocals = 'none', usable = true }) {
+/*
+ * KURAL DEĞİŞTİ (27 Ekim 2026): her hikâye en az 'serious' ve ciddi hikâyede yalnız ton etiketi olan parça
+ * çalar (seriousClass; etiketsiz = never, fail closed). Bu yüzden deneme parçaları da gerçek kütüphane gibi
+ * tonlanır: register 'dramatic', seriousness 0.9, oyun müziği değil.
+ */
+function track(id, { dur = 80, freq = 220, amp = 0.4, shape = 'flat', mood = {}, genre = {}, energy = 3, culture = 'western orchestral', vocals = 'none', usable = true, register = 'dramatic', seriousness = 0.9 }) {
   const shapeExpr = shape === 'rise'
     ? `if(lt(t\\,${dur / 2})\\,0.12\\,0.12+0.88*min(1\\,(t-${dur / 2})/${dur / 4}))`
     : shape === 'hit' ? 'if(lt(t\\,1)\\,1\\,0.6)' : '1';
@@ -58,7 +63,7 @@ function track(id, { dur = 80, freq = 220, amp = 0.4, shape = 'flat', mood = {},
   return {
     id, file, title: `Parça ${id}`, artist: 'Test', license: 'test', duration: dur, lufs: null,
     energy: curve(dur, (t) => SHAPES[shape](t, dur)),
-    tags: { description: id, instruments: ['strings'], vocals, energy, tempo: 'medium', culture, moodFit: fit(mood), genreFit: gfit(genre), documentaryUsable: usable, bestUse: '' },
+    tags: { description: id, instruments: ['strings'], vocals, energy, tempo: 'medium', culture, moodFit: fit(mood), genreFit: gfit(genre), documentaryUsable: usable, bestUse: '', register, seriousness, gameLike: false },
   };
 }
 
@@ -215,15 +220,20 @@ test('music: one cue per chapter, short mood swings stay inside the cue, the cue
   for (const c of plan.cues) assert.ok(c.trackId, 'every chapter has music');
 });
 
-test('music: a mood family held >= 20 s is a story turn and earns a new cue on its first scene', () => {
-  const ch0 = [...Array(6).fill('curious'), ...Array(6).fill('dread')]; // 30 s curious, then 30 s dread
+// KURAL DEĞİŞTİ (27 Ekim 2026): v2'de dönemeç 20 değil 35 sn tutulmalı (MIN_HOLD_V2). 20 sn ile 11 videoda
+// dakikada 0,94-1,42 ipucu değişti ve 5-8 parçalık palet duyulur biçimde A-B-A-C döndü (Çernobil).
+test('music: a mood family held >= 35 s is a story turn and earns a new cue on its first scene', () => {
+  const ch0 = [...Array(8).fill('curious'), ...Array(8).fill('dread')]; // 40 s curious, then 40 s dread
   const plan = planScore({ script: chapters([ch0]), lib, genre: 'documentary', seed: 'turn' });
-  assert.deepEqual(bounds(plan), [0, 30]);
+  assert.deepEqual(bounds(plan), [0, 40]);
   assert.equal(plan.cues[1].mood, 'dread');
   assert.ok((byId.get(plan.cues[1].trackId).tags.moodFit.dread ?? 0) >= 0.6, 'the dread cue gets a dark track');
-  // A 15 s swing is not a turn.
-  const short = [...Array(9).fill('curious'), ...Array(3).fill('dread')];
-  assert.equal(planScore({ script: chapters([short]), lib, genre: 'documentary', seed: 'turn' }).cues.length, 1);
+  // A 30 s swing (and a 15 s one) is not a turn any more.
+  for (const short of [[...Array(6).fill('curious'), ...Array(6).fill('dread')], [...Array(9).fill('curious'), ...Array(3).fill('dread')]]) {
+    assert.equal(planScore({ script: chapters([short]), lib, genre: 'documentary', seed: 'turn' }).cues.length, 1);
+  }
+  // v1 keeps its 20 s (its jobs are cut to those beats).
+  assert.deepEqual(bounds(planScore({ script: chapters([[...Array(6).fill('curious'), ...Array(6).fill('dread')]]), lib, genre: 'documentary', seed: 'turn', selector: 'v1' })), [0, 30]);
 });
 
 test('music: a palette, not a playlist — never the same track twice in a row, never lyrics or an unusable track; rotates across videos', () => {
@@ -309,7 +319,9 @@ const styleMusic = [
   styled('orch2', { freq: 235, energy: 3, culture: 'western orchestral', instruments: ['strings', 'woodwinds'], description: 'tense strings, slowly swelling', mood: { tension: 0.8, dread: 0.7, curious: 0.5 } }),
   styled('piano', { freq: 240, energy: 2, culture: 'piano', instruments: ['piano'], description: 'solo piano, reflective, swells softly', mood: { sad: 0.9, calm: 0.8, curious: 0.6 } }),
   styled('strings', { freq: 245, energy: 2, culture: 'western orchestral', instruments: ['strings', 'piano'], description: 'gentle strings and piano, emotive', mood: { sad: 0.85, calm: 0.7, reveal: 0.5, curious: 0.55 } }),
-  styled('jazz', { freq: 250, energy: 3, culture: 'other', instruments: ['upright bass', 'piano', 'saxophone', 'brushed drums'], description: 'a contemplative jazz piece with a moody groove', mood: { curious: 0.85, tension: 0.6, calm: 0.6 } }),
+  // KURAL DEĞİŞTİ (27 Ekim 2026): "moody groove" artık lounge (asla çalmaz); 1929'un caz rengi ancak ağırbaşlı,
+  // caz kültürü etiketli bir parça olabilir (caz çağı istisnası: 1915-1960 ve başlıkta borsa çöküşü/noir/içki yasağı).
+  styled('jazz', { freq: 250, energy: 3, culture: 'jazz', instruments: ['upright bass', 'piano', 'saxophone', 'brushed drums'], description: 'a sombre, contemplative jazz piece for piano and upright bass', mood: { curious: 0.85, tension: 0.6, calm: 0.6 } }),
   styled('ukulele', { freq: 255, energy: 3, culture: 'americana', instruments: ['ukulele', 'whistling'], description: 'a quirky, playful upbeat tune', mood: { curious: 1, calm: 0.9, triumph: 0.6 } }),
   styled('triumph', { freq: 260, energy: 4, culture: 'western orchestral', instruments: ['strings', 'brass'], description: 'soaring orchestral triumph', mood: { triumph: 0.9, reveal: 0.8 } }),
   styled('pad2', { freq: 265, energy: 2, culture: 'electronic', instruments: ['synth pads'], description: 'ethereal ambient pads', mood: { calm: 0.85, curious: 0.7, sad: 0.6 } }),
@@ -372,14 +384,16 @@ test('music v2: a main theme stated early, called back mid-film and in the final
 });
 
 test('music v2: energy — a peak gets a breath of silence after it, louder cues for high energy, the swell lands on the reveal', () => {
-  const E = (mood, energy, n, chapter = 0) => Array(n).fill(0).map(() => scene({ mood, energy, chapter }));
+  // KURAL DEĞİŞTİ (27 Ekim 2026): v2'de dönemeç 35 sn tutulmalı ve film dakikada ~0,9 ipucu değişimiyle sınırlı;
+  // sahneler 5 değil 10 sn, yoksa 25-30 sn'lik koşular (zirve dahil) komşusuna katlanır.
+  const E = (mood, energy, n, chapter = 0) => Array(n).fill(0).map(() => scene({ mood, energy, chapter, dur: 10 }));
   const script = { id: 'energy', genre: 'documentary', era: '1912', title: 'Titanic', scenes: [
     ...E('curious', 1, 6), ...E('tension', 3, 3), ...E('tension', 4, 3), ...E('reveal', 5, 5), ...E('sad', 1, 6), ...E('curious', 2, 6), ...E('tension', 3, 6),
   ] };
   const plan = planScore({ script, lib: styleLib, root: ROOT, genre: 'documentary', seed: 'energy' });
   const breath = plan.cues.find((c) => c.breath);
   assert.ok(breath && breath.trackId === null, `a breath after the peak: ${JSON.stringify(plan.cues.map((c) => [c.fromSec, c.mood]))}`);
-  assert.equal(breath.fromSec, 85, 'it opens where the reveal ends');
+  assert.equal(breath.fromSec, 170, 'it opens where the reveal ends');
   assert.ok(breath.toSec - breath.fromSec >= 1.6 && breath.toSec - breath.fromSec <= 2.6);
   const peak = plan.cues.find((c) => c.mood === 'reveal');
   const calm = plan.cues.find((c) => c.mood === 'sad');
@@ -403,7 +417,10 @@ test('music v2: cross-video history — last videos\' tracks are avoided, the th
   const b = planScore({ script, lib: styleLib, root: ROOT, genre: 'documentary', seed: 'h2', history: [{ key: 'A', main: a.theme.id, tracks: [...aIds] }] });
   const overlap = (p) => musicCues(p).filter((c) => aIds.has(c.trackId)).reduce((s, c) => s + c.toSec - c.fromSec, 0);
   assert.notEqual(b.theme.id, a.theme.id, 'no two consecutive videos share their main theme');
-  assert.ok(overlap(b) < overlap(fresh), `history pushes last video's tracks away (${overlap(b)} < ${overlap(fresh)} s)`);
+  // KURAL DEĞİŞTİ (27 Ekim 2026): geçmiş artık yalnız eşit uyanlar arasında karar verir (en çok 0,15). Bu küçük
+  // kütüphanede 1912'ye uyan beş parçanın beşini de A çaldı; B'nin onlardan kaçmak için synth'e geçmesi daha kötü
+  // olurdu. "Geçmiş eşitler arasında iter, uyumu ezmez" muzik-ciddiyet.test.mjs'te ayrıca sınanıyor.
+  assert.ok(overlap(b) <= overlap(fresh), `history never pulls last video's tracks closer (${overlap(b)} <= ${overlap(fresh)} s)`);
 
   // The file: atomic, updated in place, and a re-run plans against the history it first saw.
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nova-music-hist-'));
@@ -423,8 +440,13 @@ test('music v2: cross-video history — last videos\' tracks are avoided, the th
   assert.deepEqual(list[1].prior.map((e) => e.key), ['A'], 'the first prior is kept');
   assert.ok(!fs.readdirSync(dir).some((f) => /\.tmp/.test(f)), 'no temp file left');
   // Only the last HISTORY_N other videos count.
-  for (let i = 0; i < 8; i++) AD.recordMusicHistory(file, { key: `v${i}`, main: null, tracks: [] });
+  // KURAL DEĞİŞTİ (27 Ekim 2026): HISTORY_N 5 -> 12 ve kanal başına; 8 video artık sınırı doldurmuyor.
+  for (let i = 0; i < AD.HISTORY_N + 3; i++) AD.recordMusicHistory(file, { key: `v${i}`, main: null, tracks: [], channel: i % 2 ? 'news' : 'history' });
   assert.equal(AD.musicHistoryFor(AD.readMusicHistory(file), 'new').length, AD.HISTORY_N);
+  const news = AD.musicHistoryFor(AD.readMusicHistory(file), 'new', { channel: 'news' });
+  assert.ok(news.every((e) => !e.channel || e.channel === 'news'), 'only the same channel (and old entries without one)');
+  assert.ok(news.some((e) => e.channel === 'news') && !news.some((e) => e.channel === 'history'));
+  assert.equal(AD.readMusicHistory(file).find((e) => e.key === 'v1').channel, 'news', 'the channel is recorded');
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -682,7 +704,7 @@ test('J/L cuts: the next place is heard 0.5-0.8 s before its cut, the old one li
   assert.ok(short.cutIn - short.inA <= 9, 'lead capped by a short previous shot');
 });
 
-test('stop-down: ~1 s of true silence before a slam word, the swell comes back on the hit; beds drop out too', () => {
+test('stop-down: ~1 s of true silence before a slam word, the hit rings alone 1.5 s, then the music returns; beds drop out too', () => {
   const fps = 30;
   const scenes = [
     scene({ mood: 'tension', voiceDur: 3, dur: 4 }),
@@ -695,7 +717,9 @@ test('stop-down: ~1 s of true silence before a slam word, the swell comes back o
   const hit = placed[1].from + 30;
   for (let f = hit - 30; f < hit; f++) assert.equal(env[f], 0, `true silence at ${f - hit}`);
   assert.ok(env[hit - 36] > 0, 'the stop starts ~1.2 s before the word, not earlier');
-  assert.ok(env[hit + 5] >= 0.45, `swell on the hit (${env[hit + 5]})`);
+  // 27 Ekim 2026: no swell on the hit any more — its tail rings alone 1.5 s, then the music returns over 1.5 s (test/muzik-miks.test.mjs).
+  for (let f = hit; f < hit + 45; f++) assert.equal(env[f], 0, `the hit's tail rings alone at +${f - hit}`);
+  assert.ok(env[hit + 60] > 0 && env[hit + 90] >= 0.45, `the music is back 3 s after the hit (${env[hit + 90]})`);
   const amb = TL.ambienceEnvelope({ placed, scenes, fps, hits });
   for (let f = hit - 28; f < hit + 12; f++) assert.equal(amb[f], 0, 'the room is empty around the slam');
   assert.ok(amb[hit + 12 + 45] > 0.9 * TL.MIX.ambienceDuck, 'beds are back 1.5 s after the hit');

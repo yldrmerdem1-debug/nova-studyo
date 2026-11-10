@@ -51,6 +51,8 @@ export const TopicWipe: React.FC<{ index: number; durFrames: number; genre: Genr
   const wipeIn = !!wipes[index] && f < WIPE_IN;
   const wipeOut = !!wipes[index + 1] && f >= durFrames - WIPE_OUT;
   if (!wipeIn && !wipeOut) return null;
+  // The look decides the wipe's palette (motifPalette -> isLightLook): a paper look's wipe is paper, a dark one mid-dark
+  // slate / umber, never the old near-black panel (Gimli 9ff721 önce/sonra, 29 Ekim 2026).
   const P = motifPalette(t, genre);
   const phase = wipeIn ? f / WIPE_IN : -(durFrames - f) / WIPE_OUT;
   return (
@@ -66,18 +68,32 @@ export const TopicWipe: React.FC<{ index: number; durFrames: number; genre: Genr
  * (the flare in the night, the ticker's red, the FBI yellow). A redness mask
  * is computed on a hue-rotated copy so any hue can be the kept one; colour-only
  * filter primitives, no blur.
+ *
+ * Kartal Yuvası 950730 / Gimli 20261028-9ff721, 29 Ekim 2026: the 12R-6G-6B-4.8 mask kept almost nothing — the
+ * 'selective' chapters read as plain black and white (saturation 2,5). Softer now so the kept hue POPS: typical and
+ * darker skin still fall under the threshold (the -2.8 offset; the spec's -2.4 left pale skin 0.95/0.65/0.55 at 40%
+ * colour — gercek-goruntu skin test), a flare / siren / flag stays.
+ * The grey's mids are lifted (0.30 -> 0.34) so the accent chapter is not also the darkest one.
  */
+export const SELECTIVE_MASK = '8 -4 -4 0 -2.8';
+export const SELECTIVE_GREY = '0.02 0.1 0.34 0.58 0.8 0.95 1';
+
 export const SelectiveDefs: React.FC<{ hue?: number }> = ({ hue = 0 }) => (
   <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden>
     <filter id="nv-g-selective" colorInterpolationFilters="sRGB">
       <feColorMatrix in="SourceGraphic" type="saturate" values="0" result="grey0" />
       <feComponentTransfer in="grey0" result="grey">
-        <feFuncR type="table" tableValues="0.02 0.1 0.3 0.56 0.8 0.95 1" />
-        <feFuncG type="table" tableValues="0.02 0.1 0.3 0.56 0.8 0.95 1" />
-        <feFuncB type="table" tableValues="0.025 0.105 0.305 0.56 0.795 0.945 0.995" />
+        <feFuncR type="table" tableValues={SELECTIVE_GREY} />
+        <feFuncG type="table" tableValues={SELECTIVE_GREY} />
+        <feFuncB type="table" tableValues="0.025 0.105 0.345 0.58 0.795 0.945 0.995" />
       </feComponentTransfer>
       <feColorMatrix in="SourceGraphic" type="hueRotate" values={String(-(((hue % 360) + 360) % 360))} result="rot" />
-      <feColorMatrix in="rot" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  8 -4 -4 0 -1.6" result="mask" />
+      {/*
+        Only a strong, saturated kept hue survives (fire, a siren, a flag): skin sits in the same red-orange range but is
+        paler, so it falls under the threshold and faces stay black and white. The old mask (8R-4G-4B-1.6) kept skin
+        half-coloured — France, Oct 2026: "bazı yerlerde insanların yüzü sararıyor". The -2.8 offset keeps skin out.
+      */}
+      <feColorMatrix in="rot" type="matrix" values={`0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  ${SELECTIVE_MASK}`} result="mask" />
       <feColorMatrix in="SourceGraphic" type="saturate" values="1.25" result="vivid" />
       <feComposite in="vivid" in2="mask" operator="in" result="kept" />
       <feMerge>

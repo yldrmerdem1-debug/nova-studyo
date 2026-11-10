@@ -36,6 +36,16 @@ test('adıyla istenen dosya aramasız alınır, ikinci sahneye verilmez', async 
   assert.ok(log.some((m) => /ikinci kez/.test(m)));
 });
 
+test('adıyla istenen dosya split ve sayaç sahnesine de alınır (Panama: AI\'a düşüyordu)', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'adiyla-'));
+  const docu = { scenes: [
+    { type: 'split', say: 'Now compare.', left: { label: 'A' }, right: { label: 'B' }, imagePrompt: 'a bridge', commons: 'File:Tanker 2019.jpg' },
+  ] };
+  const { script } = await resolveArchive(docu, { dir, publicDir: dir, buildPrefix: 'build/x', settings: {}, logFn: () => {}, deps: deps('Public domain') });
+  assert.ok(script.scenes[0].image?.startsWith('build/x/cm-'));
+  assert.equal(script.scenes[0].archived, true);
+});
+
 test('lisansı uygun olmayan dosya alınmaz', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'adiyla-'));
   const got = await commonsFile('File:Tanker 2019.jpg', { publicDir: dir, buildPrefix: 'build/x', deps: deps('CC BY-NC 4.0') });

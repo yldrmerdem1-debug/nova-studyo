@@ -1,6 +1,9 @@
-import { validateSchema } from "./structured-output.js";
+import crypto from "node:crypto";
+import path from "node:path";
+import { validateSchema, coerceNumbers, wireSchema } from "./structured-output.js";
 import Anthropic from "@anthropic-ai/sdk";
 import { getSettings } from "./config.js";
+import { DATA_DIR, readJson, writeJson } from "./util.js";
 
 let client = null;
 let clientKey = null;
@@ -153,17 +156,27 @@ function assertNotCancelled({signal,isCancelled}={}) {
   if(signal?.aborted || isCancelled?.()) throw new Error('cancelled');
 }
 
-/** Tek modele tek istek (Opus 5 / Fable 5'te politika reddi için sunucu yedeği açık). */
+/**
+ * Tek modele tek istek (Opus 5 / Fable 5'te politika reddi için sunucu yedeği açık).
+ * control.firstByteMs: yanıtın BAŞLAMASI için süre (dilbilgisi derlemesi yanıttan önce biter). İstek akışla gider;
+ * süre dolarsa istek kesilir ve `schemaStall` hatası döner. Cevabın kendisi süreye takılmaz.
+ */
 async function callModel(c, model, params, control={}) {
   const base = { model, ...params };
-  const big = (params.max_tokens || 0) > STREAM_ABOVE;
+  const big = (params.max_tokens || 0) > STREAM_ABOVE || control.firstByteMs > 0;
 
   const send = async (api, extra = {}) => {
     assertNotCancelled(control);
     const req = { ...base, ...extra };
     if (!big) return api.create(req, control.signal ? {signal:control.signal} : undefined);
     const stream = await api.stream(req, control.signal ? {signal:control.signal} : undefined);
-    return stream.finalMessage();
+    if (!(control.firstByteMs > 0)) return stream.finalMessage();
+    let stalled = false;
+    const timer = setTimeout(() => { stalled = true; stream.abort(); }, control.firstByteMs);
+    stream.on('connect', () => clearTimeout(timer));
+    try { return await stream.finalMessage(); }
+    catch (e) { throw stalled ? Object.assign(new Error(`Schema is too complex: yanıt ${Math.round(control.firstByteMs / 1000)} sn içinde başlamadı (istemci bekçisi)`), { schemaStall: true }) : e; }
+    finally { clearTimeout(timer); }
   };
 
   if (supportsFallbacks(model)) {
@@ -181,6 +194,28 @@ async function callModel(c, model, params, control={}) {
   }
   return await send(c.messages);
 }
+export { callModel as _callModel };
+
+/*
+ * Yanıt ortasında kopan bağlantının HTTP durumu yok ("terminated", ECONNRESET, "socket hang up"); SDK'nın kendi
+ * denemeleri yalnızca yanıt başlamadan önceki hataları kapsıyor. Ölçüldü: denizaltı işi 20261024-373aaf web
+ * araştırmasının 2. dakikasında "HATA: terminated" ile öldü (19:05:55), 20261003-214ff7 bölüm 6'da aynı.
+ * Aynı model 5 sn ve 20 sn sonra yeniden denenir; yine koparsa zincir yoğunluktaki gibi sıradaki modele geçer.
+ */
+const TRANSIENT_NET = /terminated|ECONNRESET|socket hang up|other side closed|fetch failed|UND_ERR|ETIMEDOUT|EAI_AGAIN/i;
+export const isTransientNet = (e) => !e?.status && TRANSIENT_NET.test([e?.message ?? e, e?.code, e?.cause?.message, e?.cause?.code].filter(Boolean).join(" "));
+export async function retryTransient(fn, { logFn, control = {}, label = "", waits = [5000, 20000] } = {}) {
+  for (let n = 0; ; n++) {
+    try { return await fn(); }
+    catch (e) {
+      assertNotCancelled(control);
+      if (!isTransientNet(e) || n >= waits.length) throw e;
+      logFn?.(`${label ? label + ": " : ""}bağlantı koptu (${String(e?.message || e).slice(0, 80)}), yeniden deneniyor (${n + 1}/${waits.length})...`);
+      await uyu(waits[n]);
+      assertNotCancelled(control);
+    }
+  }
+}
 
 async function createMessage(params, logFn, modelOverride = null, usage = null, control={}) {
   assertNotCancelled(control);
@@ -193,14 +228,14 @@ async function createMessage(params, logFn, modelOverride = null, usage = null, 
       assertNotCancelled(control);
       assertUsageBudget(usage, chain[i]);
       if (isOpenAIModel(chain[i])) return await openaiMessage(params, chain[i], control);
-      return await callModel(getClient(), chain[i], params, control);
+      return await retryTransient(() => callModel(getClient(), chain[i], params, control), { logFn, control, label: chain[i] });
     } catch (e) {
       assertNotCancelled(control);
       lastErr = e;
-      // Yalnızca yoğunluk/limit hatasında model değiştir; 400/401 gibi hatalar
+      // Yalnızca yoğunluk/limit hatasında (ve tekrar tekrar kopan bağlantıda) model değiştir; 400/401 gibi hatalar
       // istekle ilgilidir, başka modelde de aynı sonucu verir. OpenAI'de anahtar yok/geçersiz → Claude.
-      if (!(isOverload(e) || e?.fallback) || i === chain.length - 1) throw e;
-      logFn?.(`${chain[i]} yoğun (HTTP ${e.status}) → ${chain[i + 1]} deneniyor...`);
+      if (!(isOverload(e) || e?.fallback || isTransientNet(e)) || i === chain.length - 1) throw e;
+      logFn?.(`${chain[i]} ${e.status ? `yoğun (HTTP ${e.status})` : "bağlantısı kopuyor"} → ${chain[i + 1]} deneniyor...`);
       await new Promise((r) => setTimeout(r, 1500));
       assertNotCancelled(control);
     }
@@ -350,8 +385,8 @@ export function assertUsageBudget(usage, model, rates = usage?.modelRates || get
   }
 }
 
-async function accountedRequest(request, params, {usage,logFn,model,signal,isCancelled}) {
-  const control={signal,isCancelled};
+async function accountedRequest(request, params, {usage,logFn,model,signal,isCancelled,firstByteMs=0}) {
+  const control={signal,isCancelled,...(firstByteMs > 0 ? {firstByteMs} : {})};
   assertNotCancelled(control);
   const chosen = model || usage?.model || getSettings().model;
   assertUsageBudget(usage, chosen);
@@ -366,42 +401,82 @@ const JSON_TAVAN_UST = 64000;
 const JSON_EN_COK_DENEME = 3;
 /*
  * Schemas the API refused for their size ("too many optional parameters", "compiled grammar is
- * too large" — the docu chapter schema has ~58 optional fields): later calls with the same
- * schema skip the doomed request and go straight to the prompted schema.
+ * too large", "Schema is too complex."): later calls with the same schema skip the doomed request and
+ * go straight to the prompted schema. The verdict is kept on disk by the hash of the WIRE schema (what
+ * the API saw) for a week: an in-memory WeakSet keyed by object forgot it on every restart, and
+ * "Schema is too complex." arrives only after 6 minutes — submarine 20261024-373aaf paid it in chapter 1
+ * (05:30:21 → 05:36:23) and again in the edit director of the next run (16:13:56 → 16:19:57), Eagle's
+ * Nest 950730 the same (01:24:22 → 01:30:23). A packed wire schema (those were 21 and 31 packed fields)
+ * also gets SCHEMA_START_MS for its answer to START; past that it counts as refused.
  */
-const SCHEMA_TOO_BIG = new WeakSet();
+const SCHEMA_REFUSALS = path.join(DATA_DIR, "schema-refusals.json");
+const REFUSAL_DAYS = 7;
+const SCHEMA_START_MS = 90e3;
+const REFUSED_HERE = new Map(); // disk not writable: this process still remembers
 const TOO_BIG = /too many optional|grammar is too large|schema is too (large|complex)/i;
+const IMAGE_REFUSED = /image\.source|Could not process image|media type/i;
+const WIRE_LOGGED = new WeakMap();
+const schemaKey = (wire) => crypto.createHash("sha1").update(JSON.stringify(wire)).digest("hex");
+const fresh = (at) => Date.now() - (Number(at) || 0) < REFUSAL_DAYS * 864e5;
+function refusedBefore(wire) {
+  const key = schemaKey(wire);
+  return fresh(Date.parse(readJson(SCHEMA_REFUSALS, {})?.[key]?.at || "")) || fresh(REFUSED_HERE.get(key));
+}
+function rememberRefusal(wire, reason) {
+  const key = schemaKey(wire);
+  try {
+    const old = readJson(SCHEMA_REFUSALS, {});
+    const all = Object.fromEntries(Object.entries(old && typeof old === "object" && !Array.isArray(old) ? old : {}).filter(([, v]) => fresh(Date.parse(v?.at || ""))));
+    all[key] = { at: new Date().toISOString(), reason: String(reason || "").slice(0, 160) };
+    writeJson(SCHEMA_REFUSALS, all);
+  } catch { REFUSED_HERE.set(key, Date.now()); }
+}
 
 async function structuredRequest({system,user,schema,maxTokens=16000,usage,logFn,model,images=[],request=createMessage,validate,signal,isCancelled}) {
   let tavan = maxTokens;
-  let useSchema = !!schema && !SCHEMA_TOO_BIG.has(schema);
+  // The API gets the wire copy (structured-output.js wireSchema); the answer is restored and checked against `schema`.
+  const wire = wireSchema(schema);
+  let useSchema = !!schema && !refusedBefore(wire.schema);
+  if (schema && (!useSchema || wire.packed || wire.nulled) && logFn && !(WIRE_LOGGED.get(wire)?.has(logFn))) {
+    (WIRE_LOGGED.get(wire) || WIRE_LOGGED.set(wire, new WeakSet()).get(wire)).add(logFn);
+    logFn(useSchema
+      ? `Şema API sınırına uyarlandı: ${wire.nulled} isteğe bağlı alan zorunlu/boş bırakılabilir, ${wire.packed} alan ${wire.extraKeys.join(', ') || '-'} metnine taşındı; yanıt asıl şemayla doğrulanıyor.`
+      : `Bu şema son ${REFUSAL_DAYS} gün içinde API'ce reddedildi (çok karmaşık); yapılandırılmış çıktı denenmeden tam JSON şeması istemde uygulanıyor.`);
+  }
   let repair = '';
-  const hint = () => JSON_ONLY_HINT + (schema ? '\nJSON ŞEMASI (birebir uygula):\n' + JSON.stringify(schema) : '');
+  // With the grammar on, the original schema in the prompt would contradict the wire shape (extraJson).
+  const hint = () => JSON_ONLY_HINT + (schema && !useSchema ? '\nJSON ŞEMASI (birebir uygula):\n' + JSON.stringify(schema) : '');
   for (let deneme = 1; deneme <= JSON_EN_COK_DENEME; deneme++) {
     assertNotCancelled({signal,isCancelled});
     const makeParams = () => {
-      const prompt = user + (!useSchema ? hint() : '') + repair;
+      const packedNote = useSchema && wire.extraKeys.length ? `\n\nNOT: Bazı isteğe bağlı alanlar şemadaki ${wire.extraKeys.join(', ')} metin alanına TEK bir JSON nesnesi olarak yazılır (açıklamasında hangi anahtarlar olduğu yazıyor; kullanılmıyorsa "{}").` : '';
+      const prompt = user + (!useSchema ? hint() : packedNote) + repair;
       const blocks = images.flatMap(im => [ ...(im.etiket ? [{type:'text',text:im.etiket}] : []), {type:'image',source:{type:'base64',media_type:im.mediaType || 'image/jpeg',data:im.data}} ]);
       const params = {max_tokens:tavan,system,messages:[{role:'user',content:images.length ? [...blocks,{type:'text',text:prompt}] : prompt}]};
-      if (useSchema) params.output_config = {format:{type:'json_schema',schema}};
+      if (useSchema) params.output_config = {format:{type:'json_schema',schema:wire.schema}};
       return params;
     };
     let resp;
-    try { resp = await accountedRequest(request, makeParams(), {usage,logFn,model,signal,isCancelled}); }
+    // Only a request carrying a packed grammar gets the start watchdog (SCHEMA_START_MS); the prompted retry never does.
+    try { resp = await accountedRequest(request, makeParams(), {usage,logFn,model,signal,isCancelled,firstByteMs: useSchema && wire.packed ? SCHEMA_START_MS : 0}); }
     catch (e) {
       // Fallback is local to this call. An overload never changes capability state.
       // A billing failure is not a schema capability failure. Passing it to
       // the alternate format would waste another request and hide the cause.
-      if (!useSchema || ![400,404].includes(e?.status) || /credit balance is too low|insufficient credit/i.test(String(e?.message||''))) throw e;
+      // Nor is a picture the API cannot read (Fransa borcu / Kartal, 24 Ekim 2026: "…image/jpeg media type",
+      // "Could not process image"): the prompted retry sent the same images and paid a second 400.
+      if (!useSchema || !([400,404].includes(e?.status) || e?.schemaStall) || /credit balance is too low|insufficient credit/i.test(String(e?.message||'')) || IMAGE_REFUSED.test(String(e?.message||''))) throw e;
       assertNotCancelled({signal,isCancelled});
       useSchema = false;
-      if (TOO_BIG.test(String(e?.message || ''))) SCHEMA_TOO_BIG.add(schema);
+      if (e?.schemaStall || TOO_BIG.test(String(e?.message || ''))) rememberRefusal(wire.schema, e?.message);
       logFn?.(`Yapılandırılmış çıktı bu çağrıda kullanılamadı (${String(e?.message||e?.status||'').slice(0,160)}); tam JSON şeması istemde uygulanıyor.`);
       resp = await accountedRequest(request, makeParams(), {usage,logFn,model,signal,isCancelled});
     }
     try {
-      const parsed = extractJson(textOf(resp));
-      const errors = validateSchema(parsed, schema);
+      // useSchema now says how THIS answer was produced (a fallback above turned it off before re-asking).
+      const back = useSchema ? wire.restore(extractJson(textOf(resp))) : {value:extractJson(textOf(resp)),errors:[]};
+      const parsed = coerceNumbers(back.value, schema);
+      const errors = [...back.errors, ...validateSchema(parsed, schema)];
       if (!errors.length && validate) errors.push(...(validate(parsed) || []));
       if (errors.length) throw new Error('JSON şema doğrulaması: ' + errors.slice(0,12).join('; '));
       return parsed;
@@ -420,7 +495,7 @@ async function structuredRequest({system,user,schema,maxTokens=16000,usage,logFn
 export async function callJSON(options) { return structuredRequest(options); }
 // Capability is tested per request; transient/provider errors never disable other models.
 export function structuredOutputsAvailable() { return true; }
-export async function callVisionJSON(options) { return structuredRequest({maxTokens:4000,model:'claude-haiku-4-5-20251001',...options}); }
+export async function callVisionJSON(options) { return structuredRequest({maxTokens:4000,model:'claude-haiku-5-5',...options}); }
 
 export function researchText(resp) {
   const sources = [];

@@ -61,11 +61,15 @@ export function counterPalette(g: LookLike, years: Years | null = null): Counter
 
 type Pictured = { type: string; image?: string; images?: string[]; video?: string; videoStart?: number; videoDur?: number; videoW?: number; videoH?: number; layers?: { bg: string } };
 
-/** The picture a 'photo' counter sits on: one of the two scenes before it, if either shows one. */
+/**
+ * The picture a 'photo' counter sits on: its OWN picture or clip when the script gave it one, else one of the two
+ * scenes before it. (Panama, Oct 2026: "Panama was hit by something stronger. A 7.7." carried a Panama City clip,
+ * but the count was drawn over the previous scene's Colombian rubble.)
+ */
 export function counterPicture(scenes: Scene[], i: number): { image?: string; video?: string; videoStart?: number; videoDur?: number; videoW?: number; videoH?: number } | undefined {
-  for (let k = i - 1; k >= Math.max(0, i - 2); k--) {
+  for (let k = i; k >= Math.max(0, i - 2); k--) {
     const s = scenes[k] as unknown as Pictured;
-    if (!s || s.type === 'counter') continue;
+    if (!s || (k !== i && s.type === 'counter')) continue;
     const image = s.image ?? s.images?.[0] ?? s.layers?.bg;
     if (image || s.video) return { image, video: s.video, videoStart: s.videoStart, videoDur: s.videoDur, videoW: s.videoW, videoH: s.videoH };
   }

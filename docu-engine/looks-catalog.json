@@ -6,7 +6,7 @@
     "textStyle": "scene.textStyle on words / slam / title / montage. Unset: the variant palette (its first entry leads, rotated per chapter). Accent styles (lyric, kinetic): at most 3 per video, on hooks, quotes and climaxes. lower-third is the editorial info caption: only on lines that carry a name, place, date/time or number (others get another style). words.textMode: 'full' (default) | 'key' (only the keyword, big, on its spoken frame) | 'none' (no text: a clean picture shot); words.kicker sets an info caption's small-caps kicker.",
     "counterStyle": "scene.counterStyle on counter scenes, from the variant's counterStyles (era permitting: fromYear). Never the same treatment on two consecutive counters; 'photo' needs a picture in one of the two scenes before. Unset: rotated per video and chapter.",
     "backdrop": "scene.backdrop = { kind, color?, color2?, variant?, tone? } for text scenes not over a picture (words, slam, title without image; counter, chart, quote, timeline). Big text (words, slam, title, counter, quote) always sits on 'related' — the nearest related picture/clip, darkened and drifting (tone light: washed into paper) — or an 'era' texture when no picture fits; an explicit paper/texture/blueprint/halftone/split-color/blur choice only sets that ground's tone. 'solid'/'gradient' are kept only on silence beats (energy 1, at most 2 per video).",
-    "grade": "scene.grade on photo / video scenes (also chapter and variant defaults). photo.natural still wins.",
+    "grade": "scene.grade on photo / video scenes (also chapter and variant defaults). photo.natural still wins. COLOUR FIRST (29 Oct 2026, last 7 videos measured luma 52-75 / saturation 2.5-7.5): chapter base grades come from family \"colour\" (color, warm, cool, teal-orange, kodachrome; sepia also before 1940); family \"accent\" (selective, mono, duotone, sepia, cyanotype, bleach) only in ONE accent chapter and on at most 15% of picture scenes; real archive photos never inherit an accent grade.",
     "era": "script.era (\"1929-1933 ...\") gates era-bound furniture: no camcorder/terminal HUD on photos before 1980 (a newsreel film gate instead), counter treatments by fromYear."
   },
   "variants": {
@@ -1825,47 +1825,38 @@
         "split",
         "board",
         "document"
-      ]
+      ],
+      "family": "accent"
     },
     {
       "id": "mono",
       "description": "Contrasty black and white.",
-      "genres": "all"
+      "genres": "all",
+      "family": "accent"
     },
     {
       "id": "color",
       "description": "Natural colour, lightly punched (contrast + saturation).",
-      "genres": "all"
+      "genres": "all",
+      "family": "colour"
     },
     {
       "id": "warm",
       "description": "Golden, warm highlights; nostalgic and hopeful.",
-      "genres": [
-        "inspire",
-        "documentary",
-        "epic",
-        "finance"
-      ]
+      "genres": "all",
+      "family": "colour"
     },
     {
       "id": "cool",
-      "description": "Cold steel-blue cast, lowered saturation.",
-      "genres": [
-        "crime",
-        "horror",
-        "science",
-        "finance"
-      ]
+      "description": "Cool blue cast with natural saturation (crime, science, cold stories) — a colour base grade.",
+      "genres": "all",
+      "family": "colour"
     },
     {
       "id": "teal-orange",
       "description": "Blockbuster split-tone: teal shadows, orange skin and highlights.",
-      "genres": [
-        "crime",
-        "epic",
-        "documentary",
-        "science"
-      ]
+      "genres": "all",
+      "family": "colour"
     },
     {
       "id": "sepia",
@@ -1876,7 +1867,8 @@
         "horror",
         "documentary",
         "crime"
-      ]
+      ],
+      "family": "accent"
     },
     {
       "id": "cyanotype",
@@ -1885,7 +1877,8 @@
         "science",
         "horror",
         "epic"
-      ]
+      ],
+      "family": "accent"
     },
     {
       "id": "bleach",
@@ -1894,17 +1887,14 @@
         "epic",
         "crime",
         "horror"
-      ]
+      ],
+      "family": "accent"
     },
     {
       "id": "kodachrome",
       "description": "Saturated vintage slide film: rich reds, deep blues.",
-      "genres": [
-        "inspire",
-        "science",
-        "epic",
-        "documentary"
-      ]
+      "genres": "all",
+      "family": "colour"
     },
     {
       "id": "vhs",
@@ -1913,12 +1903,14 @@
         "horror",
         "crime",
         "finance"
-      ]
+      ],
+      "family": "period"
     },
     {
       "id": "selective",
-      "description": "Black and white with ONE hue kept in colour (script.topic.keepHue): the topic bible accent object. Set by the topic bible only, never chosen freely.",
-      "genres": "all"
+      "description": "Black and white with ONE hue kept in colour (script.topic.keepHue): the topic bible accent object. ACCENT only (topic.accentGrade): at most one chapter, never the hook chapter, never chosen freely.",
+      "genres": "all",
+      "family": "accent"
     }
   ]
 }

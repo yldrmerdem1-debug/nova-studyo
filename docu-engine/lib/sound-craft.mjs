@@ -27,7 +27,17 @@ const fileOk = (f) => {
     return false;
   }
 };
-const run = (bin, args, opts = {}) => spawnSync(bin, args, { encoding: 'utf8', maxBuffer: 1 << 28, windowsHide: true, ...opts });
+/*
+ * Every file here is short (a voice line, an event, a bed): a hung ffmpeg is killed after 180 s and fails like any
+ * failed run, instead of blocking the engine until Nova's 25-minute stall watchdog (submarine job 373aaf, Oct 2026).
+ */
+const FF_TIMEOUT_MS = 180_000;
+const run = (bin, args, opts = {}) => {
+  const timeout = opts.timeout ?? FF_TIMEOUT_MS;
+  const r = spawnSync(bin, ['-nostdin', ...args], { encoding: 'utf8', maxBuffer: 1 << 28, windowsHide: true, ...opts, timeout });
+  if (r.error?.code === 'ETIMEDOUT') r.error.message = `ffmpeg ${Math.round(timeout / 1000)} sn içinde bitmedi, durduruldu (${r.error.message})`;
+  return r;
+};
 /** Content identity of a file for cache keys (path + size + mtime). */
 function sig(file) {
   const st = statSync(file);
@@ -38,11 +48,13 @@ function sig(file) {
 
 /**
  * EBU R128 of a file (after an optional chain): integrated loudness, loudness
- * range, true peak and the loudest momentary (400 ms) value.
+ * range, true peak and the loudest momentary (400 ms) value. A run killed at
+ * its deadline throws: its frames so far would be read as the whole file's.
  */
 export function measure(bin, file, chain = null) {
   const af = [chain, 'apad=pad_dur=0.5', 'ebur128=peak=true:framelog=info'].filter(Boolean).join(',');
   const r = run(bin, ['-hide_banner', '-nostats', '-i', file, '-vn', '-af', af, '-f', 'null', '-']);
+  if (r.error?.code === 'ETIMEDOUT') throw r.error;
   const text = String(r.stderr ?? '');
   const sum = text.slice(Math.max(0, text.lastIndexOf('Summary:')));
   const num = (re) => {
@@ -353,7 +365,7 @@ export function renderSynth({ bin, pcm, out, room = 'small', len }) {
   rmSync(raw, { force: true });
   if (r.status !== 0 || !fileOk(tmp)) {
     rmSync(tmp, { force: true });
-    throw new Error(`sentez işlenemedi: ${String(r.stderr).slice(-300)}`);
+    throw new Error(`sentez işlenemedi: ${String(r.stderr || r.error?.message || '').slice(-300)}`);
   }
   mkdirSync(dirname(out), { recursive: true });
   renameSync(tmp, out);
@@ -586,10 +598,11 @@ export function voiceChain() {
  * the target, the chain, a measured trim back onto the target, then a soft
  * limiter at -1.5 dBFS. Returns the loudness before (raw) and after.
  */
-export function processVoice({ bin, src, dst, target = -19, chain = true }) {
+export function processVoice({ bin, src, dst, target = -19, chain = true, edit = '' }) {
   const before = measure(bin, src);
   const pre = before.I === null ? 0 : clamp(target - before.I, -12, 20);
-  const body = [`aresample=48000`, `volume=${pre.toFixed(2)}dB`, chain ? voiceChain() : null].filter(Boolean).join(',');
+  // `edit`: the pace cut list / tempo (pace.mjs) applied to the raw take before anything else.
+  const body = [edit || null, `aresample=48000`, `volume=${pre.toFixed(2)}dB`, chain ? voiceChain() : null].filter(Boolean).join(',');
   const mid = measure(bin, src, body);
   const trim = mid.I === null ? 0 : clamp(target - mid.I, -6, 6);
   const af = `${body},volume=${trim.toFixed(2)}dB,alimiter=limit=${Math.pow(10, -1.5 / 20).toFixed(4)}:attack=2:release=60:level=false:latency=1`;
@@ -601,7 +614,9 @@ export function processVoice({ bin, src, dst, target = -19, chain = true }) {
     r = run(bin, ['-y', '-hide_banner', '-loglevel', 'error', '-i', src, '-af', af, '-ar', '48000', '-ac', '1', '-c:a', 'pcm_s16le', '-f', 'wav', tmp]);
     if (r.status === 0 && fileOk(tmp)) break;
     rmSync(tmp, { force: true });
-    if (i < 3) spawnSync(process.execPath, ['-e', `setTimeout(()=>{}, ${500 * (i + 1)})`], { windowsHide: true });
+    // A run killed at its deadline hung: not the transient spawn failure retried here (4 x 180 s of silence).
+    if (r.error?.code === 'ETIMEDOUT') break;
+    if (i < 3) spawnSync(process.execPath, ['-e', `setTimeout(()=>{}, ${500 * (i + 1)})`], { windowsHide: true, timeout: 10_000 });
   }
   if (r.status !== 0 || !fileOk(tmp)) {
     rmSync(tmp, { force: true });

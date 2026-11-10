@@ -4,6 +4,7 @@ import { textWidth } from '../fonts';
 import type { FontKey, Genre, Scene } from '../types';
 import { h01, morse, type TopicCtx } from './context';
 import { MorseRow, morseWidth, motifPalette, type MotifPalette } from './motifs';
+import { alpha as tint, readable } from '../looks/color';
 
 /*
  * MOTIF CAPTIONS (text style 'motif') — the narration line written in the
@@ -53,12 +54,16 @@ export function captionPlace(scene: Scene, pictured: boolean, seed: string): Pla
     // On a ground: the golden left column, a little above centre — composed, not centred.
     return { side: h01(`${seed}|gs`) < 0.7 ? 'left' : 'right', band: 'middle', width: 1240, turn: 0 };
   }
+  // The pipeline knows the picture shows a face (scene.textAt): the caption takes that band, never the upper third
+  // by default — on a portrait with no focus the "landscape" top band sat across the eyes (Lula, Oct 2026).
+  const at = s.layers?.box ? undefined : (scene as { textAt?: 'low' | 'top' }).textAt;
+  const faceBand: Place['band'] | null = at === 'low' ? 'bottom' : at === 'top' ? 'top' : null;
   if (fx === null) {
     // No known subject: landscapes keep their sky up top and the action low; a caption sits in the upper third.
-    return { side: h01(`${seed}|s`) < 0.6 ? 'left' : 'right', band: 'top', width: 1000, turn: 0 };
+    return { side: h01(`${seed}|s`) < 0.6 ? 'left' : 'right', band: faceBand ?? 'top', width: 1000, turn: 0 };
   }
   const side: Place['side'] = fx > 0.5 ? 'left' : 'right';
-  const band: Place['band'] = (fy ?? 0.4) < 0.5 ? 'bottom' : 'top';
+  const band: Place['band'] = faceBand ?? ((fy ?? 0.4) < 0.5 ? 'bottom' : 'top');
   const off = Math.abs(fx - 0.5);
   return { side, band, width: off > 0.12 ? 860 : 1000, turn: side === 'left' ? 5 : -5 };
 }
@@ -203,7 +208,15 @@ const upper = (s: string) => s.toUpperCase();
 
 export const MotifCaption: React.FC<CapProps> = ({ t, genre, scene, words, frames, k0, k1, pictured, durFrames, light }) => {
   const f = useCurrentFrame();
+  /*
+   * The LOOK picks the palette (motifPalette -> isLightLook): a paper look's caption panels are paper with dark ink, a
+   * dark look's are the motif's mid-dark ground at ~0.6 — a local scrim behind the words, never a black slab
+   * (Gimli 9ff721 önce/sonra, 29 Ekim 2026: caption.tsx still drew the night palette and near-black navy panels in
+   * every look). Panel-less type (electric) reads the SURFACE under it (`light`): dark ink on paper, light ink on a photo.
+   */
   const P = motifPalette(t, genre);
+  const lt = P.light === true;
+  const onLight = light ?? lt;
   const seed = `${t.seed}|cap|${(scene as { say?: string }).say ?? words.join(' ')}`;
   const place = captionPlace(scene, pictured, seed);
   const typed = useTyped(words, frames);
@@ -256,7 +269,7 @@ export const MotifCaption: React.FC<CapProps> = ({ t, genre, scene, words, frame
       const unit = code ? Math.max(4, Math.min(10, (L.width - 140) / Math.max(1, morseWidth(code, 1)))) : 0;
       const tick = interpolate(f, [keyAt, keyAt + Math.max(10, code.length * 1.1)], [0, 1], clamp);
       block = (
-        <div style={{ ...pos, padding: '26px 40px 30px', background: `linear-gradient(177deg, ${P.paper}, #d9ceb2)`, boxShadow: '0 26px 60px rgba(0,0,0,0.6)', rotate: `${(h01(seed) - 0.5) * 2}deg` } as React.CSSProperties}>
+        <div style={{ ...pos, padding: '26px 40px 30px', background: `linear-gradient(177deg, ${P.paper}, #d9ceb2)`, boxShadow: '0 26px 60px rgba(0,0,0,0.38)', rotate: `${(h01(seed) - 0.5) * 2}deg` } as React.CSSProperties}>
           {/* log-paper rules and the red margin */}
           <div style={{ position: 'absolute', inset: 0, backgroundImage: `repeating-linear-gradient(180deg, transparent 0 ${Math.round(size * 1.22) - 1}px, rgba(40,60,90,0.16) ${Math.round(size * 1.22) - 1}px ${Math.round(size * 1.22)}px)`, backgroundPosition: '0 26px' }} />
           <div style={{ position: 'absolute', top: 0, bottom: 0, left: 22, width: 2, background: `${P.accent2}99` }} />
@@ -280,7 +293,7 @@ export const MotifCaption: React.FC<CapProps> = ({ t, genre, scene, words, frame
       const y = place.band === 'top' ? vpad + 30 : place.band === 'bottom' ? H - vpad - 120 : H * 0.42;
       block = (
         <div style={{ position: 'absolute', left: -60, right: -60, top: y, height: 92, opacity: enter * out, transform: `rotate(${place.side === 'left' ? -2.2 : 2.2}deg)` }}>
-          <div style={{ position: 'absolute', inset: 0, background: P.paper, boxShadow: '0 16px 36px rgba(0,0,0,0.6)' }} />
+          <div style={{ position: 'absolute', inset: 0, background: P.paper, boxShadow: '0 16px 36px rgba(0,0,0,0.38)' }} />
           <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, overflow: 'hidden' }}>
             <div style={{ position: 'absolute', top: 18, left: Math.max(80, W + 120 - tapeW), whiteSpace: 'nowrap', fontFamily: P.mono, fontSize: size, fontWeight: 600, letterSpacing: '0.06em', color: P.paperInk }}>
               {line.slice(0, shownW).map((w, i) => (
@@ -300,13 +313,13 @@ export const MotifCaption: React.FC<CapProps> = ({ t, genre, scene, words, frame
       const wave = Array.from({ length: 60 }, (_, i) => `${i * ((L.width - 80) / 59)},${18 + Math.sin(i * 0.8 + f * 0.5) * (f >= keyAt ? 12 : 3)}`).join(' ');
       const corner = (s: React.CSSProperties) => <div style={{ position: 'absolute', width: 26, height: 26, borderColor: P.accent2, borderStyle: 'solid', ...s }} />;
       block = (
-        <div style={{ ...pos, padding: '28px 36px', background: 'rgba(3,6,12,0.55)' }}>
+        <div style={{ ...pos, padding: '28px 36px', background: tint(P.ground, lt ? 0.8 : 0.62) }}>
           {corner({ left: 0, top: 0, borderWidth: '2px 0 0 2px' })}
           {corner({ right: 0, top: 0, borderWidth: '2px 2px 0 0' })}
           {corner({ left: 0, bottom: 0, borderWidth: '0 0 2px 2px' })}
           {corner({ right: 0, bottom: 0, borderWidth: '0 2px 2px 0' })}
           <div style={{ fontFamily: P.mono, fontSize: 18, letterSpacing: '0.3em', color: P.accent2, marginBottom: 10 }}>{'> SIGNAL'}</div>
-          {text(P.mono, size, '#e8eef8', P.accent, { upper: true, track: '0.05em' })}
+          {text(P.mono, size, P.ink, P.accent, { upper: true, track: '0.05em' })}
           {key ? (
             <svg width={L.width - 72} height={36} style={{ display: 'block', marginTop: 12 }}>
               <polyline points={wave} fill="none" stroke={P.accent} strokeWidth={2} style={{ filter: `drop-shadow(0 0 4px ${P.accent})` }} />
@@ -328,13 +341,13 @@ export const MotifCaption: React.FC<CapProps> = ({ t, genre, scene, words, frame
         <>
           {pictured ? (
             <svg width={W} height={H} style={{ position: 'absolute', inset: 0, opacity: out }}>
-              <path d={`M ${bx} ${by} L ${fx} ${fy}`} stroke={light ? '#1c1a2a' : '#ffffff'} strokeWidth={1.6} pathLength={1} strokeDasharray={1} strokeDashoffset={1 - lead} />
-              <circle cx={fx} cy={fy} r={6 * lead} fill="none" stroke={light ? '#1c1a2a' : '#ffffff'} strokeWidth={1.6} />
+              <path d={`M ${bx} ${by} L ${fx} ${fy}`} stroke={onLight ? P.paperInk : '#ffffff'} strokeWidth={1.6} pathLength={1} strokeDasharray={1} strokeDashoffset={1 - lead} />
+              <circle cx={fx} cy={fy} r={6 * lead} fill="none" stroke={onLight ? P.paperInk : '#ffffff'} strokeWidth={1.6} />
             </svg>
           ) : null}
-          <div style={{ ...pos, textAlign: place.side === 'left' ? 'left' : 'right', textShadow: light ? 'none' : '0 2px 14px rgba(0,0,0,0.9)' }}>
-            <div style={{ fontFamily: P.display, fontStyle: 'italic', fontSize: 26, color: P.accent2, marginBottom: 6 }}>{`Fig. ${1 + (Math.floor(h01(seed) * 9))}.`}</div>
-            {text(P.display, size, light ? '#1c1a2a' : '#f6f4ee', P.accent, { italic: true })}
+          <div style={{ ...pos, textAlign: place.side === 'left' ? 'left' : 'right', textShadow: onLight ? 'none' : '0 2px 14px rgba(0,0,0,0.75)' }}>
+            <div style={{ fontFamily: P.display, fontStyle: 'italic', fontSize: 26, color: onLight ? readable(P.accent2, '#f2efe6', 3) : readable(P.accent2, '#202020', 3), marginBottom: 6 }}>{`Fig. ${1 + (Math.floor(h01(seed) * 9))}.`}</div>
+            {text(P.display, size, onLight ? P.paperInk : '#f6f4ee', onLight ? readable(P.accent, '#f2efe6', 3) : readable(P.accent, '#202020', 3), { italic: true })}
           </div>
         </>
       );
@@ -344,7 +357,7 @@ export const MotifCaption: React.FC<CapProps> = ({ t, genre, scene, words, frame
       const size = sizeFor('courier', 48, 3, true);
       const holes = Array.from({ length: Math.floor(L.width / 46) }, (_, i) => i);
       block = (
-        <div style={{ ...pos, padding: '40px 40px 40px', background: '#f1ece0', boxShadow: '0 24px 56px rgba(0,0,0,0.6)', rotate: `${(h01(seed) - 0.5) * 1.6}deg` } as React.CSSProperties}>
+        <div style={{ ...pos, padding: '40px 40px 40px', background: '#f1ece0', boxShadow: '0 24px 56px rgba(0,0,0,0.38)', rotate: `${(h01(seed) - 0.5) * 1.6}deg` } as React.CSSProperties}>
           {[0, 1].map((r) => (
             <div key={r} style={{ position: 'absolute', left: 14, right: 14, [r ? 'bottom' : 'top']: 10, display: 'flex', justifyContent: 'space-between' } as React.CSSProperties}>
               {holes.map((i) => (
@@ -361,12 +374,12 @@ export const MotifCaption: React.FC<CapProps> = ({ t, genre, scene, words, frame
     case 'expedition': {
       const size = sizeFor('bebas', 72, 3, true);
       block = (
-        <div style={{ ...pos, padding: '22px 30px 26px', border: `1.5px solid ${light ? '#0e1a24' : 'rgba(233,241,246,0.8)'}`, background: light ? 'rgba(255,255,255,0.4)' : 'rgba(6,12,18,0.42)' }}>
+        <div style={{ ...pos, padding: '22px 30px 26px', border: `1.5px solid ${lt ? P.ink : tint(P.ink, 0.8)}`, background: tint(P.ground, lt ? 0.72 : 0.58) }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, fontFamily: P.mono, fontSize: 18, letterSpacing: '0.3em', color: P.accent2, marginBottom: 8 }}>
             <svg width={22} height={22}><path d="M 11 1 L 15 11 L 11 21 L 7 11 Z" fill="none" stroke={P.accent2} strokeWidth={1.5} /><path d="M 11 1 L 15 11 L 7 11 Z" fill={P.accent} /></svg>
             {`BRG ${String(Math.round(h01(seed) * 359)).padStart(3, '0')}°`}
           </div>
-          {text(P.display, size, light ? '#0e1a24' : '#eef3f6', P.accent, { upper: true, track: '0.04em' })}
+          {text(P.display, size, P.ink, P.accent, { upper: true, track: '0.04em' })}
         </div>
       );
       break;
@@ -374,7 +387,7 @@ export const MotifCaption: React.FC<CapProps> = ({ t, genre, scene, words, frame
     case 'siege': {
       const size = sizeFor('cinzel', 50, 3, true);
       block = (
-        <div style={{ ...pos, padding: '30px 46px 34px', background: `radial-gradient(ellipse at 50% 40%, ${P.paper} 40%, #c9ae7a 100%)`, border: `3px double ${P.paperInk}`, boxShadow: '0 24px 60px rgba(0,0,0,0.65)', textAlign: 'center' }}>
+        <div style={{ ...pos, padding: '30px 46px 34px', background: `radial-gradient(ellipse at 50% 40%, ${P.paper} 40%, #c9ae7a 100%)`, border: `3px double ${P.paperInk}`, boxShadow: '0 24px 60px rgba(0,0,0,0.38)', textAlign: 'center' }}>
           {text(P.display, size, P.paperInk, P.accent, { upper: true, track: '0.05em', weight: 700 })}
         </div>
       );
@@ -385,8 +398,8 @@ export const MotifCaption: React.FC<CapProps> = ({ t, genre, scene, words, frame
       const size = sizeFor('jetbrains', 50, 3, true);
       const alpha = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
       block = (
-        <div style={{ ...pos, padding: '24px 30px', background: 'rgba(15,16,18,0.6)' }}>
-          <span style={{ fontFamily: P.mono, fontSize: size, lineHeight: 1.25, letterSpacing: '0.08em', color: '#ecebe6' }}>
+        <div style={{ ...pos, padding: '24px 30px', background: tint(P.ground, lt ? 0.8 : 0.62) }}>
+          <span style={{ fontFamily: P.mono, fontSize: size, lineHeight: 1.25, letterSpacing: '0.08em', color: P.ink }}>
             {typed.map(({ w, i, since }) => {
               const k = isKey(i);
               const W2 = upper(w);
@@ -394,7 +407,7 @@ export const MotifCaption: React.FC<CapProps> = ({ t, genre, scene, words, frame
               const shown = since < 0 ? '' : [...W2].map((c, j) => (j < lock ? c : alpha[Math.floor(h01(`${i}${j}${Math.floor(f / 2)}`) * 26)])).join('');
               return (
                 <React.Fragment key={i}>
-                  <span style={{ color: k ? P.accent : '#ecebe6', background: k && since >= 0 ? `${P.accent}22` : 'transparent', whiteSpace: 'nowrap' }}>{shown}</span>
+                  <span style={{ color: k ? P.accent : P.ink, background: k && since >= 0 ? `${P.accent}22` : 'transparent', whiteSpace: 'nowrap' }}>{shown}</span>
                   {i < words.length - 1 ? ' ' : ''}
                 </React.Fragment>
               );

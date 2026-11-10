@@ -1,4 +1,4 @@
-import { spokenNumbers, spokenOf, valueIndex, type Spoken } from '../infographics/timing.js';
+import { spokenNumbers, spokenOf, tallyItems, valueIndex, type Spoken } from '../infographics/timing.js';
 import type { Scene } from '../types';
 import type { Stamp } from './plan.js';
 
@@ -58,6 +58,9 @@ export function counterSpokenAt(scene: Scene, fps: number): number | null {
   if (scene.type !== 'counter') return null;
   const sp = tokens(scene);
   if (!sp.length) return null;
+  // A tally starts on its FIRST spoken number (each later one lands on its own word inside the scene).
+  const tally = tallyItems((scene as { wordTimes?: { word: string; t: number }[] }).wordTimes, { to: (scene as { to?: number }).to });
+  if (tally.length >= 2) return fr(tally[0].t, fps);
   const k = valueIndex(scene.to, sp);
   if (k >= 0) return fr(sp[k].t, fps);
   if (scene.to >= 1000 && scene.to <= 2099) {

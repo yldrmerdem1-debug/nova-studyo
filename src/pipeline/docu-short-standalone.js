@@ -14,8 +14,8 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { callJSON, callText } from "../llm.js";
 import { resolveArchive } from "./docu-archive.js";
-import { describePictures, newVerticalPicture, renderPictureTeaser, sizeOf } from "./docu-shorts-pictures.js";
-import { beatStarts, buildTeaserAss, newPictureStyle, numberEnd, shortVoiceText, slamTimes, slamWord, speakTeaser } from "./docu-shorts.js";
+import { archiveIsMono, describePictures, gridCuts, meanChroma, newVerticalPicture, renderPictureTeaser, sizeOf } from "./docu-shorts-pictures.js";
+import { beatStarts, buildTeaserAss, lowOverFaces, newPictureStyle, numberEnd, shortVoiceText, slamTimes, slamWord, snapSlams, speakTeaser } from "./docu-shorts.js";
 import { OPENINGS, SHORT_LOOKS, pickLook } from "./docu-shorts-looks.js";
 import { hookById } from "./docu-hooks.js";
 import { kunyeUret } from "./kunye.js";
@@ -306,6 +306,17 @@ export async function makeStandaloneShort({
   for (const [k, rel] of Object.entries(fixed)) found.scenes[k] = { ...found.scenes[k], image: rel };
   const assets = [];
   let aiCount = 0;
+  /*
+   * Black and white only when this Short's own archive pictures are monochrome (measured), never by year: Gimli
+   * 20261028-9ff721 / Kartal Yuvası 950730, 29 Ekim 2026 — doygunluk 2,5-6; colour Commons photos sat next to new B&W ones.
+   */
+  let mono = false;
+  try {
+    const real = Object.values(found.scenes || {}).filter((sc) => sc?.image && fs.existsSync(path.join(publicDir, sc.image))).map((sc) => ({ abs: path.join(publicDir, sc.image), kind: "still" }));
+    mono = archiveIsMono(real, { measure: (a) => meanChroma(ff, a.abs) });
+  } catch {
+    mono = false;
+  }
   for (let k = 0; k < beats.length; k++) {
     const sc = found.scenes[k];
     const b = beats[k];
@@ -318,14 +329,21 @@ export async function makeStandaloneShort({
     // No real picture: a new vertical one — an anonymous figure if the sentence is about a real person.
     const person = clean(b.picture?.person);
     let prompt = clean(b.picture?.prompt) || b.say;
-    if (person) prompt = `${prompt.replace(new RegExp(person.split(/\s+/).filter((w) => w.length > 2).join("|"), "gi"), "a man")}. An anonymous figure seen from behind or in silhouette, no recognisable face`;
-    const cached = path.join(dir, "new", `ai-${k}-${hash(prompt)}.jpg`);
+    // The cache key keeps the old wording, so a picture made before 29 Ekim 2026 is not paid for again.
+    let keyPrompt = prompt;
+    if (person) {
+      const base = prompt.replace(new RegExp(person.split(/\s+/).filter((w) => w.length > 2).join("|"), "gi"), "a man");
+      // No silhouette (a black figure on every real-person line): Gimli 20261028-9ff721 / Kartal Yuvası 950730, 29 Ekim 2026.
+      prompt = `${base}. An anonymous figure seen from behind or at a distance, no recognisable face`;
+      keyPrompt = `${base}. An anonymous figure seen from behind or in silhouette, no recognisable face`;
+    }
+    const cached = path.join(dir, "new", `ai-${k}-${hash(keyPrompt)}.jpg`);
     let abs = fs.existsSync(cached) ? cached : null;
     // A rate limit (429: a long video rendering alongside) waits and tries again; other errors give up.
     for (let attempt = 0; !abs && attempt < 6; attempt++) {
       try {
         logFn(`Shorts: yeni dikey görsel — ${prompt.slice(0, 70)}${attempt ? ` (deneme ${attempt + 1})` : ""}`);
-        const made = await newPicture({ prompt, dir: path.join(dir, "new"), settings, style: newPictureStyle(plan.year || null, plan.genre) });
+        const made = await newPicture({ prompt, dir: path.join(dir, "new"), settings, style: newPictureStyle(plan.year || null, plan.genre, { mono }) });
         fs.renameSync(made, cached);
         abs = cached;
       } catch (e) {
@@ -391,7 +409,8 @@ export async function makeStandaloneShort({
     };
   });
   const total = +(voiceEnd + 0.9).toFixed(2);
-  const slams = slamTimes(beats, words);
+  // Slams inside their own pictures, on the frame grid the render cuts on (yazi-titremesi).
+  const slams = lowOverFaces(snapSlams(slamTimes(beats, words), gridCuts(segments)), segments, beats.map((b) => ({ person: clean(b.picture?.person) })));
   const figures = [];
   let off = 0;
   beats.forEach((b, k) => {

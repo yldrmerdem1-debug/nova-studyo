@@ -133,9 +133,13 @@ export async function kirpDuraklamalar(src, dest, words, { ffmpegPath, ffprobePa
   const bulunan = [];
   try {
     const { spawnSync } = await import("node:child_process");
+    // Ana süreçte eşzamanlı (25 Ekim 2026): takılan ffmpeg bütün uygulamayı dondururdu → 180 sn tavan, SIGKILL.
+    // Zaman aşımında yarım çıktı yalnız ilk sessizlikleri verir ama silenceremove hepsini atar ve kelime zamanları
+    // kayar: o zaman hiç kırpılmaz.
     const r = spawnSync(ffmpegPath, [
-      "-i", src, "-af", `silencedetect=noise=${esik}dB:d=${maxDur}`, "-f", "null", "-",
-    ], { encoding: "utf8" });
+      "-nostdin", "-i", src, "-af", `silencedetect=noise=${esik}dB:d=${maxDur}`, "-f", "null", "-",
+    ], { encoding: "utf8", windowsHide: true, timeout: 180000, killSignal: "SIGKILL" });
+    if (r.error) throw r.error;
     const cikti = (r.stderr || "") + (r.stdout || "");
     let bas = null;
     for (const m of cikti.matchAll(/silence_(start|end):\s*(-?[\d.]+)/g)) {

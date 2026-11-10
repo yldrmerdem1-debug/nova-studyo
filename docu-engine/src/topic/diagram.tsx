@@ -5,6 +5,7 @@ import type { ExplainerScene, ExplainerStep, FontKey } from '../types';
 import { h01, morse, roman, type TopicCtx } from './context';
 import { LineIcon, isIcon } from './icons';
 import { MorseRow, contour, morseWidth, type MotifPalette } from './motifs';
+import { alpha, mix } from '../looks/color';
 
 /*
  * EXPLAINER DIAGRAMS — the mechanism SHOWN, not listed (LEMMiNO moves the
@@ -25,6 +26,10 @@ import { MorseRow, contour, morseWidth, type MotifPalette } from './motifs';
  *               cascade falls step by step
  *   expedition  a slope section: snow piles, the slab breaks, the marker slides
  *   siege       campaign arrows advance from the field onto the walls
+ *
+ * Gimli 9ff721 önce/sonra, 29 Ekim 2026: şema ve bölüm kartı zemini neredeyse siyah. The drawings set no dark ground of
+ * their own any more: Earth, step discs, the slope and the evidence windows take the palette's tones (mid-dark in a dark
+ * look, paper in a light one — motifPalette reads the look), never the old hand-set navy-black fills.
  */
 
 const clamp = { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' } as const;
@@ -129,6 +134,8 @@ const qpt = (a: [number, number], c: [number, number], b: [number, number], t: n
 
 /* ------------------------------------------------------------ telemetry */
 
+const LABEL_W = 300;
+
 const Telemetry: React.FC<DiagramProps> = ({ P, steps, starts, t }) => {
   const f = useCurrentFrame();
   const n = steps.length;
@@ -142,12 +149,20 @@ const Telemetry: React.FC<DiagramProps> = ({ P, steps, starts, t }) => {
   const pulseT = act >= 0 ? interpolate(f, [starts[act] - 16, starts[act]], [prevT, tAt(act)], { ...clamp, easing: inOut }) : 0;
   const pulse = qpt(A, C, B, pulseT);
   const path = `M ${A[0]} ${A[1]} Q ${C[0]} ${C[1]} ${B[0]} ${B[1]}`;
+  // Labels are LABEL_W wide. Six steps sit ~190 px apart at the spacecraft end, so two labels on the same side ran into
+  // each other (Gimli 20261028-9ff721: "EVERY FIGURE AGREED" over "1.77 WAS POUNDS PER LITRE"). Crowded neighbours take
+  // turns above and below the path; every other label is then twice as far.
+  const pts = steps.map((_, i) => qpt(A, C, B, tAt(i)));
+  const crowded = pts.some((p, i) => i > 0 && Math.abs(p[0] - pts[i - 1][0]) < LABEL_W + 12);
+  // Seven or eight steps: even every other label is closer than LABEL_W, so the labels narrow (the font fits the box).
+  const sameSide = crowded ? Math.min(...pts.slice(2).map((p, i) => Math.abs(p[0] - pts[i][0]))) : Infinity;
+  const labelW = Math.min(LABEL_W, sameSide - 12);
   return (
     <AbsoluteFill>
       <svg width={1920} height={1080} style={{ position: 'absolute', inset: 0 }}>
         {/* Earth */}
         <g transform={`translate(${A[0]} ${A[1]})`}>
-          <circle r={78} fill="#0d1a2c" stroke={P.accent2} strokeWidth={2} />
+          <circle r={78} fill={mix(P.ground2, P.accent2, 0.16)} stroke={P.accent2} strokeWidth={2} />
           {[-40, 0, 40].map((y) => <ellipse key={y} cx={0} cy={y * 0.9} rx={Math.sqrt(78 * 78 - y * y)} ry={10} fill="none" stroke={P.accent2} strokeWidth={1} opacity={0.5} />)}
           <ellipse rx={30} ry={78} fill="none" stroke={P.accent2} strokeWidth={1} opacity={0.5} />
         </g>
@@ -164,23 +179,23 @@ const Telemetry: React.FC<DiagramProps> = ({ P, steps, starts, t }) => {
         <path d={path} fill="none" stroke={P.accent2} strokeWidth={2} strokeDasharray="4 12" opacity={0.5} />
         {act >= 0 ? (
           <>
-            <circle cx={pulse[0]} cy={pulse[1]} r={9} fill="#ffffff" style={{ filter: `drop-shadow(0 0 10px ${P.accent2}) drop-shadow(0 0 22px ${P.accent2})` }} />
+            <circle cx={pulse[0]} cy={pulse[1]} r={9} fill={P.light ? P.accent2 : '#ffffff'} style={{ filter: `drop-shadow(0 0 10px ${P.accent2}) drop-shadow(0 0 22px ${P.accent2})` }} />
             <circle cx={pulse[0]} cy={pulse[1]} r={9 + ((f % 20) / 20) * 30} fill="none" stroke={P.accent2} strokeWidth={1.5} opacity={1 - (f % 20) / 20} />
           </>
         ) : null}
       </svg>
       {steps.map((st, i) => {
         const p = arrive(f, starts[i]);
-        const [x, y] = qpt(A, C, B, tAt(i));
+        const [x, y] = pts[i];
         const fail = /fail|broke|error|went wrong|dead/i.test(st.label);
         const split = /split|divid|two/i.test(st.label);
         const hot = i === act;
         const col = fail && p > 0 ? '#ff4d4d' : hot ? P.accent : P.ink;
         const flash = fail && hot ? (Math.floor((f - starts[i]) / 4) % 2 === 0 ? 1 : 0.35) : 1;
-        const below = y < 560;
+        const below = crowded ? i % 2 === 0 : y < 560;
         return (
           <React.Fragment key={i}>
-            <div style={{ position: 'absolute', left: x - 56, top: y - 56, width: 112, height: 112, borderRadius: '50%', border: `2px solid ${p > 0 ? col : P.dim}`, background: 'rgba(3,6,12,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.25 + 0.75 * p, boxShadow: p > 0 ? `0 0 ${hot ? 30 : 12}px ${col}88` : 'none', transform: `scale(${0.85 + 0.15 * p})` }}>
+            <div style={{ position: 'absolute', left: x - 56, top: y - 56, width: 112, height: 112, borderRadius: '50%', border: `2px solid ${p > 0 ? col : P.dim}`, background: alpha(P.ground2, 0.9), display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.25 + 0.75 * p, boxShadow: p > 0 ? `0 0 ${hot ? 30 : 12}px ${col}88` : 'none', transform: `scale(${0.85 + 0.15 * p})` }}>
               {split && p > 0 ? (
                 <svg width={80} height={60}>
                   {[0, 1].map((k) => (
@@ -191,7 +206,7 @@ const Telemetry: React.FC<DiagramProps> = ({ P, steps, starts, t }) => {
                 <LineIcon id={stepIcon(st, t.motif)} size={64} color={col} stroke={1.6} draw={Math.max(0.2, p)} style={{ opacity: flash }} />
               )}
             </div>
-            <Note text={st.label} x={x} y={below ? y + 72 : y - 72 - 64} w={300} font={P.mono} fontKey="jetbrains" color={p > 0 ? (fail ? '#ff7a7a' : P.ink) : P.dim} cap={26} o={0.3 + 0.7 * p} />
+            <Note text={st.label} x={x} y={below ? y + 72 : y - 72 - 64} w={labelW} font={P.mono} fontKey="jetbrains" color={p > 0 ? (fail ? '#ff7a7a' : P.ink) : P.dim} cap={26} o={0.3 + 0.7 * p} />
           </React.Fragment>
         );
       })}
@@ -281,7 +296,7 @@ const Electric: React.FC<DiagramProps> = ({ P, steps, starts, kind, t }) => {
         return (
           <React.Fragment key={i}>
             <div style={{ position: 'absolute', left: xs[i] - 70, top: 470, width: 140, height: 140, borderRadius: '50%', border: `2px solid ${p > 0 ? (hot ? P.accent : P.ink) : P.dim}`, background: P.ground2, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: hot ? `0 0 34px ${P.accent}88` : 'none', opacity: 0.3 + 0.7 * p }}>
-              <LineIcon id={stepIcon(st, t.motif)} size={78} color={hot ? '#ffffff' : P.ink} stroke={1.5} draw={Math.max(0.2, p)} />
+              <LineIcon id={stepIcon(st, t.motif)} size={78} color={hot ? (P.light ? P.accent : '#ffffff') : P.ink} stroke={1.5} draw={Math.max(0.2, p)} />
             </div>
             <Note text={st.label} x={xs[i]} y={640} w={Math.min(380, 1500 / n)} font={P.display} fontKey="playfair" color={P.ink} cap={30} o={0.25 + 0.75 * p} italic />
           </React.Fragment>
@@ -379,8 +394,8 @@ const CaseFile: React.FC<DiagramProps> = ({ P, steps, starts, t }) => {
         return (
           <div key={i} style={{ position: 'absolute', left: xs[i] - w / 2, top: ys[i] - 160 + drop, width: w, transform: `rotate(${tilt}deg)`, opacity: ghost ? 0.22 * interpolate(f, [0, 6], [0, 1], clamp) : Math.max(0.22, Math.min(1, p * 2)), filter: ghost ? 'grayscale(1)' : undefined }}>
             {/* the evidence photographed as an object: a print with the thing on it, a pin, a typed label */}
-            <div style={{ background: '#f1ece0', padding: '14px 14px 0', boxShadow: '0 18px 36px rgba(0,0,0,0.6)' }}>
-              <div style={{ height: w * 0.8, background: 'radial-gradient(ellipse at 50% 40%, #3a3631 0%, #191715 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ background: '#f1ece0', padding: '14px 14px 0', boxShadow: '0 18px 36px rgba(0,0,0,0.4)' }}>
+              <div style={{ height: w * 0.8, background: 'radial-gradient(ellipse at 50% 40%, #5a554d 0%, #3a3631 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <LineIcon id={stepIcon(st, t.motif)} size={w * 0.48} color="#e9e2d0" stroke={1.3} draw={ghost ? 1 : p} style={{ filter: 'drop-shadow(0 4px 6px rgba(0,0,0,0.6))' }} />
               </div>
               <div style={{ position: 'relative', height: 76 }}>
@@ -408,7 +423,7 @@ const Telegraph: React.FC<DiagramProps> = ({ P, steps, starts, t }) => {
   return (
     <AbsoluteFill>
       {/* the chart */}
-      <div style={{ position: 'absolute', left: 150, top: 250, width: 1100, height: 520, background: `linear-gradient(176deg, ${P.paper}, #d6cbae)`, boxShadow: '0 30px 70px rgba(0,0,0,0.65)', transform: 'rotate(-1deg)' }}>
+      <div style={{ position: 'absolute', left: 150, top: 250, width: 1100, height: 520, background: `linear-gradient(176deg, ${P.paper}, #d6cbae)`, boxShadow: '0 30px 70px rgba(0,0,0,0.4)', transform: 'rotate(-1deg)' }}>
         <svg width={1100} height={520} style={{ position: 'absolute', inset: 0 }}>
           {Array.from({ length: 10 }, (_, k) => <line key={`v${k}`} x1={k * 110} x2={k * 110} y1={0} y2={560} stroke={P.paperInk} strokeWidth={0.8} opacity={0.18} />)}
           {Array.from({ length: 6 }, (_, k) => <line key={`h${k}`} x1={0} x2={1100} y1={k * 110} y2={k * 110} stroke={P.paperInk} strokeWidth={0.8} opacity={0.18} />)}
@@ -452,7 +467,7 @@ const Tape: React.FC<{ P: MotifPalette; label: string; since: number }> = ({ P, 
   const w = morseWidth(code, unit);
   const reveal = interpolate(since, [0, Math.max(12, code.length * 1.2)], [0, 1], clamp);
   return (
-    <div style={{ position: 'absolute', left: -20, right: -20, bottom: 150, height: 64, background: `linear-gradient(180deg, ${P.paper}, #d8cdb1)`, boxShadow: '0 10px 30px rgba(0,0,0,0.55)', transform: 'rotate(-0.8deg)' }}>
+    <div style={{ position: 'absolute', left: -20, right: -20, bottom: 150, height: 64, background: `linear-gradient(180deg, ${P.paper}, #d8cdb1)`, boxShadow: '0 10px 30px rgba(0,0,0,0.35)', transform: 'rotate(-0.8deg)' }}>
       <svg width={1960} height={64} style={{ position: 'absolute', inset: 0 }}>
         <MorseRow code={code} x={(1960 - w) / 2} y={32} unit={unit} color={P.accent2} reveal={reveal} />
       </svg>
@@ -495,7 +510,7 @@ const PathDiagram: React.FC<DiagramProps> = ({ P, steps, starts, kind, t }) => {
       <svg width={1920} height={1080} style={{ position: 'absolute', inset: 0 }}>
         {t.motif === 'expedition' ? (
           <>
-            <path d={`M 150 860 L ${pts[0][0]} ${pts[0][1] + 40} L ${pts[n - 1][0]} ${pts[n - 1][1] + 40} L 1800 300 L 1800 900 L 150 900 Z`} fill="#0e1a24" stroke={P.paper} strokeWidth={2} />
+            <path d={`M 150 860 L ${pts[0][0]} ${pts[0][1] + 40} L ${pts[n - 1][0]} ${pts[n - 1][1] + 40} L 1800 300 L 1800 900 L 150 900 Z`} fill={P.light ? mix(P.paper, P.paperInk, 0.35) : mix(P.ground, '#000000', 0.08)} stroke={P.paper} strokeWidth={2} />
             {/* snow piling layer by layer as the steps land */}
             {steps.map((_, i) => (f >= starts[i] ? <path key={i} d={`M ${pts[0][0]} ${pts[0][1] + 34 - i * 10} L ${pts[n - 1][0]} ${pts[n - 1][1] + 34 - i * 10}`} stroke={P.paper} strokeWidth={6} opacity={0.35 + 0.15 * i} /> : null))}
           </>
@@ -528,7 +543,7 @@ const PathDiagram: React.FC<DiagramProps> = ({ P, steps, starts, kind, t }) => {
         const num = t.motif === 'siege' ? roman(i + 1) : String(i + 1).padStart(2, '0');
         return (
           <React.Fragment key={i}>
-            <div style={{ position: 'absolute', left: x - 62, top: y - 62, width: 124, height: 124, borderRadius: t.motif === 'siege' ? 6 : '50%', background: t.motif === 'siege' ? P.paper : P.ground2, border: `2px solid ${p > 0 ? (hot ? P.accent : P.ink) : P.dim}`, display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.25 + 0.75 * p, boxShadow: hot ? `0 0 30px ${P.accent}88` : '0 10px 24px rgba(0,0,0,0.5)' }}>
+            <div style={{ position: 'absolute', left: x - 62, top: y - 62, width: 124, height: 124, borderRadius: t.motif === 'siege' ? 6 : '50%', background: t.motif === 'siege' ? P.paper : P.ground2, border: `2px solid ${p > 0 ? (hot ? P.accent : P.ink) : P.dim}`, display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.25 + 0.75 * p, boxShadow: hot ? `0 0 30px ${P.accent}88` : '0 10px 24px rgba(0,0,0,0.35)' }}>
               <LineIcon id={stepIcon(st, t.motif)} size={70} color={t.motif === 'siege' ? P.paperInk : hot ? P.accent : P.ink} stroke={1.5} draw={Math.max(0.2, p)} />
               <div style={{ position: 'absolute', top: -14, left: -14, fontFamily: P.mono, fontSize: 20, color: P.accent, background: P.ground2, padding: '0 6px' }}>{num}</div>
             </div>

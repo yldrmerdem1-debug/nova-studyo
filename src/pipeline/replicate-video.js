@@ -40,12 +40,19 @@ export function motionPrompt({ motion = "", picture = "", say = "", opening = fa
 
 const sha = (x) => crypto.createHash("sha1").update(x).digest("hex").slice(0, 16);
 
+/*
+ * Ana süreçte eşzamanlı ffmpeg (25 Ekim 2026): spawnSync takılırsa bütün uygulama donar. Tek kare işleri 60 sn'de
+ * SIGKILL ile kesilir; zaman aşımı (status null) mevcut hata yolundan geçer.
+ */
 /** Başlangıç resmi: 9:16 pencere, en fazla 1080x1920, JPEG — yükleme küçük, kadraj doğru. */
 export function startFrame(ffmpeg, abs, crop) {
   const tmp = path.join(os.tmpdir(), `nova-i2v-${process.pid}-${Math.random().toString(36).slice(2)}.jpg`);
   const vf = crop ? `crop=${crop.w}:${crop.h}:${crop.x}:${crop.y},scale=1080:1920:flags=lanczos` : "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920";
-  const r = spawnSync(ffmpeg, ["-y", "-v", "error", "-i", abs, "-vf", vf, "-frames:v", "1", "-q:v", "3", tmp], { encoding: "utf8" });
-  if (r.status !== 0 || !fs.existsSync(tmp)) throw new Error(`başlangıç karesi hazırlanamadı: ${String(r.stderr).slice(-200)}`);
+  const r = spawnSync(ffmpeg, ["-nostdin", "-y", "-v", "error", "-i", abs, "-vf", vf, "-frames:v", "1", "-q:v", "3", tmp], { encoding: "utf8", windowsHide: true, timeout: 60000, killSignal: "SIGKILL" });
+  if (r.status !== 0 || !fs.existsSync(tmp)) {
+    fs.rmSync(tmp, { force: true });
+    throw new Error(`başlangıç karesi hazırlanamadı: ${String(r.stderr || r.error?.message || "").slice(-200)}`);
+  }
   return tmp;
 }
 
@@ -124,8 +131,9 @@ export async function imageToVideo({ abs, crop = null, prompt, negative = MOTION
 
 /** Klibin boyutu ve süresi (ffmpeg -i çıktısından). */
 export function probe(ffmpeg, file) {
-  const r = spawnSync(ffmpeg, ["-hide_banner", "-i", file], { encoding: "utf8" });
-  const s = String(r.stderr || "");
+  const r = spawnSync(ffmpeg, ["-nostdin", "-hide_banner", "-i", file], { encoding: "utf8", windowsHide: true, timeout: 60000, killSignal: "SIGKILL" });
+  // Zaman aşımında yarım çıktı: süre 0 → klip kullanılmaz (docu-shorts-motion `!c.dur`).
+  const s = r.error ? "" : String(r.stderr || "");
   const d = /Duration: (\d+):(\d+):([\d.]+)/.exec(s);
   const z = /, (\d{2,5})x(\d{2,5})[, ]/.exec(s);
   return { dur: d ? +d[1] * 3600 + +d[2] * 60 + +d[3] : 0, w: z ? +z[1] : 0, h: z ? +z[2] : 0 };

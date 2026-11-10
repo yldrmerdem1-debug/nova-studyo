@@ -29,6 +29,12 @@ export interface TextCtx {
   /** An info caption's own small-caps kicker (words.kicker); else the chapter name. */
   kicker?: string;
   index: number;
+  /**
+   * The picture under the words shows a face (scene.textAt, the pipeline's call): the block leaves the frame's middle
+   * for the lower third ('low') or the upper band ('top'). Lula (Oct 2026): "HOW BRAZIL REALLY VOTED" sat on Lula's
+   * mouth and a giant "52" on Flávio Bolsonaro's face — every centred slam, title and stacked line crossed the face.
+   */
+  at?: 'low' | 'top';
 }
 
 const clamp = { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' } as const;
@@ -42,6 +48,21 @@ const inOut = Easing.inOut(Easing.cubic);
 const PUNCH = 1.05;
 
 const barPx = (g: Genre) => (g.letterbox ? Math.round(FH * LETTERBOX) : 0);
+
+/** The tallest block kept off a face (ctx.at): about a third of the frame, so it stays under the eyes. */
+export const BAND_H = Math.round(FH * 0.3);
+/** Biggest slam/key word in that band (the classic 260 px slam plus its line would climb back to the face). */
+export const BAND_SLAM = 200;
+/**
+ * Where a block kept off a face sits (ctx.at): the lower third, clear of the letterbox bar and the bottom edge, or the
+ * upper band. `left`/`right` keep a style's own side padding (stack and editorial blocks are flush-left).
+ */
+export function band(at: 'low' | 'top', g: Genre, alignItems: React.CSSProperties['alignItems'], left = 0, right = 0): React.CSSProperties {
+  const bar = barPx(g);
+  return at === 'low'
+    ? { ...BOX, justifyContent: 'flex-end', alignItems, padding: `0 ${right}px ${Math.max(140, bar + 80)}px ${left}px` }
+    : { ...BOX, justifyContent: 'flex-start', alignItems, padding: `${Math.max(120, bar + 70)}px ${right}px 0 ${left}px` };
+}
 
 /* ================================================================ faces */
 
@@ -759,7 +780,8 @@ export const StyledCaption: React.FC<CaptionProps> = ({ ctx, words, frames, k0, 
     });
     const t = interpolate(f - starts[L], [0, kinetic ? 4 : 10], [0, 1], { ...clamp, easing: kinetic ? outExpo : inOut });
     const dimIn = interpolate(f, [first - 8, first + 4], [0, 1], clamp);
-    const cy = side ? FH / 2 : FH / 2 + 30;
+    // Off a face (ctx.at) the live line sits in the lower third or the upper band; finished lines still rise from it.
+    const cy = side ? FH / 2 : ctx.at === 'low' ? Math.round(FH * 0.72) : ctx.at === 'top' ? Math.round(FH * 0.27) : FH / 2 + 30;
     const cx = side === 'left' ? 150 + maxW / 2 : side === 'right' ? FW - 150 - maxW / 2 : FW / 2;
     const lineEl = (li: number, y: number, scale: number, opacity: number, extra: React.CSSProperties = {}) => {
       const L0 = laid[li];
@@ -812,7 +834,9 @@ export const StyledCaption: React.FC<CaptionProps> = ({ ctx, words, frames, k0, 
   if (style === 'stack') {
     const rows = stackRows(words, k0, k1);
     const blockW = side ? colW : Math.min(1180, colW);
-    const H = FH - 2 * Math.max(110, bar + 60);
+    // Off a face (ctx.at, no depth split) the block keeps to a third of the frame, in its band.
+    const banded = !side && !!ctx.at;
+    const H = banded ? BAND_H : FH - 2 * Math.max(110, bar + 60);
     const F = face('stack', g);
     let sizes = rows.map((r) => {
       const text = words.slice(r.from, r.to).join(' ');
@@ -823,7 +847,7 @@ export const StyledCaption: React.FC<CaptionProps> = ({ ctx, words, frames, k0, 
     if (total > H) sizes = sizes.map((s) => Math.floor((s * H) / total));
     const left = side === 'right' ? undefined : side === 'left' ? 150 : 170;
     return (
-      <AbsoluteFill style={{ ...BOX, justifyContent: 'center', alignItems: side === 'right' ? 'flex-end' : 'flex-start', padding: side === 'right' ? '0 150px 0 0' : `0 0 0 ${left}px` }}>
+      <AbsoluteFill style={banded && ctx.at ? band(ctx.at, g, 'flex-start', 170) : { ...BOX, justifyContent: 'center', alignItems: side === 'right' ? 'flex-end' : 'flex-start', padding: side === 'right' ? '0 150px 0 0' : `0 0 0 ${left}px` }}>
         <div style={{ position: 'relative', width: blockW }}>
           <Scrim on={pictured} opacity={scrimIn} pad={120} strength={0.6} />
           {rows.map((r, i) => {
@@ -922,7 +946,9 @@ export const StyledCaption: React.FC<CaptionProps> = ({ ctx, words, frames, k0, 
     ? { ...BOX, justifyContent: 'center', alignItems: side === 'left' ? 'flex-start' : 'flex-end', padding: side === 'left' ? '160px 0 60px 150px' : '160px 150px 60px 0' }
     : centreV
       ? { ...BOX, justifyContent: 'center', alignItems: 'center', padding: '0 190px' }
-      : { ...BOX, justifyContent: 'flex-end', alignItems: leftAligned ? 'flex-start' : 'center', padding: `0 ${leftAligned ? 400 : 170}px ${g.letterbox ? 220 : 170}px ${leftAligned ? 150 : 170}px` };
+      : ctx.at === 'top'
+        ? band('top', g, 'center', 170, 170)
+        : { ...BOX, justifyContent: 'flex-end', alignItems: leftAligned ? 'flex-start' : 'center', padding: `0 ${leftAligned ? 400 : 170}px ${g.letterbox ? 220 : 170}px ${leftAligned ? 150 : 170}px` };
   const textAlign: React.CSSProperties['textAlign'] = side ? (side === 'left' ? 'left' : 'right') : leftAligned ? 'left' : 'center';
 
   const body = words.map((w, i) => {
@@ -1062,9 +1088,11 @@ export const StyledSlam: React.FC<SlamProps> = ({ ctx, word, sub, since, durFram
     const inP = interpolate(since, [0, 9], [0, 1], { ...clamp, easing: outExpo });
     const rule = interpolate(since, [3, 20], [0, 1], { ...clamp, easing: inOut });
     const shadow = P.light ? 'none' : '0 2px 4px rgba(0,0,0,0.45), 0 8px 40px rgba(0,0,0,0.6)';
+    // Already in the lower third; a face low in the frame (ctx.at 'top') sends it to the upper left instead.
+    const top = ctx.at === 'top';
     return (
-      <AbsoluteFill style={{ ...BOX, justifyContent: 'flex-end', alignItems: 'flex-start', padding: `0 0 ${Math.max(130, bar + 70)}px 140px` }}>
-        <div style={{ position: 'relative', transform: `scale(${drift})`, transformOrigin: 'left bottom' }}>
+      <AbsoluteFill style={top ? band('top', g, 'flex-start', 140) : { ...BOX, justifyContent: 'flex-end', alignItems: 'flex-start', padding: `0 0 ${Math.max(130, bar + 70)}px 140px` }}>
+        <div style={{ position: 'relative', transform: `scale(${drift})`, transformOrigin: top ? 'left top' : 'left bottom' }}>
           {kicker ? <div style={{ fontFamily: FONT[g.body], fontWeight: 600, fontSize: 24, letterSpacing: '0.34em', textTransform: 'uppercase', color: kickerInk(P), whiteSpace: 'nowrap', textShadow: shadow, marginBottom: 14 }}>{kicker}</div> : null}
           <div style={{ overflow: 'hidden', padding: '0.04em 0.02em 0.1em' }}>
             <div style={{ fontFamily: FONT[SK], fontWeight: 400, fontSize: size, lineHeight: 1.02, color: P.ink, whiteSpace: 'nowrap', textShadow: shadow, transform: `translateY(${(1 - inP) * 100}%)` }}>{shownText(word, 'serif')}</div>
@@ -1077,13 +1105,13 @@ export const StyledSlam: React.FC<SlamProps> = ({ ctx, word, sub, since, durFram
 
   if (style === 'stack' || style === 'underline') {
     const blockW = 1500;
-    const size = fitStyled(word, style, g, { maxW: blockW, cap: 280 * weight, scaleMax, min: 60 });
+    const size = fitStyled(word, style, g, { maxW: blockW, cap: (ctx.at ? BAND_SLAM : 280) * weight, scaleMax, min: 60 });
     const kickT = style === 'stack' ? (sub ? String(sub) : String(ctx.chapterName ?? '')) : '';
     const kSize = kickT ? Math.min(44, Math.floor(blockW / Math.max(1, (textWidth(kickT, g.body, 100, { trackEm: 0.18, upper: true }) / 100) * 1.03))) : 0;
     const ruleP = interpolate(since, [4, 18], [0, 1], { ...clamp, easing: inOut });
     return (
-      <AbsoluteFill style={{ ...BOX, justifyContent: 'center', alignItems: 'flex-start', padding: '0 0 0 170px' }}>
-        <div style={{ transform: `scale(${drift})`, transformOrigin: 'left center' }}>
+      <AbsoluteFill style={ctx.at ? band(ctx.at, g, 'flex-start', 170) : { ...BOX, justifyContent: 'center', alignItems: 'flex-start', padding: '0 0 0 170px' }}>
+        <div style={{ transform: `scale(${drift})`, transformOrigin: ctx.at === 'low' ? 'left bottom' : ctx.at === 'top' ? 'left top' : 'left center' }}>
           {kickT ? (
             <div style={{ overflow: 'hidden', marginBottom: 10 }}>
               {/* The word's own ink and a real shadow, not the raw accent: a dark red, then a pale pink
@@ -1100,7 +1128,8 @@ export const StyledSlam: React.FC<SlamProps> = ({ ctx, word, sub, since, durFram
 
   // Centred styles.
   // Every slam is as big as the classic box slam (260 px): a stamp or ransom-note word at 190 px read as a caption, not a punch.
-  const cap = style === 'typewriter' ? 230 : 260;
+  // Off a face (ctx.at) the word lands in its band a size down, so word + line stay under the eyes.
+  const cap = Math.min(style === 'typewriter' ? 230 : 260, ctx.at ? BAND_SLAM : Infinity);
   const size = fitStyled(word, style, g, { maxW: 1720, cap: cap * weight, scaleMax, min: 56 });
   let subNode: React.ReactNode = null;
   if (sub) {
@@ -1139,8 +1168,8 @@ export const StyledSlam: React.FC<SlamProps> = ({ ctx, word, sub, since, durFram
     }
   }
   return (
-    <AbsoluteFill style={{ justifyContent: 'center', alignItems: 'center' }}>
-      <div style={{ transform: `scale(${drift})`, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+    <AbsoluteFill style={ctx.at ? band(ctx.at, g, 'center') : { justifyContent: 'center', alignItems: 'center' }}>
+      <div style={{ transform: `scale(${drift})`, transformOrigin: ctx.at === 'low' ? 'center bottom' : ctx.at === 'top' ? 'center top' : 'center', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
         <StyledWord text={word} ctx={ctx} size={size} since={since} hero seed={`sl${ctx.index}`} />
         {subNode}
       </div>
@@ -1192,7 +1221,8 @@ export const StyledTitle: React.FC<TitleProps> = ({ ctx, title, kicker, durFrame
   const kick = interpolate(f, [2, 14], [0, 1], { ...clamp, easing: outCubic });
   const rule = interpolate(f, [10, 30], [0, 1], { ...clamp, easing: inOut });
   const creep = interpolate(f, [0, durFrames], [1, 1.035], clamp);
-  const maxH = FH - 2 * Math.max(120, bar + 70) - (kicker ? 90 : 0);
+  // Over a face (ctx.at) the whole title keeps to a third of the frame, in its band (Lula's hook title sat on his mouth).
+  const maxH = ctx.at ? BAND_H - (kicker ? 60 : 0) : FH - 2 * Math.max(120, bar + 70) - (kicker ? 90 : 0);
   const kickerEl = (align: 'center' | 'left', extra: React.CSSProperties = {}) =>
     kicker ? (
       <div
@@ -1225,9 +1255,10 @@ export const StyledTitle: React.FC<TitleProps> = ({ ctx, title, kicker, durFrame
     let size = Math.min(...lines.map((l) => Math.floor(blockW / Math.max(0.1, (textWidth(l, SK, 100) / 100) * 1.04 * PUNCH))), 150);
     if (lines.length * size * 1.08 > maxH) size = Math.floor(maxH / (lines.length * 1.08));
     const shadow = P.light ? 'none' : '0 2px 4px rgba(0,0,0,0.45), 0 8px 40px rgba(0,0,0,0.6)';
+    const top = ctx.at === 'top';
     return (
-      <AbsoluteFill style={{ ...BOX, justifyContent: 'flex-end', alignItems: 'flex-start', padding: `0 0 ${Math.max(140, bar + 80)}px 140px` }}>
-        <div style={{ transform: `scale(${creep})`, transformOrigin: 'left bottom' }}>
+      <AbsoluteFill style={top ? band('top', g, 'flex-start', 140) : { ...BOX, justifyContent: 'flex-end', alignItems: 'flex-start', padding: `0 0 ${Math.max(140, bar + 80)}px 140px` }}>
+        <div style={{ transform: `scale(${creep})`, transformOrigin: top ? 'left top' : 'left bottom' }}>
           {kicker ? <div style={{ fontFamily: FONT[g.body], fontWeight: 600, fontSize: 24, letterSpacing: '0.34em', textTransform: 'uppercase', color: kickerInk(P), whiteSpace: 'nowrap', opacity: kick, textShadow: shadow, marginBottom: 14 }}>{kicker}</div> : null}
           {lines.map((l, i) => {
             const p = interpolate(f - wordsIn(i), [0, 12], [0, 1], { ...clamp, easing: outCubic });
@@ -1250,8 +1281,8 @@ export const StyledTitle: React.FC<TitleProps> = ({ ctx, title, kicker, durFrame
     const total = sizes.reduce((a, s) => a + s * 1.02 + 8, 0);
     if (total > maxH) sizes = sizes.map((s) => Math.floor((s * maxH) / total));
     return (
-      <AbsoluteFill style={{ ...BOX, justifyContent: 'center', alignItems: 'flex-start', padding: '0 0 0 170px' }}>
-        <div style={{ position: 'relative', transform: `scale(${creep})`, transformOrigin: 'left center' }}>
+      <AbsoluteFill style={ctx.at ? band(ctx.at, g, 'flex-start', 170) : { ...BOX, justifyContent: 'center', alignItems: 'flex-start', padding: '0 0 0 170px' }}>
+        <div style={{ position: 'relative', transform: `scale(${creep})`, transformOrigin: ctx.at === 'low' ? 'left bottom' : ctx.at === 'top' ? 'left top' : 'left center' }}>
           <div>
             {kickerEl('left')}
             {lines.map((l, i) => (
@@ -1274,8 +1305,8 @@ export const StyledTitle: React.FC<TitleProps> = ({ ctx, title, kicker, durFrame
   if (lines.length * size * lh > maxH) size = Math.floor(maxH / (lines.length * lh));
   const serifRules = style === 'serif';
   return (
-    <AbsoluteFill style={{ justifyContent: 'center', alignItems: 'center' }}>
-      <div style={{ transform: `scale(${creep})`, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+    <AbsoluteFill style={ctx.at ? band(ctx.at, g, 'center') : { justifyContent: 'center', alignItems: 'center' }}>
+      <div style={{ transform: `scale(${creep})`, transformOrigin: ctx.at === 'low' ? 'center bottom' : ctx.at === 'top' ? 'center top' : 'center', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
         {serifRules && kicker ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 24, marginBottom: 30, opacity: kick }}>
             {kickerEl('center', { marginBottom: 0 })}

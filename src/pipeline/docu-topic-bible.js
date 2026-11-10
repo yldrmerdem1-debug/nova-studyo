@@ -30,6 +30,7 @@ import { callJSON } from "../llm.js";
 import { readJson, writeJson, ROOT } from "../util.js";
 import { stripTags, estSceneSeconds } from "./docu-script.js";
 import { LONG_CARD_SEC } from "./docu-edit-director.js";
+import { GRADES, DESAT_GRADES, baseGradeOk } from "./docu-art-director.js";
 
 export const TOPIC_VERSION = "topic-bible-1";
 export const TOPIC_MODEL = "claude-opus-5-5";
@@ -63,12 +64,17 @@ export const ICON_IDS = ["ship", "sailboat", "anchor", "lifebuoy", "iceberg", "s
 /**
  * Motif kartları: anahtar kelimeler (ağırlıklı), tür önceliği ve konunun bütün videoya
  * yayılan kararları. Renk/yüz seçimleri motorun motif paletiyle uyumlu.
+ *
+ * RENK (Gimli 20261028-9ff721 / Kartal Yuvası 950730, 29 Ekim 2026 — son 7 videoda ortalama parlaklık 52-75,
+ * doygunluk 2,5-7,5; 8 motifin 6'sı 'selective' tabanla geliyordu ve sanat yönetmeni onu her bölüme bağlıyordu):
+ * grade videonun RENKLİ tabanıdır (color/warm/cool/teal-orange/kodachrome); soldurucu ton (selective = siyah-beyaz
+ * + konunun TEK rengi, mono…) yalnızca accentGrade — sanat yönetmeninin TEK vurgu bölümünde.
  */
 export const MOTIF_SPECS = {
   cipher: {
     keywords: { cipher: 4, ciphers: 4, encrypted: 4, decrypt: 4, decrypted: 4, cryptogram: 4, kryptos: 5, enigma: 4, codebreaker: 4, codebreakers: 4, ciphertext: 5, plaintext: 5, cryptographer: 4, alphabet: 2, code: 1.2, codes: 1.2, letters: 0.5, zodiac: 2 },
     genres: {}, photo: "lightbox", map: "satellite", headline: "spacegrotesk", body: "jetbrains",
-    textStyles: ["typewriter", "underline", "outline", "lower-third", "box"], grade: "mono", keepHue: 40,
+    textStyles: ["typewriter", "underline", "outline", "lower-third", "box"], grade: "color", accentGrade: "mono", keepHue: 40,
     accent: "#f2b33d", accent2: "#4fd1c5", backdrops: ["era", "texture", "solid", "related"], eraTexture: "newsprint", opening: "quote", wipeEvery: 1,
     icons: ["key", "lock", "letter-case", "typography", "binary", "code", "search", "eye", "map-pin", "file-text", "building-bank", "world", "spy", "zoom-question"],
     variants: [],
@@ -76,7 +82,7 @@ export const MOTIF_SPECS = {
   telegraph: {
     keywords: { wireless: 3, telegram: 2, telegrams: 2, telegraph: 3, morse: 3, radio: 1.6, "radio operator": 2, operator: 1, operators: 1, signal: 1, cqd: 5, sos: 5, marconi: 3, "distress call": 3, distress: 1.5, headphones: 2, radioed: 2, transmitter: 1, warnings: 0.8 },
     genres: { documentary: 1.5 }, photo: "lightbox", map: "paper", headline: "oldstandard",
-    textStyles: ["typewriter", "serif", "underline", "lower-third", "stamp"], grade: "selective", keepHue: 32,
+    textStyles: ["typewriter", "serif", "underline", "lower-third", "stamp"], grade: "warm", accentGrade: "selective", keepHue: 32,
     accent: "#ffb547", accent2: "#e2563b", backdrops: ["era", "related", "paper"], eraTexture: "newsprint", opening: "timestamps",
     icons: ["ship", "iceberg", "antenna", "radio", "broadcast", "binoculars", "lifebuoy", "flare", "bell", "clock", "users", "mail", "anchor", "snowflake", "temperature", "compass", "music", "heart-broken", "news", "gavel"],
     variants: ["cobalt-brief", "cinema-teal", "kraft-archive"],
@@ -84,7 +90,7 @@ export const MOTIF_SPECS = {
   ticker: {
     keywords: { stock: 2, stocks: 2, market: 1.5, dow: 3, shares: 2, broker: 2, brokers: 2, margin: 3, "wall street": 3, ticker: 3, exchange: 1.5, investors: 1.5, prices: 1, crash: 1.5, banks: 1, bank: 0.8, bankers: 1.5, depression: 1.5 },
     genres: { finance: 3 }, photo: "print", map: "grid", headline: "oswald",
-    textStyles: ["stamp", "stack", "serif", "underline", "lower-third", "box"], grade: "selective", keepHue: 0,
+    textStyles: ["stamp", "stack", "serif", "underline", "lower-third", "box"], grade: "color", accentGrade: "selective", keepHue: 0,
     accent: "#e8423a", accent2: "#3fbf73", backdrops: ["era", "related", "paper"], eraTexture: "ledger", opening: "headlines",
     icons: ["building-bank", "cash", "coin", "currency-dollar", "pig-money", "chart-line", "trending-down", "trending-up", "building-factory", "car", "building-skyscraper", "news", "gavel", "lock", "users", "report-money", "moneybag", "scale", "home", "receipt"],
     variants: ["salmon-paper", "wall-street-gold", "clean-white-editorial", "money-red"],
@@ -92,7 +98,7 @@ export const MOTIF_SPECS = {
   telemetry: {
     keywords: { spacecraft: 3, voyager: 3, nasa: 3, probe: 2, probes: 2, orbit: 1.5, planet: 1.5, planets: 1.5, jupiter: 2, saturn: 2, uranus: 2, neptune: 2, launch: 1, antenna: 1.5, antennas: 1.5, "light-day": 3, interstellar: 3, telemetry: 4, signal: 0.8, command: 1, kilometers: 0.5 },
     genres: { science: 3 }, photo: "framed", map: "grid", headline: "spacegrotesk",
-    textStyles: ["lower-third", "outline", "underline", "serif", "box"], grade: "cool", keepHue: 45,
+    textStyles: ["lower-third", "outline", "underline", "serif", "box"], grade: "cool", accentGrade: "mono", keepHue: 45,
     accent: "#e8b64c", accent2: "#63d0ff", backdrops: ["related", "gradient", "blueprint"], eraTexture: "film", opening: "cold-open",
     icons: ["satellite", "planet", "rocket", "antenna", "radar", "disc", "music", "heartbeat", "brain", "sun", "cpu", "battery", "bulb", "world", "telescope", "stars", "meteor", "wave-sine", "clock", "calendar", "users", "map-pin", "binary"],
     variants: ["retro-nasa", "deep-space-cyan", "blueprint-lab"],
@@ -100,7 +106,7 @@ export const MOTIF_SPECS = {
   electric: {
     keywords: { electricity: 3, electric: 2, current: 2, "alternating current": 4, "direct current": 4, coil: 3, motor: 2, dynamos: 2, patent: 2, patents: 2, lightning: 2, sparks: 1.5, spark: 1.5, inventor: 2, tesla: 3, edison: 2, westinghouse: 2, wireless: 1, power: 1, lamps: 1 },
     genres: { inspire: 1.5 }, photo: "lightbox", map: "paper", headline: "playfair",
-    textStyles: ["serif", "underline", "outline", "lower-third", "stamp"], grade: "selective", keepHue: 215,
+    textStyles: ["serif", "underline", "outline", "lower-third", "stamp"], grade: "teal-orange", accentGrade: "selective", keepHue: 215,
     accent: "#8fb7ff", accent2: "#ffcf6b", backdrops: ["related", "era", "gradient"], eraTexture: "film", opening: "quote",
     icons: ["bolt", "bulb", "engine", "circuit-motor", "magnet", "building-broadcast-tower", "antenna", "cash", "coin", "certificate", "trophy", "flame", "wave-sine", "plug", "power", "building-factory", "feather", "skull", "ship", "world", "bed", "droplet"],
     variants: ["blue-hour", "monochrome-portrait", "golden-hour"],
@@ -108,7 +114,7 @@ export const MOTIF_SPECS = {
   "case-file": {
     keywords: { fbi: 3, hijack: 3, hijacked: 3, hijacker: 3, hijacking: 3, ransom: 3, suspect: 2, suspects: 2, evidence: 2, investigation: 2, fingerprints: 2, "serial numbers": 3, serial: 1.5, agent: 1.5, case: 1, dna: 2, parachute: 1.5, parachutes: 1.5 },
     genres: { crime: 3 }, photo: "print", map: "satellite", headline: "oswald",
-    textStyles: ["typewriter", "stamp", "marker", "lower-third", "underline"], grade: "selective", keepHue: 50,
+    textStyles: ["typewriter", "stamp", "marker", "lower-third", "underline"], grade: "cool", accentGrade: "selective", keepHue: 50,
     accent: "#f2c318", accent2: "#c8102e", backdrops: ["era", "related", "paper"], eraTexture: "newsprint", opening: "evidence",
     icons: ["plane", "parachute", "bomb", "briefcase", "cash", "ticket", "smoking", "fingerprint", "dna", "microscope", "map", "search", "shovel", "id-badge", "file-text", "folder", "lock", "eye", "spy", "zoom-question", "stairs", "clock", "news"],
     variants: ["evidence-yellow", "cold-blue-case", "newsprint-paper"],
@@ -116,7 +122,7 @@ export const MOTIF_SPECS = {
   expedition: {
     keywords: { expedition: 3, tent: 3, snow: 2, ski: 2, skis: 2, skiers: 2, mountain: 2, pass: 1, hikers: 3, hiking: 2, route: 1, avalanche: 3, ravine: 2, cedar: 2, frost: 2, footprints: 2, searchers: 2, slope: 2, summit: 2, slab: 2 },
     genres: { horror: 1.5 }, photo: "film-frame", map: "satellite", headline: "bebas",
-    textStyles: ["typewriter", "serif", "outline", "lower-third", "underline"], grade: "selective", keepHue: 25,
+    textStyles: ["typewriter", "serif", "outline", "lower-third", "underline"], grade: "cool", accentGrade: "selective", keepHue: 25,
     accent: "#ff8a3d", accent2: "#9fd3ef", backdrops: ["related", "era", "gradient"], eraTexture: "film", opening: "evidence",
     icons: ["tent", "mountain", "snowflake", "temperature", "compass", "camera", "skull", "tree", "shoe", "campfire", "flame", "map", "route", "radioactive", "wind", "cloud-storm", "file-text", "search", "users", "moon", "notebook", "alert-triangle", "meteor"],
     variants: ["cyanotype-cold", "daguerreotype", "bone-white-ritual"],
@@ -124,7 +130,7 @@ export const MOTIF_SPECS = {
   siege: {
     keywords: { siege: 3, walls: 2, sultan: 3, emperor: 2, cannon: 3, cannons: 3, army: 1.5, fleet: 1.5, chain: 1.5, galleys: 2, janissaries: 3, conquest: 2, conquered: 2, fortress: 2, besieged: 3, defenders: 2, constantinople: 3, byzantium: 3, ottoman: 2 },
     genres: { epic: 3 }, photo: "print", map: "paper", headline: "cinzel",
-    textStyles: ["serif", "stamp", "outline", "lower-third", "stack"], grade: "selective", keepHue: 355,
+    textStyles: ["serif", "stamp", "outline", "lower-third", "stack"], grade: "warm", accentGrade: "selective", keepHue: 355,
     accent: "#b8322a", accent2: "#d4a64a", backdrops: ["related", "paper", "texture"], eraTexture: "film", opening: "map-dive",
     icons: ["sword", "swords", "shield", "crown", "building-castle", "building-fortress", "flag", "moon", "flame", "bomb", "ship", "sailboat", "anchor", "horse", "building-church", "users", "hourglass", "bell", "book", "axe", "ladder", "cross"],
     variants: ["war-map-sepia", "bronze-gold", "blood-and-iron"],
@@ -744,6 +750,27 @@ function pickWipes(ctx, taken) {
   return out.sort((a, b) => a - b).slice(0, nCh + 4);
 }
 
+/* ================================================================ renk politikası */
+
+/**
+ * Konunun taban ve vurgu derecelendirmesi (GRADES listesiyle doğrulanır). Taban renk ailesinden olmalı (renk
+ * fotoğrafı öncesi hikâyede — eraStart < 1940 — sepya da olur: arşiv zaten tek renk); modelin önerdiği soldurucu
+ * taban (selective/mono/duotone/bleach…) accentGrade'e taşınır, taban motifin renkli tonuna döner.
+ * Gimli 20261028-9ff721 / Kartal Yuvası 950730, 29 Ekim 2026: luma 52-56, doygunluk 2,5-6.
+ */
+export function topicGrades(raw, spec = {}, eraStart = null) {
+  const valid = (g) => typeof g === "string" && GRADES.includes(g);
+  const specBase = valid(spec.grade) && baseGradeOk(spec.grade, eraStart) ? spec.grade : "color";
+  let grade = valid(raw?.grade) ? raw.grade : specBase;
+  let accentGrade = valid(raw?.accentGrade) ? raw.accentGrade : valid(spec.accentGrade) ? spec.accentGrade : null;
+  if (!baseGradeOk(grade, eraStart)) {
+    if (DESAT_GRADES.has(grade)) accentGrade = grade;
+    grade = specBase;
+  }
+  if (accentGrade === grade) accentGrade = valid(spec.accentGrade) && spec.accentGrade !== grade ? spec.accentGrade : null;
+  return { grade, ...(accentGrade ? { accentGrade } : {}) };
+}
+
 /* ================================================================ yedek incil */
 
 /**
@@ -761,8 +788,7 @@ export function fallbackBible(script) {
   for (const c of uiCards) taken.add(c.scene);
   const icons = pickIcons(spec, ctx, taken);
   const wipes = pickWipes(ctx, taken);
-  // Tarihi hikâye renkli ise (bilim: gezegen fotoğrafları) seçici renk yok: renk konunun kendisi.
-  const grade = spec.grade;
+  // Taban renkli (motif kartının grade'i), soldurucu ton yalnızca vurgu (accentGrade) — normalizeBible doğrular.
   return normalizeBible({
     motif,
     tokens,
@@ -773,7 +799,8 @@ export function fallbackBible(script) {
     presentation: { photo: spec.photo, map: spec.map },
     typography: { headline: spec.headline, body: spec.body, textStyles: spec.textStyles, caption: "motif" },
     palette: { accent: spec.accent, accent2: spec.accent2 },
-    grade,
+    grade: spec.grade,
+    accentGrade: spec.accentGrade,
     keepHue: spec.keepHue,
     backdrops: spec.backdrops,
     eraTexture: spec.eraTexture,
@@ -802,6 +829,40 @@ function grounded(text, corpus) {
  * seçimi; ikon/yüz/stil kimlikleri motorun listelerinden; adım/satır/jeton anlatıma dayanmalı;
  * sahne indisleri geçerli ve dönüştürülebilir olmalı; açıklayıcı ve kartlar çakışmamalı.
  */
+/** Cut at a word boundary (never mid-word); a trailing 'to/of/and…' left dangling is dropped too. */
+export function wordCut(t, max) {
+  // A stub the model left (France, Oct 2026: "FROM A HOT CLASSROOM TO A BURNING CITY H" — 40 characters, the word cut
+  // in the model's own output): a lone trailing letter that is not 'a'/'I' is dropped, with any dangling 'to/of…'.
+  let s = String(t || "").replace(/\s+/g, " ").trim();
+  if (/\s(?![aAI]$)\p{L}$/u.test(s)) s = s.replace(/\s+\p{L}$/u, "").replace(/\s+(?:to|of|and|or|the|a|an|in|on|at|for|by|with|from)$/i, "");
+  if (s.length <= max) return s;
+  const head = s.slice(0, max + 1);
+  if (!/\s/.test(head)) return s.split(" ")[0];
+  let cut = head.replace(/\s+\S*$/, "");
+  cut = cut.replace(/[\s,;:–—-]+$/, "").replace(/\s+(?:to|of|and|or|the|a|an|in|on|at|for|by|with|from)$/i, "");
+  return cut;
+}
+
+export const EXPLAINER_MAX = 3;
+export const EXPLAINER_SCENES = 5;
+export const EXPLAINER_SPAN = 6;
+export const EXPLAINER_TOTAL = 10;
+/** An explainer's steps kept to one moment: at most EXPLAINER_SCENES distinct scenes within EXPLAINER_SPAN scenes. */
+export function keepExplainerWindow(steps = []) {
+  // A board that returns at most 3 times is a deliberate callback (Tesla's "three decisions", each on its own scene
+  // across the video); a longer one must stay on one moment.
+  if (new Set(steps.map((st) => st.scene)).size <= 3) return steps;
+  const out = [];
+  const seen = new Set();
+  for (const st of steps) {
+    if (out.length && st.scene - out[0].scene > EXPLAINER_SPAN) break;
+    if (!seen.has(st.scene) && seen.size >= EXPLAINER_SCENES) break;
+    seen.add(st.scene);
+    out.push(st);
+  }
+  return out;
+}
+
 export function normalizeBible(raw, script) {
   const ctx = topicContext(script);
   const S = ctx.scenes;
@@ -809,7 +870,9 @@ export function normalizeBible(raw, script) {
   const motif = MOTIF_IDS.includes(raw?.motif) ? raw.motif : pickMotif(script);
   const spec = MOTIF_SPECS[motif];
   const notes = [];
-  const str = (v, max = 60) => (typeof v === "string" && v.trim() ? v.trim().slice(0, max) : undefined);
+  // Fransa videosu (21 Ekim 2026, izleyici notu): "…BURNING CITY H", "eleven at night to six i" — sınır kelimenin ortasından
+  // kesiyordu. Artık kelime sınırında kesilir (tek uzun kelime olduğu gibi kalır), sondaki bağlaç/edat düşer.
+  const str = (v, max = 60) => (typeof v === "string" && v.trim() ? wordCut(v.trim(), max) : undefined);
   const tokens = (Array.isArray(raw?.tokens) ? raw.tokens : []).map((t) => str(t, 24)).filter(Boolean).filter((t) => grounded(t, corpus)).slice(0, 8);
   const params = {};
   for (const [k, v] of Object.entries(raw?.params && typeof raw.params === "object" ? raw.params : {})) {
@@ -828,12 +891,14 @@ export function normalizeBible(raw, script) {
   const accent = HEX.test(pal.accent || "") ? pal.accent.toLowerCase() : spec.accent;
   const accent2 = HEX.test(pal.accent2 || "") ? pal.accent2.toLowerCase() : spec.accent2;
   const keepHue = Number.isFinite(raw?.keepHue) ? ((Math.round(raw.keepHue) % 360) + 360) % 360 : spec.keepHue;
-  const grade = typeof raw?.grade === "string" && /^[a-z-]{3,14}$/.test(raw.grade) ? raw.grade : spec.grade;
+  // Taban renkli, soldurucu öneri vurguya (topicGrades) — eskiden her geçerli biçimli dize taban oluyordu.
+  const { grade, accentGrade } = topicGrades(raw, spec, ctx.eraStart);
   const iconSet = [...new Set((Array.isArray(raw?.iconSet) ? raw.iconSet : spec.icons).filter((x) => ICON_IDS.includes(x)))].slice(0, 24);
   const opening = OPENING_KINDS.includes(raw?.opening) ? raw.opening : spec.opening;
 
   // Açıklayıcılar: sahne indisleri geçerli + dönüştürülebilir, adımlar anlatımda, çakışma yok.
   const used = new Set();
+  const explainerScenes = new Set();
   const explainers = [];
   for (const e of Array.isArray(raw?.explainers) ? raw.explainers : []) {
     const kind = EXPLAINER_KINDS.includes(e?.kind) ? e.kind : "sequence";
@@ -845,22 +910,26 @@ export function normalizeBible(raw, script) {
     steps = steps.filter((s) => grounded(`${s.label} ${s.detail || ""}`, corpus));
     // adım sırası sahne sırasıyla uyumlu
     steps = steps.filter((s, k) => k === 0 || s.scene >= steps[k - 1].scene);
+    // Tek an, tek tahta (Fransa videosu, 21 Ekim 2026: 4 tahta 19 sahneye yayıldı, ilki 24→57): en çok EXPLAINER_SCENES
+    // ayrı sahne, hepsi EXPLAINER_SPAN sahne içinde; videoda toplam en çok EXPLAINER_TOTAL tahta sahnesi.
+    steps = keepExplainerWindow(steps);
     const sc = [...new Set(steps.map((s) => s.scene))];
+    if (sc.length && explainerScenes.size + sc.length > EXPLAINER_TOTAL) { notes.push(`açıklayıcı "${e?.title || kind}" atıldı: videoda en çok ${EXPLAINER_TOTAL} tahta sahnesi`); continue; }
     if (steps.length < 2 || steps.length > 8) continue;
     if (sc.some((i) => used.has(i) || !convertible(S[i], i))) { notes.push(`açıklayıcı "${e?.title || kind}" dönüştürülemeyen/çakışan sahnede — atıldı`); continue; }
-    sc.forEach((i) => used.add(i));
-    explainers.push({ kind, title: str(e?.title, 40)?.toUpperCase(), steps, ...(str(e?.why, 120) ? { why: str(e.why, 120) } : {}) });
-    if (explainers.length >= 4) break;
+    sc.forEach((i) => { used.add(i); explainerScenes.add(i); });
+    explainers.push({ kind, title: str(e?.title, 56)?.toUpperCase(), steps, ...(str(e?.why, 120) ? { why: str(e.why, 120) } : {}) });
+    if (explainers.length >= EXPLAINER_MAX) break;
   }
   const uiCards = [];
   for (const c of Array.isArray(raw?.uiCards) ? raw.uiCards : []) {
     if (!isInt(c?.scene) || c.scene < 0 || c.scene >= S.length || used.has(c.scene) || !convertible(S[c.scene], c.scene)) continue;
     const kind = UI_KINDS.includes(c.kind) ? c.kind : "form";
     if (kind === "phone" && !(ctx.eraStart >= 2007)) continue;
-    const rows = (Array.isArray(c.rows) ? c.rows : []).map((r) => ({ label: str(r?.label, 48), value: str(r?.value, 24) })).filter((r) => r.label && grounded(`${r.label} ${r.value || ""}`, corpus)).slice(0, 8);
+    const rows = (Array.isArray(c.rows) ? c.rows : []).map((r) => ({ label: str(r?.label, 48), value: str(r?.value, 34) })).filter((r) => r.label && grounded(`${r.label} ${r.value || ""}`, corpus)).slice(0, 8);
     if (rows.length < 2) continue;
     used.add(c.scene);
-    uiCards.push({ scene: c.scene, kind, title: str(c.title, 40)?.toUpperCase(), sub: str(c.sub, 40), rows: rows.map((r) => (r.value ? r : { label: r.label })), ...(isInt(c.highlight) && c.highlight >= 0 && c.highlight < rows.length ? { highlight: c.highlight } : {}) });
+    uiCards.push({ scene: c.scene, kind, title: str(c.title, 48)?.toUpperCase(), sub: str(c.sub, 40), rows: rows.map((r) => (r.value ? r : { label: r.label })), ...(isInt(c.highlight) && c.highlight >= 0 && c.highlight < rows.length ? { highlight: c.highlight } : {}) });
     if (uiCards.length >= 2) break;
   }
   // Sahne ikonları: yalnızca fotoğraf/yazı sahneleri, ikon kimliği pakette, sözcük anlatımda.
@@ -888,6 +957,7 @@ export function normalizeBible(raw, script) {
     typography: { headline, ...(body ? { body } : {}), textStyles: textStyles.length >= 3 ? textStyles.slice(0, 6) : spec.textStyles, caption: CAPTION_STYLES.includes(ty.caption) ? ty.caption : "motif" },
     palette: { accent, accent2 },
     grade,
+    ...(accentGrade ? { accentGrade } : {}),
     keepHue,
     backdrops: (Array.isArray(raw?.backdrops) ? raw.backdrops : spec.backdrops).filter((x) => typeof x === "string").slice(0, 4),
     eraTexture: ["newsprint", "film", "ledger"].includes(raw?.eraTexture) ? raw.eraTexture : spec.eraTexture,
@@ -905,8 +975,11 @@ export function normalizeBible(raw, script) {
 /* ================================================================ uygulama */
 
 /** Betik düzeyi kimlik (script.topic): motor ve sanat yönetmeni bunu okur. Sahneler değişmez. */
-export function topicIdentity(bible) {
+export function topicIdentity(bible, script = null) {
   if (!bible?.motif) return null;
+  // Kayıttan gelen eski incilde taban 'selective' olabilir: renk politikası burada da uygulanır (yeni model çağrısı yok).
+  const ys = [...String(script?.era || "").matchAll(/\b(1[0-9]\d\d|20\d\d)\b/g)].map((m) => +m[1]);
+  const g = topicGrades(bible, MOTIF_SPECS[bible.motif], ys.length ? Math.min(...ys) : null);
   return {
     motif: bible.motif,
     ...(bible.tokens?.length ? { tokens: bible.tokens } : {}),
@@ -921,7 +994,8 @@ export function topicIdentity(bible) {
     keepHue: bible.keepHue,
     // Sanat yönetmeni için (motor yok sayar): yazı ailesi, temel renk, zeminler, varyant tercihi, açılış.
     textStyles: bible.typography?.textStyles,
-    grade: bible.grade,
+    grade: g.grade,
+    ...(g.accentGrade ? { accentGrade: g.accentGrade } : {}),
     backdrops: bible.backdrops,
     eraTexture: bible.eraTexture,
     variants: bible.variants,
@@ -1059,12 +1133,13 @@ export function bibleSchema() {
       presentation: { type: "object", properties: { photo: { type: "string", enum: PHOTO_PRESENTS }, map: { type: "string", enum: MAP_STYLES } }, required: ["photo", "map"], additionalProperties: false },
       typography: { type: "object", properties: { headline: { type: "string", enum: FONT_KEYS }, body: { type: "string", enum: FONT_KEYS }, textStyles: { type: "array", items: { type: "string", enum: TEXT_STYLES } }, caption: { type: "string", enum: CAPTION_STYLES, description: "'motif' = captions written in the motif's own language (default); a generic style only as last resort" } }, required: ["headline", "textStyles"], additionalProperties: false },
       palette: { type: "object", properties: { accent: { type: "string" }, accent2: { type: "string" } }, required: ["accent", "accent2"], additionalProperties: false },
-      grade: { type: "string" },
+      grade: { type: "string", enum: GRADES, description: "the video's BASE photo grade — a colour grade (color, warm, cool, teal-orange, kodachrome; sepia only before 1940)" },
+      accentGrade: { type: "string", enum: GRADES, description: "optional desaturating accent (selective, mono…) for ONE chapter only" },
       keepHue: { type: "integer" },
       backdrops: { type: "array", items: { type: "string" } },
       opening: { type: "string", enum: OPENING_KINDS },
-      explainers: { type: "array", items: { type: "object", properties: { kind: { type: "string", enum: EXPLAINER_KINDS }, title: { type: "string" }, steps: { type: "array", items: STEP_SCHEMA }, why: { type: "string" } }, required: ["kind", "steps"], additionalProperties: false } },
-      uiCards: { type: "array", items: { type: "object", properties: { scene: { type: "integer" }, kind: { type: "string", enum: UI_KINDS }, title: { type: "string" }, sub: { type: "string" }, rows: { type: "array", items: { type: "object", properties: { label: { type: "string" }, value: { type: "string" } }, required: ["label"], additionalProperties: false } }, highlight: { type: "integer" } }, required: ["scene", "kind", "rows"], additionalProperties: false } },
+      explainers: { type: "array", items: { type: "object", properties: { kind: { type: "string", enum: EXPLAINER_KINDS }, title: { type: "string", description: "at most 6 words / 50 characters, whole words" }, steps: { type: "array", items: STEP_SCHEMA }, why: { type: "string" } }, required: ["kind", "steps"], additionalProperties: false } },
+      uiCards: { type: "array", items: { type: "object", properties: { scene: { type: "integer" }, kind: { type: "string", enum: UI_KINDS }, title: { type: "string" }, sub: { type: "string" }, rows: { type: "array", items: { type: "object", properties: { label: { type: "string", description: "at most 40 characters, whole words" }, value: { type: "string", description: "at most 30 characters, whole words ('11 pm to 6 am', not 'eleven at night to six in the morning')" } }, required: ["label"], additionalProperties: false } }, highlight: { type: "integer" } }, required: ["scene", "kind", "rows"], additionalProperties: false } },
       scenes: { type: "array", items: { type: "object", properties: { i: { type: "integer" }, icons: { type: "array", items: { type: "object", properties: { id: { type: "string", enum: ICON_IDS }, side: { type: "string", enum: ["left", "right", "orbit"] }, glow: { type: "boolean" }, at: { type: "string" }, label: { type: "string" }, tether: { type: "boolean" } }, required: ["id"], additionalProperties: false } } }, required: ["i", "icons"], additionalProperties: false } },
       wipes: { type: "array", items: { type: "integer" } },
       why: { type: "string" },
@@ -1080,15 +1155,15 @@ export function biblePrompt(script) {
   const lines = S.map((s, i) => `#${i} [ch${(s.chapter ?? 0) + 1}] ${s.type}${s.name ? ` (name: ${s.name})` : ""}${s.type === "counter" ? ` {${counterValue(s)} ${s.label || ""}}` : ""}${convertible(s, i) ? "" : " {fixed}"} | ${sayOf(s).slice(0, 140)}`).join("\n");
   const fallback = fallbackBible(script);
   const system = [
-    "You are the TOPIC DESIGNER of a premium YouTube documentary channel. Study: LEMMiNO's 'The Unbreakable Kryptos Code' speaks the topic's own visual language from start to end (charcoal ground, monospace cipher tableaus animating letter by letter, colour-coded letters showing the decryption step by step, archive photos always on the same glowing lightbox over newsprint, satellite maps with crisp mono labels). MagnatesMedia's 'Rockefeller' visualises every concrete line with a metaphor layer (glowing line icons beside the subject while the narrator names the thing; logos as characters with brush-stroke name tags; selective colour: black and white with ONE accent hue tied to the subject).",
+    "You are the TOPIC DESIGNER of a premium YouTube documentary channel. Study: LEMMiNO's 'The Unbreakable Kryptos Code' speaks the topic's own visual language from start to end (charcoal ground, monospace cipher tableaus animating letter by letter, colour-coded letters showing the decryption step by step, archive photos always on the same glowing lightbox over newsprint, satellite maps with crisp mono labels). MagnatesMedia's 'Rockefeller' visualises every concrete line with a metaphor layer (glowing line icons beside the subject while the narrator names the thing; logos as characters with brush-stroke name tags; selective colour used as an accent: black and white with ONE accent hue tied to the subject, on its darkest chapter).",
     "Your job: give THIS video its own visual identity that binds it from the first to the last frame, while the art director varies looks inside it. You do NOT change narration, order, timing or sources.",
     "",
     "DECIDE:",
     `- motif: the engine's motif system that carries the whole video (${MOTIF_IDS.join(", ")}). It dresses chapter cards, wipes, a quiet texture under text scenes and the signature devices. tokens: words/codes/figures it animates (Morse codes, ticker figures, distances, case numbers) — ONLY taken from the narration. message: a short line it spells out (a radio message, a plaintext) — narration words only. params: time/date/ref strings from the narration.`,
     `- presentation.photo: how EVERY archive still is shown (lightbox | print | film-frame | framed | clean); presentation.map: satellite | paper | grid.`,
     `- typography: headline/body faces (${FONT_KEYS.join(", ")}), the 4-6 text styles of the video and the caption style — consistent with the motif.`,
-    `- palette accent/accent2 (#rrggbb), grade (the binding photo grade; 'selective' = black and white keeping keepHue in colour — the topic's accent object), keepHue (0-359), backdrops (preferred text grounds), opening (${OPENING_KINDS.join(", ")}).`,
-    `- explainers (2-4): the mechanisms the narrator explains, drawn step by step in the motif's language. Each step: a 2-5 word label taken from the narration, optional detail, the narration word it lights on (at) and the scene index that says it. Scenes marked {fixed} cannot host a step. Use ONLY facts said in the narration.`,
+    `- palette accent/accent2 (#rrggbb), grade (the video's BASE photo grade — always a COLOUR grade: color, warm, cool, teal-orange or kodachrome; sepia only when the story predates 1940 — bright, natural colour photographs; the channel owner found every past video black, dark and identical), accentGrade (optional desaturating accent for ONE chapter only: 'selective' = black and white keeping keepHue in colour — the topic's accent object — or mono), keepHue (0-359), backdrops (preferred text grounds), opening (${OPENING_KINDS.join(", ")}).`,
+    `- explainers (1-${EXPLAINER_MAX}): the mechanisms the narrator explains, drawn step by step in the motif's language. Each step: a 2-5 word label taken from the narration, optional detail, the narration word it lights on (at) and the scene index that says it. Scenes marked {fixed} cannot host a step. Use ONLY facts said in the narration. ONE explainer = ONE moment: its steps sit on at most ${EXPLAINER_SCENES} neighbouring lines (within ${EXPLAINER_SPAN} scenes) — several steps may light on words of the same line. Never spread a board across chapters: a viewer note on our France video (Oct 2026) counted the same polaroid board on screen 19 times.`,
     `- uiCards (0-2): real interfaces recreated as tilted cards (ranking | terminal | form | ledger | phone — phone only after 2007). Rows only from the narration; scene = the scene that becomes the card.`,
     `- scenes: per-scene metaphor icons — ONLY on lines that name something concrete (an object, an institution, money, a place); 1-2 icons, side away from the subject, 'at' = the narration word. About 1 in 6 picture scenes; never two in a row. Organisations may get a short brush-tag label (their name as spoken).`,
     `- wipes: scene indices that enter through the motif's wipe (chapter starts and a few turning points, at most chapters + 4).`,
@@ -1118,7 +1193,7 @@ export function summarizeBible(b) {
   if (!b) return "konu kimliği yok";
   const ex = (b.explainers || []).map((e) => `${e.kind}${e.title ? ` "${e.title}"` : ""}: ${e.steps.map((s) => s.label).join(" → ")}`);
   return [
-    `motif ${b.motif} · jetonlar [${(b.tokens || []).join(", ")}]${b.message ? ` · mesaj "${b.message}"` : ""} · sunum ${b.presentation?.photo}/${b.presentation?.map} · yazı ${b.typography?.headline}${b.typography?.body ? `/${b.typography.body}` : ""} [${(b.typography?.textStyles || []).join(", ")}] · renk ${b.grade}${b.grade === "selective" ? `@${b.keepHue}°` : ""} ${b.palette?.accent}/${b.palette?.accent2} · açılış ${b.opening}`,
+    `motif ${b.motif} · jetonlar [${(b.tokens || []).join(", ")}]${b.message ? ` · mesaj "${b.message}"` : ""} · sunum ${b.presentation?.photo}/${b.presentation?.map} · yazı ${b.typography?.headline}${b.typography?.body ? `/${b.typography.body}` : ""} [${(b.typography?.textStyles || []).join(", ")}] · renk ${b.grade}${b.accentGrade ? ` (vurgu ${b.accentGrade}${b.accentGrade === "selective" ? `@${b.keepHue}°` : ""})` : ""} ${b.palette?.accent}/${b.palette?.accent2} · açılış ${b.opening}`,
     ...ex.map((x) => `açıklayıcı ${x}`),
     ...(b.uiCards || []).map((c) => `kart ${c.kind} "${c.title || ""}" #${c.scene}: ${c.rows.map((r) => `${r.label}${r.value ? ` ${r.value}` : ""}`).join(" | ")}`),
     `ikonlu sahne ${b.scenes?.length || 0} · motif geçişi ${b.wipes?.length || 0} · ikon seti [${(b.iconSet || []).slice(0, 10).join(", ")}…]`,
@@ -1167,7 +1242,7 @@ export async function topicBible(script, { settings = {}, usage, logFn = () => {
     if (!bible) bible = fallbackBible(script);
     if (cacheFile) writeJson(cacheFile, { key, version: TOPIC_VERSION, model: mdl, mode, savedAt: new Date().toISOString(), bible });
   }
-  const out = { ...script, topic: topicIdentity(bible) };
+  const out = { ...script, topic: topicIdentity(bible, script) };
   const sum = summarizeBible(bible);
   logFn(`Konu kimliği${fromCache ? " (kayıttan)" : ""} [${mode === "llm" ? "Opus" : "yedek"}]: ${sum[0]}`);
   for (const l of sum.slice(1)) logFn(`  ${l}`);

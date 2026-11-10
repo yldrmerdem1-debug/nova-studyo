@@ -54,6 +54,7 @@ try {
     thumbnail: spec.thumbnail,
     voiceId: spec.voiceId,
     voiceModel: spec.voiceModel,
+    voiceSpeed: Number.isFinite(Number(spec.voiceSpeed)) ? Number(spec.voiceSpeed) : undefined,
     ffmpeg: spec.ffmpeg,
     concurrency: spec.concurrency,
     renderConcurrency: spec.renderConcurrency,
@@ -72,6 +73,8 @@ try {
     musicSource: process.env.NOVA_MUSIC_SOURCE || spec.musicSource || undefined,
     // Render parçaları: belirtilmezse yalnız eksik varlıklı (yeniden render'ı beklenen) videoda saklanır.
     keepChunks: typeof spec.keepChunks === 'boolean' ? spec.keepChunks : undefined,
+    // Yama render: yalnızca bu sahnelerin parçaları yeniden çizilir (Nova /api/jobs/:id/patch).
+    patchScenes: Array.isArray(spec.patchScenes) && spec.patchScenes.length ? spec.patchScenes : undefined,
     keys: { eleven: process.env.NOVA_ELEVEN_KEY, replicate: process.env.NOVA_REPLICATE_KEY, kling: process.env.NOVA_KLING_KEY, openai: process.env.NOVA_OPENAI_KEY },
     cancelled: () => {
       if (!stop && spec.cancelFile && Date.now() - lastCheck > 500) {

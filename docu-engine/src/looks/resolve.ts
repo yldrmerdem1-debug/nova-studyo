@@ -9,7 +9,7 @@ import { counterPicture, counterStyles, storyYears } from './counters';
  *   scene.textStyle / .grade / .backdrop
  *   script.chapterLooks[scene.chapter]   (accent, grade, backdrop)
  *   the variant's defaults (genre.grade / .backdrop / .textStyles)
- *   the genre's original look ('box', 'duotone', its pattern ground)
+ *   the genre's original look ('box', its pattern ground); photos fall back to 'color' (sceneGrade)
  * A scene over a picture always gets a dark ink surface (light type over a
  * scrim), even in a light variant; a text scene on a light ground (a light
  * variant, or a 'paper' backdrop in a dark one) gets dark ink and readable
@@ -160,6 +160,24 @@ export function relatedSource(scenes: Scene[], i: number, own = false): (Pic & {
   return { ...(pictureOf(scenes[best.k]) as Pic), from: best.k };
 }
 
+/** Devices that lay the related picture soft behind themselves (topic explainer / UI card: topic/cards.tsx DevicePlate). */
+export const DEVICE_PLATE_TYPES = new Set(['explainer', 'ui-card']);
+/**
+ * The picture a device or chapter card with none of its own stands on (Gimli 9ff721 önce/sonra, 29 Ekim 2026: şema ve
+ * bölüm kartı zemini neredeyse siyah): the nearest related one (relatedSource), undefined when the scene has its own
+ * picture, is another type, or nothing fits.
+ */
+export function devicePlateSource(scenes: Scene[], i: number): Pic | undefined {
+  const s = scenes[i];
+  if (!s || isPictured(s)) return undefined;
+  const chapterCard = s.type === 'title' && (s as { chapterCard?: boolean }).chapterCard === true;
+  if (!DEVICE_PLATE_TYPES.has(s.type) && !chapterCard) return undefined;
+  const r = relatedSource(scenes, i);
+  if (!r) return undefined;
+  const { from: _from, ...pic } = r;
+  return pic;
+}
+
 /** The period texture for a story: a film gate on a dark ground; ledger paper (money) or newsprint on a light one. */
 export function eraTexture(genre: GenreId, tone: 'light' | 'dark'): EraTexture {
   if (tone === 'dark') return 'film';
@@ -277,6 +295,87 @@ function hash01(s: string): number {
   return ((h >>> 0) % 100000) / 100000;
 }
 
+/* ------------------------------------------------------------ the grade */
+
+/*
+ * COLOUR IS THE DEFAULT. Gimli 20261028-9ff721 / Kartal Yuvası 950730, 29 Ekim 2026: the last seven videos measured
+ * mean luma 52-75 and saturation 2,5-7,5 (ffmpeg signalstats), 21-39% of frames under luma 40 — "her video siyah,
+ * karanlık, birbirinin aynı". The best one, Panama (grade 'color'), measured luma 88 / saturation 10,2. Desaturating
+ * grades are accents (the art director spends at most one chapter on one); the engine never falls back to one.
+ */
+
+/** Grades that take the colour out of a picture: accents only, never a base or a fallback. */
+export const DESATURATING_GRADES: ReadonlySet<Grade> = new Set<Grade>(['selective', 'mono', 'duotone', 'sepia', 'cyanotype', 'bleach']);
+
+/** What a picture is drawn with when nothing (scene, chapter, variant) names a usable grade. Never 'duotone'. */
+export const FALLBACK_GRADE: Grade = 'color';
+
+/** Before colour film the archive is monochrome anyway: a sepia variant base is allowed for such a story. */
+export const PRE_COLOUR_YEAR = 1940;
+
+/** A real archive photo or source clip (docu-archive.js / source-clips.js / inbox-commons.js mark them). */
+export function isArchivePicture(s: Scene | undefined | null): boolean {
+  const x = (s ?? {}) as { archived?: boolean; sourceLabel?: string };
+  return !!(x.archived || x.sourceLabel);
+}
+
+/**
+ * A scene's photo grade. The scene's own grade (the plan chose it for THIS shot) always wins; then the chapter's,
+ * then the variant's default, then 'color'. A real archive photo/clip never INHERITS a desaturating grade
+ * (Kartal Yuvası 950730: colour Commons photos printed grey by the chapter's 'selective') unless the pipeline marked
+ * the source itself monochrome (scene.monoSource). A variant's desaturating default is no base either (swiss-editorial
+ * 'mono', the originals' 'duotone' greyed whole videos) — except sepia for a story set before colour film.
+ */
+export function sceneGrade(s: Scene, cl: ChapterLook | null | undefined, genre: Pick<Genre, 'grade'>, eraStart?: number): Grade {
+  if (isGrade(s.grade)) return s.grade;
+  const preColour = eraStart !== undefined && eraStart < PRE_COLOUR_YEAR;
+  let inherited: Grade = FALLBACK_GRADE;
+  if (cl && isGrade(cl.grade)) inherited = cl.grade;
+  else if (isGrade(genre.grade) && (!DESATURATING_GRADES.has(genre.grade) || (preColour && genre.grade === 'sepia'))) inherited = genre.grade;
+  if (DESATURATING_GRADES.has(inherited) && isArchivePicture(s) && (s as { monoSource?: boolean }).monoSource !== true) return FALLBACK_GRADE;
+  return inherited;
+}
+
+/* ------------------------------------------------------- global frame look */
+
+/*
+ * The whole-film overlays. Gimli 20261028-9ff721 / Kartal Yuvası 950730, 29 Ekim 2026: variants drew a 0,6-0,9 black
+ * vignette over every frame and crime/epic/horror a constant 22% of black bars — two more reasons every video read as
+ * black. The vignette is capped; the bars are opt-in (script.letterbox === true); a cold open still draws its own.
+ */
+export const VIGNETTE_MAX = 0.35;
+
+/** The global vignette's strength for a look: its own, never above VIGNETTE_MAX. */
+export function globalVignette(strength: number | undefined): number {
+  const v = Number(strength);
+  return Number.isFinite(v) ? Math.max(0, Math.min(VIGNETTE_MAX, v)) : 0;
+}
+
+/** Constant cinema bars over the whole edit only when the script asks for them. */
+export function wantsLetterbox(script: { letterbox?: unknown } | null | undefined): boolean {
+  return script?.letterbox === true;
+}
+
+/**
+ * The chapter-card transition: the video's own transition palette leads (its first kind that is not a hard cut or a
+ * blackout); the genre's fixed kind only without one. Kartal Yuvası 950730: every crime/horror chapter opened on a
+ * 'blackout' — one more black beat per chapter, the same in every video.
+ */
+export function chapterSignature(palette: readonly string[] | null | undefined, fallback: string): string {
+  const own = (palette ?? []).find((k) => typeof k === 'string' && k !== '' && k !== 'cut' && k !== 'blackout');
+  return own ?? fallback;
+}
+
+/** A mood's colour shift as a CSS filter for the PICTURE layer only ('' when neutral; type and devices keep theirs). */
+export function moodFilter(g: { saturate?: number; brightness?: number; hue?: number } | null | undefined): string {
+  if (!g) return '';
+  const parts: string[] = [];
+  if (g.saturate != null && g.saturate !== 1) parts.push(`saturate(${g.saturate})`);
+  if (g.brightness != null && g.brightness !== 1) parts.push(`brightness(${g.brightness})`);
+  if (g.hue) parts.push(`hue-rotate(${g.hue}deg)`);
+  return parts.join(' ');
+}
+
 export function sceneLooks(script: Script, genre: Genre): SceneLook[] {
   const scenes = script.scenes ?? [];
   const seed = script.seedKey ?? script.id ?? 'look';
@@ -289,12 +388,20 @@ export function sceneLooks(script: Script, genre: Genre): SceneLook[] {
     const cl: ChapterLook = (script.chapterLooks?.[ch] as ChapterLook | null | undefined) ?? {};
     let g = cl.accent ? withAccent(genre, cl.accent) : genre;
 
-    const grade: Grade = isGrade(s.grade) ? s.grade : isGrade(cl.grade) ? cl.grade : isGrade(genre.grade) ? genre.grade : 'duotone';
+    // Colour unless the plan chose otherwise; a real archive picture keeps its colour (sceneGrade).
+    const grade: Grade = sceneGrade(s, cl, genre, eraStart);
 
     const pictured = isPictured(s);
     // Counter treatment; a 'photo' counter stands on the picture before it (dark ink, no ground).
     const counterStyle = s.type === 'counter' ? counters[index] : undefined;
     const picture = counterStyle === 'photo' ? counterPicture(scenes, index) : undefined;
+    /*
+     * Gimli 9ff721 önce/sonra, 29 Ekim 2026: şema ve bölüm kartı zemini neredeyse siyah — the topic explainer / UI card
+     * and a chapter card with no picture of their own stood on a bare ground. They get the nearest RELATED picture
+     * (topic/motifs.tsx devicePicture -> DevicePlate, soft, brightness >= 0.8). Only the look's `picture` carries it:
+     * surface, ink and backdrop of these device scenes stay as they were.
+     */
+    const devicePic = devicePlateSource(scenes, index);
     const groundOk = ALWAYS_GROUND.has(s.type) || (GROUND_TYPES.has(s.type) && !pictured);
     let raw = picture ? undefined : s.backdrop && isBackdropKind(s.backdrop.kind) ? s.backdrop : groundOk ? (cl.backdrop ?? genre.backdrop) : undefined;
     /*
@@ -367,7 +474,7 @@ export function sceneLooks(script: Script, genre: Genre): SceneLook[] {
       chapterName: script.chapters?.[ch],
       index,
       counterStyle,
-      picture,
+      picture: picture ?? devicePic,
       eraStart,
     };
   });

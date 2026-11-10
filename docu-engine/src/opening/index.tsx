@@ -297,10 +297,10 @@ export function openingBody(m: OpeningModel | null, index: number, scene: Scene,
  * A counter waiting for its number: the last picture holds (a slow push)
  * until the number is said, then the counter cuts in and counts on the word.
  */
-export function openingDelayed(m: OpeningModel | null, index: number, durFrames: number, body: (durFrames: number) => React.ReactNode): React.ReactNode | null {
+export function openingDelayed(m: OpeningModel | null, index: number, durFrames: number, body: (durFrames: number, wait: number) => React.ReactNode): React.ReactNode | null {
   const w = m?.delays.get(index);
   if (!w) return null;
-  return <DelayedBody wait={w.delay} held={w.held} durFrames={durFrames} body={body(durFrames - w.delay)} />;
+  return <DelayedBody wait={w.delay} held={w.held} durFrames={durFrames} body={body(durFrames - w.delay, w.delay)} />;
 }
 
 /**
@@ -314,14 +314,14 @@ export function counterSpokenDelay(scene: Scene, durFrames: number, fps: number)
   const at = counterSpokenAt(scene, fps);
   return at !== null && at > 6 && at < durFrames - fps ? at - 3 : 0;
 }
-export function spokenDelayed(scenes: Scene[], index: number, durFrames: number, fps: number, body: (durFrames: number) => React.ReactNode): React.ReactNode | null {
+export function spokenDelayed(scenes: Scene[], index: number, durFrames: number, fps: number, body: (durFrames: number, wait: number) => React.ReactNode): React.ReactNode | null {
   const s = scenes[index];
   if (!s) return null;
   const wait = counterSpokenDelay(s, durFrames, fps);
   if (!wait) return null;
   const held = heldPicture(scenes, index);
   if (!held) return null;
-  return <DelayedBody wait={wait} held={held} durFrames={durFrames} body={body(durFrames - wait)} />;
+  return <DelayedBody wait={wait} held={held} durFrames={durFrames} body={body(durFrames - wait, wait)} />;
 }
 
 const HELD_GROUND: Backdrop = { kind: 'related', tone: 'dark', color: '#141414' };
@@ -338,7 +338,12 @@ const DelayedBody: React.FC<{ wait: number; held: Held; durFrames: number; body:
   return (
     <AbsoluteFill>
       <Photo src={held.src} clip={held.clip} durFrames={durFrames} imgW={held.imgW} imgH={held.imgH} speed={0.8} fill />
-      <AbsoluteFill style={{ background: `radial-gradient(ellipse at center, rgba(0,0,0,${scrim * 0.85}) 35%, rgba(0,0,0,${Math.min(0.9, scrim + 0.3)}) 100%)` }} />
+      {/*
+        A LOCAL scrim under the number (<= 0.54 at its centre), the frame edge at most 0.3 — the held picture stays a
+        picture. Gimli 9ff721 önce/sonra, 29 Ekim 2026: this was 0.9 black at the edges, a near-black frame; the type's
+        own drop shadows keep it legible on snow.
+      */}
+      <AbsoluteFill style={{ background: `radial-gradient(ellipse 58% 48% at 50% 50%, rgba(0,0,0,${(scrim * 0.9).toFixed(3)}) 0%, rgba(0,0,0,${(scrim * 0.5).toFixed(3)}) 60%, rgba(0,0,0,${Math.min(0.3, scrim * 0.5).toFixed(3)}) 100%)` }} />
       <SequenceFrom from={wait} dur={Math.max(1, durFrames - wait)}>
         <AbsoluteFill style={{ filter: 'drop-shadow(0 0 14px rgba(0,0,0,0.8)) drop-shadow(0 2px 3px rgba(0,0,0,0.9))' }}>
           {/* The counter's ground is this held picture, darkened: it sets light type (a light look's paper ink vanished on it — ranking test "120,000"). */}
@@ -373,11 +378,28 @@ export function openingGenre(m: OpeningModel | null, index: number, genre: Genre
   return beat !== null && beat >= 0 && !genre.letterbox ? { ...genre, letterbox: true } : genre;
 }
 
-/** Extra CSS filter on a touched scene's picture (the cold open's heavier grade). */
-export function openingFilter(m: OpeningModel | null, index: number): string | undefined {
+/*
+ * The cold open's heavier grade belongs to the PICTURE layer only, like the mood shift (fx.tsx PictureMoodContext):
+ * Gimli 9ff721 önce/sonra, 29 Ekim 2026 — openingFilter wrapped the whole opening scene, so its type, stamps and hook
+ * slam were graded with the photo. openingFilter (what the Engine puts on the scene wrapper) is now always undefined;
+ * openingPictureFilter is the cold grade, for the Engine to append to the scene's picture mood.
+ */
+
+/** The filter on a touched scene's WRAPPER: none — a grade never reaches type (see openingPictureFilter). */
+export function openingFilter(_m: OpeningModel | null, _index: number): string | undefined {
+  return undefined;
+}
+
+/** The cold open's grade for a touched scene's PICTURES (appended to PictureMoodContext's value); undefined elsewhere. */
+export function openingPictureFilter(m: OpeningModel | null, index: number): string | undefined {
   if (!m || m.op.kind !== 'cold-open') return undefined;
   const beat = beatOf(m.op, index);
   return beat !== null && beat >= 0 ? COLD_GRADE : undefined;
+}
+
+/** A scene's picture mood with the opening's grade appended (what the Engine should provide to PictureMoodContext). */
+export function withOpeningPictureFilter(mood: string, m: OpeningModel | null, index: number): string {
+  return [mood, openingPictureFilter(m, index)].filter(Boolean).join(' ');
 }
 
 /** Does the treatment need the generic hook slam on this scene (the scene and the treatment do not set it themselves)? */

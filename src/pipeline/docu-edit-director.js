@@ -30,6 +30,17 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+// The world map lives in the engine (docu-engine/lib/world-map.mjs). In the installed app the engine sits OUTSIDE
+// app.asar (resources/docu-engine): a static "../../docu-engine/…" import resolved inside the asar and the server
+// failed to start ("Cannot find module …\app.asar\docu-engine\lib\world-map.mjs", 1.16.16 first install).
+const ENGINE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+const worldMapFile = () => {
+  const packaged = process.resourcesPath && path.join(process.resourcesPath, "docu-engine", "lib", "world-map.mjs");
+  return packaged && fs.existsSync(packaged) ? packaged : path.join(ENGINE_ROOT, "docu-engine", "lib", "world-map.mjs");
+};
+const { countriesIn, countryAt, countryCenter, findCountry, worldBox, worldXY } = await import(pathToFileURL(worldMapFile()).href);
 import crypto from "node:crypto";
 import { callJSON, callVisionJSON } from "../llm.js";
 import { readJson, writeJson, run } from "../util.js";
@@ -67,6 +78,14 @@ export const MAP_REGIONS = {
   "solar-system": { kind: "space", box: [0, 0, 1, 1] },
 };
 export const GEO_REGIONS = Object.keys(MAP_REGIONS).filter((k) => MAP_REGIONS[k].kind === "geo");
+/**
+ * 1.16.16: "world" draws ANY place on Earth (Natural Earth, docu-engine/lib/world-map.mjs) — the box
+ * is fitted to the places, countries can be tinted. Our four videos of Oct 2026 had no map at all
+ * because only the four hand-drawn regions existed; the outlier channels show 1-3 maps in minute one.
+ */
+export const MAP_CHOICES = ["world", ...GEO_REGIONS];
+/** A world map's pins close together are framed on themselves down to this north–south extent (°), not the 7° of one city. */
+export const CLUSTER_SPAN = 1.5;
 
 /** geo.ts regionXY ile aynı doğrusal izdüşüm. */
 export function regionXY(region, lat, lon) {
@@ -79,15 +98,26 @@ export function regionXY(region, lat, lon) {
 /** Cihazlar arası en kısa aralık (sn) ve 12 dakikalık videoda tavan. */
 export const MIN_GAP_SEC = 35;
 export const MAX_DEVICES = 20;
+/** Durdurulup bakılan yoğun veri kareleri (derin inceleme, Ekim 2026): videoda en az bu kadar. */
+export const PEAK_CARDS_MIN = 3;
+export const PEAK_CARD_TYPES = new Set(["bars", "icons", "scale", "donut", "chart", "map"]);
+/** How many dense, pause-worthy data frames a script carries (bars/icons/scale/donut, or a map with 3+ places). */
+export const peakCards = (scenes = []) => scenes.filter((s) => s && PEAK_CARD_TYPES.has(s.type) && (s.type !== "map" || (s.places || []).length >= 3)).length;
 /** A picture-less card (chart, explainer, counter...) holds the screen at most this long. */
 export const LONG_CARD_SEC = 18;
+/**
+ * YouTube'un bitiş ekranı öğeleri son ~20 sn'yi kaplar (docu-critic endScreenSec): orada biten sahne karta çevrilmez.
+ * Fransa borcu (24 Ekim 2026): yazarın 13 sn'lik kapanış fotoğrafı (outro işaretsiz) bir "5%" sayacı oldu.
+ */
+export const END_SCREEN_SEC = 20;
+const inEndScreen = (ctx, i) => (ctx.starts[i + 1] ?? ctx.total) > ctx.total - END_SCREEN_SEC;
 /** Görseli değiştirilebilecek sahneler (sayaç, grafik, slam, başlık, montaj zaten birer cihaz). */
 const CONVERTIBLE = new Set(["photo", "words"]);
 /** Cihaz görsel alanları: görselsiz cihaza çevrilen sahneden atılır. */
 const PICTURE_FIELDS = ["imagePrompt", "imagePrompts", "cast", "source", "search", "commons", "media", "image", "images", "clips", "imgW", "imgH", "video", "videoStart", "videoDur", "videoW", "videoH", "heldBg", "archived", "layers", "depth", "focus", "bg", "fullBleed", "natural"];
 /** Eski tipe özgü alanlar: her dönüşümde atılır. */
 const TYPE_FIELDS = ["text", "keyword", "word", "sub", "from", "to", "label", "prefix", "suffix", "decimals", "year", "points", "name", "role", "caption", "kicker", "title", "at",
-  "paper", "headline", "date", "translation", "region", "places", "route", "line", "items", "links", "doc", "highlight", "redact", "stamp", "events", "span", "left", "right", "mode", "quote", "who", "when", "fromScene",
+  "paper", "headline", "date", "translation", "region", "places", "box", "countries", "mapName", "geo", "route", "line", "items", "links", "doc", "highlight", "redact", "stamp", "events", "span", "left", "right", "mode", "quote", "who", "when", "fromScene",
   "unit", "sort", "slices", "centerLabel", "total", "filled", "icon", "a", "b", "nodes", "edges", "value", "trend"];
 
 /* ================================================================ metin yardımcıları */
@@ -96,7 +126,11 @@ const STOP = new Set([
   "bir", "bu", "şu", "o", "ve", "ile", "de", "da", "ki", "mi", "ne", "için", "gibi", "kadar", "daha", "çok", "en", "her", "hiç", "ama", "sonra", "önce", "olan", "oldu", "olarak", "diye", "değil", "var", "yok",
   "the", "a", "an", "of", "in", "on", "at", "to", "and", "or", "for", "with", "by", "from", "is", "was", "were", "his", "her", "their", "its", "that", "this", "as",
 ]);
-const toks = (t) => stripTags(t).split(/[\s\-–—/]+/).map(norm).filter(Boolean);
+// Dotted and dotless i folded together for MATCHING only: norm lowercases with Turkish rules, so an English label in
+// capitals ("WILLIAM", "TOSTIG") became "wıllıam" and never matched "William" in the narration — every English board,
+// split and quote label with an I was rejected as "not in the script" (Hastings, Oct 2026).
+const fold = (w) => norm(w).replace(/ı/g, "i");
+const toks = (t) => stripTags(t).split(/[\s\-–—/]+/).map(fold).filter(Boolean);
 const content = (t) => toks(t).filter((w) => (w.length >= 3 || /^\d+$/.test(w)) && !STOP.has(w));
 /** Türkçe ekler için kök eşleşmesi: "merdivende" ↔ "merdiven", "Cooper'ın" ↔ "Cooper". */
 function stemMatch(a, b) {
@@ -127,8 +161,12 @@ const str = (v, max) => {
   const s = typeof v === "string" ? v.replace(/\s+/g, " ").trim() : "";
   return s && [...s].length <= max ? s : "";
 };
+/** A country name short enough for the map label (28 chars); the engine's findCountry knows every short form here. */
+const SHORT_COUNTRY = { "democratic republic of the congo": "DR Congo", "united states of america": "United States", "democratic people's republic of korea": "North Korea" };
+const shortCountry = (c) => SHORT_COUNTRY[c.toLowerCase()] || (c.length <= 28 ? c : c.slice(0, 28).trim());
 const isInt = (v) => Number.isInteger(v);
-const clock = (sec) => `${String(Math.floor(sec / 60)).padStart(2, "0")}:${String(Math.round(sec % 60)).padStart(2, "0")}`;
+// Rounded to whole seconds first: 299.7 s is 05:00, never 04:60.
+const clock = (sec) => { const t = Math.round(sec); return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`; };
 
 /* ================================================================ yıllar */
 
@@ -154,7 +192,9 @@ function combine(vals) {
 export function yearsIn(text) {
   const out = new Set();
   const raw = stripTags(text);
-  for (const m of raw.matchAll(/\b(1[1-9]\d\d|20\d\d)\b/g)) out.add(+m[1]);
+  // 1000-2099: a medieval story's own years (1064, 1066, 1086) were never "in the script", so its timeline was always
+  // rejected (Hastings, Oct 2026).
+  for (const m of raw.matchAll(/\b(1\d\d\d|20\d\d)\b/g)) out.add(+m[1]);
   // Noktalama bir sayıyı bitirir ("elli iki. Bin dokuz yüz…" iki ayrı yıl): "|" sınır işareti.
   const t = raw.replace(/[,.;:!?()…]+/g, " | ").split(/[\s\-–—"'’“”]+/).map((w) => (w === "|" ? w : norm(w))).filter(Boolean);
   // Türkçe
@@ -403,11 +443,69 @@ export function buildDevice(p, i, ctx, final = (k) => ctx.scenes[k]) {
     if (tr) f.translation = tr;
     keepPicture = true;
   } else if (device === "map") {
-    const region = p.region;
-    const reg = MAP_REGIONS[region];
-    if (!reg) return bad("bilinmeyen harita bölgesi");
+    let region = p.region;
     const src = Array.isArray(p.places) ? p.places : Array.isArray(p.points) ? p.points : [];
     if (src.length < 1 || src.length > 6) return bad("harita 1-6 yer ister");
+    const geoPlaces = src.filter((q) => Number.isFinite(q?.lat) && Number.isFinite(q?.lon));
+    // A hand-drawn region that does not hold every place (or no region at all) becomes the world map.
+    if (geoPlaces.length === src.length && region !== "world") {
+      const fits = MAP_REGIONS[region]?.kind === "geo" && geoPlaces.every((q) => {
+        const xy = regionXY(region, q.lat, q.lon);
+        return xy && xy.x >= 0.02 && xy.x <= 0.98 && xy.y >= 0.02 && xy.y <= 0.98;
+      });
+      if (!fits) region = "world";
+    }
+    if (region === "world") {
+      if (geoPlaces.length !== src.length) return bad("dünya haritası her yer için enlem/boylam ister");
+      // A place the narration never names is dropped (Saudi–Houthi, Oct 2026: one unnamed port threw away a
+      // whole four-place map); the map stands while at least one named place is left.
+      const keep = [];
+      const remap = new Map();
+      src.forEach((q, k) => {
+        const label = str(q?.label, 32);
+        if (!label || (!p._trusted && !grounded(label, ctx.win(i, 3, 2), 0.5))) return;
+        remap.set(k, keep.length);
+        keep.push({ label, lat: q.lat, lon: q.lon });
+      });
+      if (!keep.length) return bad("haritadaki yerlerin hiçbiri anlatımda geçmiyor");
+      const box = worldBox(keep, { clusterSpan: CLUSTER_SPAN });
+      if (!box) return bad("harita noktası konumsuz");
+      const points = keep.map((q) => ({ label: q.label, ...worldXY(box, q.lat, q.lon) }));
+      if (Array.isArray(p.route)) p = { ...p, route: p.route.filter((k) => remap.has(k)).map((k) => remap.get(k)) };
+      if (isInt(p.focus)) p = { ...p, focus: remap.has(p.focus) ? remap.get(p.focus) : undefined };
+      f.region = "world";
+      f.box = box;
+      f.points = points;
+      // Tinted countries: only ones the narration names (the label is printed on the map) — or the one the focus pin
+      // stands in. Grounded by the FULL name, stored short (Ebola, Oct 2026: "Democratic Republic of the Congo" was cut
+      // to 28 characters before the check, "Democratic Republic of the C" matched nothing and the DRC fell off the map).
+      // KARTAL (24 Oct 2026): every pin but Salzburg (Berchtesgaden, Obersalzberg, Kehlstein, Traunstein) was in Germany,
+      // the narration only said "the Austrian border": Germany was dropped, Austria tinted alone under its flag and the
+      // map named AUSTRIA, so the German places read as Austrian. A LISTED country the focus pin stands in is grounded by
+      // the pin. The code never tints a country the writer did not list, and never names the map after one by the
+      // borders alone: Natural Earth draws Jerusalem in "Palestine" and Crimea in "Russia".
+      if (isInt(p.focus) && p.focus >= 0 && p.focus < points.length) f.focus = p.focus;
+      const pin = keep[isInt(f.focus) ? f.focus : 0];
+      const home = countryAt(pin.lat, pin.lon);
+      const neName = (c) => findCountry(c, "10m")?.name || null;
+      const listed = (Array.isArray(p.countries) ? p.countries : [])
+        .map((c) => str(c, 60))
+        .filter((c) => c && (p._trusted || grounded(c, ctx.win(i, 3, 2), 0.5) || (home && neName(c) === home)))
+        .slice(0, 4);
+      const countries = listed.map(shortCountry);
+      if (countries.length) f.countries = countries;
+      if (Array.isArray(p.route)) {
+        const r = p.route.filter((k) => isInt(k) && k >= 0 && k < points.length);
+        if (r.length >= 2 && new Set(r).size === r.length) f.route = r;
+      }
+      if (p.line === "barrier" || p.line === "route") f.line = p.line;
+      // Named after the first tinted country only when the focus pin stands in it (or at sea, as before); else the place.
+      f.mapName = str(p.mapName, 28) || (home && listed.length && neName(listed[0]) !== home ? "" : countries[0]) || points[isInt(f.focus) ? f.focus : 0].label;
+      const title = str(p.title, 32);
+      if (title) f.title = title;
+    } else {
+    const reg = MAP_REGIONS[region];
+    if (!reg) return bad("bilinmeyen harita bölgesi");
     const points = [];
     for (const q of src) {
       const label = str(q?.label, 32);
@@ -430,6 +528,7 @@ export function buildDevice(p, i, ctx, final = (k) => ctx.scenes[k]) {
     if (isInt(p.focus) && p.focus >= 0 && p.focus < points.length) f.focus = p.focus;
     const title = str(p.title, 32);
     if (title) f.title = title;
+    }
   } else if (device === "board") {
     const items = Array.isArray(p.items) ? p.items : [];
     if (items.length < 2 || items.length > 6) return bad("pano 2-6 öğe ister");
@@ -543,11 +642,18 @@ export function buildDevice(p, i, ctx, final = (k) => ctx.scenes[k]) {
   return { scene: out, keepPicture };
 }
 
-/** "22,325 tons" / "$5,800" / "38%" / "5.8 trillion" → sayaç alanları; "1 in 3" gibi oranlar ve aralıklar null (stat kalır). */
+/**
+ * "22,325 tons" / "$5,800" / "38%" / "5.8 trillion" / "45×" / "80+" → sayaç alanları; "1 in 3" gibi oranlar ve aralıklar
+ * null (stat kalır). Stat kartının sayısı ancak söylendiği an iner; sayaç satır boyunca döner. "45×" stat olarak kalınca
+ * Panama videosunda (Ekim 2026) kart 6-9 sn bomboş durdu: çarpan ve "+" de sayaca çevrilir.
+ */
 export function statAsCounter({ value, label, sub } = {}) {
-  const m = String(value ?? "").trim().match(/^([^\d\s-]{0,3})\s*(\d[\d.,]*)\s*([%‰]|[\p{L}][\p{L} .]{0,18})?$/u);
+  const m = String(value ?? "").trim().match(/^([^\d\s-]{0,3})\s*(\d[\d.,]*)\s*([%‰×+]|[xX](?![\p{L}])|[\p{L}][\p{L} .]{0,18})?$/u);
   if (!m) return null;
-  const [, pre, raw, suf = ""] = m;
+  const pre = m[1];
+  const raw = m[2];
+  const rawSuf = m[3] || "";
+  const suf = /^[xX]$/.test(rawSuf) ? "×" : rawSuf;
   if (/\bin\b|\bof\b|\/|–|-/.test(suf)) return null;
   let num;
   if (/^\d{1,3}([.,]\d{3})+$/.test(raw)) num = Number(raw.replace(/[.,]/g, ""));
@@ -557,7 +663,7 @@ export function statAsCounter({ value, label, sub } = {}) {
   if (!Number.isFinite(num) || num <= 0) return null;
   const decimals = /^\d+[.,]\d{1,2}$/.test(raw) ? raw.split(/[.,]/)[1].length : 0;
   // "%", "B", "M", "bn" sayıya bitişik; sözcük birim ("tons", "dolar") bir boşlukla.
-  const suffix = suf ? (/^([%‰]|[A-Z]{1,2}|bn|mn)$/.test(suf.trim()) ? suf.trim() : ` ${suf.trim()}`) : "";
+  const suffix = suf ? (/^([%‰×+]|[A-Z]{1,2}|bn|mn)$/.test(suf.trim()) ? suf.trim() : ` ${suf.trim()}`) : "";
   return { type: "counter", from: 0, to: num, ...(pre ? { prefix: pre } : {}), ...(suffix ? { suffix } : {}), ...(decimals ? { decimals } : {}), label: sub ? `${label} · ${sub}` : label };
 }
 
@@ -751,6 +857,7 @@ export function applyPatches(script, patches, { minGap = MIN_GAP_SEC } = {}) {
     if (p.device !== "annotate" && !CONVERTIBLE.has(s.type)) { why(`${s.type} sahnesi çevrilmez`); continue; }
     if (p.device !== "annotate" && (s.name || s.role)) { why("isim kartı taşıyan sahne çevrilmez"); continue; }
     if (s.outro) { why("kapanış sahnesi"); continue; }
+    if (p.device !== "annotate" && inEndScreen(ctx, i)) { why(`bitiş ekranı (son ${END_SCREEN_SEC} sn)`); continue; }
     const built = buildDevice(p, i, ctx);
     if (built.error) { why(built.error); continue; }
     seen.add(i);
@@ -803,7 +910,7 @@ function patchOf(s) {
   const d = deviceOf(s);
   if (d === "annotate") return { device: "annotate", ...s.annotate };
   const p = { device: d };
-  for (const k of ["paper", "headline", "date", "sub", "translation", "region", "places", "points", "route", "line", "focus", "title", "items", "links", "doc", "highlight", "redact", "stamp", "events", "span", "left", "right", "mode", "quote", "who", "when", "fromScene",
+  for (const k of ["paper", "headline", "date", "sub", "translation", "region", "places", "points", "countries", "mapName", "route", "line", "focus", "title", "items", "links", "doc", "highlight", "redact", "stamp", "events", "span", "left", "right", "mode", "quote", "who", "when", "fromScene",
     "unit", "sort", "slices", "centerLabel", "total", "filled", "icon", "a", "b", "nodes", "edges", "value", "label", "trend"]) if (s[k] !== undefined) p[k] = s[k];
   // İnfografiklerde highlight bir indekstir (yamada highlightIndex).
   if (INFO_TYPES.includes(d) && isInt(s.highlight)) { p.highlightIndex = s.highlight; delete p.highlight; }
@@ -811,14 +918,41 @@ function patchOf(s) {
   return p;
 }
 
-/** Geçersiz cihaz sahnesinin güvenli karşılığı: resmi varsa fotoğraf, yoksa önceki karenin üstünde yazı. */
-function fallbackScene(s) {
+/**
+ * Geçersiz cihaz sahnesinin güvenli karşılığı: resmi varsa fotoğraf, yoksa önceki karenin üstünde yazı.
+ * Ön izleme kapısı da kullanır (docu-design-gate "device-fallback": karede içeriği yanlış görünen cihaz).
+ */
+export function fallbackScene(s) {
   const out = { ...s };
   for (const k of TYPE_FIELDS) delete out[k];
   delete out.annotate;
+  // Haritanın focus'u bir nokta indeksidir (ör. 4); fotoğraf/arka plan [x, y] bekler (fx.tsx fc[0]).
+  if (!Array.isArray(out.focus)) delete out.focus;
   if (s.imagePrompt || s.search || s.image) return { ...out, type: "photo" };
   const text = stripTags(s.say).split(/\s+/).slice(-8).join(" ");
   return { ...out, type: "words", text, bg: "prev" };
+}
+
+/**
+ * İKİ SAYININ SPLIT'İ (Fransa borcu, 24 Ekim 2026): yazar "GERMANY · ~3.32%" / "FRANCE · ~5%" gibi iki resimsiz, sayılı
+ * taraflı split yazdı; doğrulayıcı beşini de düz fotoğrafa çevirdi, kancadaki Fransa–İtalya kıyası jenerik bir AI ekranı
+ * oldu. İki taraf da "ad · sayı" ise sahne aynı kurallarla iki çubuklu bars olur: etiket anlatımda geçmeli, sayı
+ * söylenmiş olmalı (söylenmeyen sayı yine ekrana çıkmaz — o zaman sahne fotoğrafa döner).
+ */
+function splitAsBars(s, i, ctx, final) {
+  const side = (x) => {
+    const parts = String(x?.label || "").split("·").map((t) => t.trim()).filter(Boolean);
+    if (parts.length !== 2) return null;
+    const k = parts.findIndex((t) => /\d/.test(t));
+    if (k < 0 || /\d/.test(parts[1 - k])) return null;
+    const m = parts[k].match(/^(?:~|≈|about|around|nearly|roughly|almost|over|more than|yaklaşık)?\s*([€$£₺]?)\s*(\d[\d.,]*)\s*(%?)$/i);
+    const value = m ? digitCands(m[2])[0] : NaN;
+    return Number.isFinite(value) ? { label: parts[1 - k], value, unit: m[3] || m[1] } : null;
+  };
+  const a = side(s.left), b = side(s.right);
+  if (!a || !b || a.unit !== b.unit) return null;
+  const r = buildDevice({ device: "bars", items: [{ label: a.label, value: a.value }, { label: b.label, value: b.value }], ...(a.unit ? { unit: a.unit } : {}) }, i, ctx, final);
+  return r.error ? null : r.scene;
 }
 
 /**
@@ -833,6 +967,7 @@ export function sanitizeDevices(script, { logFn = () => {} } = {}) {
   const ctx = makeCtx(script);
   const scenes = [...ctx.scenes];
   const fixed = [];
+  const asBars = [];
   const final = (k) => scenes[k];
   scenes.forEach((s, i) => {
     const d = deviceOf(s);
@@ -842,7 +977,11 @@ export function sanitizeDevices(script, { logFn = () => {} } = {}) {
     if (d === "headline" && s.paper && s.headline) return;
     if (d === "annotate" && Number.isFinite(s.annotate?.x) && Number.isFinite(s.annotate?.y) && s.annotate?.label) return;
     const b = buildDevice({ ...patchOf(s), _trusted: false }, i, ctx, final);
-    if (b.error) {
+    const bars = b.error && d === "split" ? splitAsBars(s, i, ctx, final) : null;
+    if (bars) {
+      scenes[i] = bars;
+      asBars.push({ scene: i, why: b.error });
+    } else if (b.error) {
       scenes[i] = d === "annotate" ? (({ annotate, ...rest }) => rest)(s) : fallbackScene(s);
       fixed.push({ scene: i, device: d, why: b.error });
     } else {
@@ -851,7 +990,79 @@ export function sanitizeDevices(script, { logFn = () => {} } = {}) {
     }
   });
   for (const f of fixed) logFn(`Senaryodaki ${f.device} cihazı geçersiz (sahne ${f.scene + 1}: ${f.why}) — sahne sade görsele döndü`);
+  for (const f of asBars) logFn(`Senaryodaki split cihazı iki sayıyı karşılaştırıyor (sahne ${f.scene + 1}: ${f.why}) — iki çubuklu bars kartına çevrildi`);
   return { script: fixed.length || scenes.some((x, i) => x !== ctx.scenes[i]) ? { ...script, scenes } : script, fixed };
+}
+
+/* ================================================================ harita güvencesi (1.16.16) */
+
+/** Bir videoda en az bu kadar harita; ilki mümkünse ilk MAP_EARLY_SEC içinde. */
+export const MAP_MIN = 2;
+export const MAP_AUTO_MAX = 3;
+export const MAP_EARLY_SEC = 120;
+/** Bir harita ile en yakın cihaz arası (sn): harita hareketli bir yer anlatımıdır, kart yığını değil — genel aralıktan kısa. */
+export const MAP_GAP_SEC = 20;
+
+/**
+ * HARİTA GÜVENCESİ. Tutmuş kanallar (Ekim 2026, 21 video kare kare) ilk dakikada 1-3 harita
+ * gösteriyor; bizim dört videomuzda (El Niño, Hastings, Suudi-Husi, Macaristan) hiç yoktu. Yazar
+ * ya da yönetmen haritayı koymadıysa: anlatımda bir ÜLKE adı geçen sade bir sahne (photo/words,
+ * isim kartı değil, kanca değil) dünya haritasına döner — ülke boyanır, adı etiketlenir, merkezine
+ * pin düşer (Natural Earth, ücretsiz, belirleyici). Önce ilk 2 dakika, sonra bölümlere yayılır;
+ * cihazlardan MAP_GAP_SEC uzak, tavan korunur, aynı ülke iki kez haritalanmaz.
+ * @returns {{script, added:[{scene, countries}]}}
+ */
+export function ensureMaps(script, { logFn = () => {}, min = MAP_MIN, max = MAP_AUTO_MAX } = {}) {
+  if (!script?.scenes?.length) return { script, added: [] };
+  const ctx = makeCtx(script);
+  const scenes = [...ctx.scenes];
+  const have = scenes.filter((s) => s.type === "map").length;
+  const budget = deviceBudget(ctx.total);
+  let devices = scenes.filter((s) => deviceOf(s)).length;
+  const added = [];
+  if (have >= min) return { script, added };
+  const mapped = new Set(scenes.filter((s) => s.type === "map").flatMap((s) => s.countries || []));
+  const deviceAt = () => scenes.map((s, i) => (deviceOf(s) ? ctx.starts[i] : null)).filter((t) => t !== null);
+  const lang = langOfScript(script);
+  const cands = [];
+  scenes.forEach((s, i) => {
+    if (i === 0 || !CONVERTIBLE.has(s.type) || isCard(s) || s.name || s.outro || s.annotate || deviceOf(s) || inEndScreen(ctx, i)) return;
+    // İlk sahneler kanca: harita onlardan sonra.
+    if (ctx.starts[i] < 8) return;
+    const sure = Number(s.voiceDur) > 0 ? s.voiceDur + 0.4 : estSceneSeconds(s, lang);
+    if (sure > LONG_CARD_SEC || sure < 2) return;
+    const named = countriesIn(stripTags(s.say)).slice(0, 3);
+    if (!named.length) return;
+    cands.push({ i, named, at: ctx.starts[i] });
+  });
+  // Önce ilk iki dakika, sonra en uzak bölümlerden: haritalar videoya yayılır.
+  const order = [...cands.filter((c) => c.at <= MAP_EARLY_SEC), ...cands.filter((c) => c.at > MAP_EARLY_SEC)];
+  for (const c of order) {
+    if (have + added.length >= Math.max(min, max) || devices >= budget) break;
+    const fresh = c.named.filter((n) => !mapped.has(n.country));
+    if (!fresh.length) continue;
+    if (deviceAt().some((t) => Math.abs(t - c.at) < MAP_GAP_SEC)) continue;
+    if (added.some((a) => Math.abs(ctx.starts[a.scene] - c.at) < 90)) continue;
+    const centers = c.named.map((n) => ({ ...n, center: countryCenter(n.country) })).filter((n) => n.center);
+    if (!centers.length) continue;
+    const extent = centers.flatMap((n) => [{ lat: n.center.lat, lon: n.center.lon }, { lat: n.center.box[1], lon: n.center.box[0] }, { lat: n.center.box[3], lon: n.center.box[2] }]);
+    const box = worldBox(extent, { pad: 1.35 });
+    if (!box) continue;
+    const points = centers.map((n) => ({ label: n.said, ...worldXY(box, n.center.lat, n.center.lon) }));
+    if (points.some((p) => p.x < 0.02 || p.x > 0.98 || p.y < 0.02 || p.y > 0.98)) continue;
+    const s = scenes[c.i];
+    const out = { ...s };
+    for (const k of TYPE_FIELDS) delete out[k];
+    for (const k of PICTURE_FIELDS) delete out[k];
+    Object.assign(out, { type: "map", region: "world", box, points, countries: centers.map((n) => n.said), focus: 0, mapName: centers[0].said });
+    scenes[c.i] = out;
+    for (const n of centers) mapped.add(n.country);
+    devices++;
+    added.push({ scene: c.i, countries: centers.map((n) => n.said) });
+  }
+  for (const a of added) logFn(`Harita güvencesi: sahne ${a.scene + 1} [${clock(ctx.starts[a.scene])}] dünya haritası — ${a.countries.join(", ")}`);
+  if (!added.length && have < min) logFn(`Harita güvencesi: anlatımda haritalanacak ülke adı geçen uygun sahne yok (videoda ${have} harita)`);
+  return { script: added.length ? { ...script, scenes } : script, added };
 }
 
 /* ================================================================ LLM planı */
@@ -887,8 +1098,9 @@ export const PLAN_SCHEMA = {
           priority: { type: "integer", description: "1 = hikâye için şart, 2 = güçlü, 3 = iyi olur" },
           reason: { type: "string", description: "Bir cümle: bu an neden bu cihazı hak ediyor" },
           paper: { type: "string" }, headline: { type: "string" }, date: { type: "string" }, sub: { type: "string" }, translation: { type: "string" },
-          region: { type: "string", enum: GEO_REGIONS },
+          region: { type: "string", enum: MAP_CHOICES },
           places: { type: "array", items: PLACE, description: "map: gerçek enlem/boylam" },
+          countries: { type: "array", items: { type: "string" }, description: "map (world): boyanacak ülkeler, anlatımda geçen adlarıyla (en çok 4)" },
           route: { type: "array", items: { type: "integer" } },
           line: { type: "string", enum: ["route", "barrier"] },
           focus: { type: "integer" },
@@ -944,7 +1156,7 @@ export const PLAN_SCHEMA = {
 
 /** Modelin gördüğü sahne listesi: bir satır = bir sahne. */
 export function sceneListing(script) {
-  const { starts } = sceneTimes(script);
+  const { starts, total } = sceneTimes(script);
   const searches = new Map();
   for (const s of script.scenes) if (s.search) searches.set(s.search, (searches.get(s.search) || 0) + 1);
   return script.scenes.map((s, i) => {
@@ -956,7 +1168,7 @@ export function sceneListing(script) {
     if (s.search && searches.get(s.search) > 1) flags.push("tekrar-sorgu");
     // Bir veri anı: yıl olmayan bir sayı söyleniyor (infografik adayı).
     if (!d && numbersIn(s.say, langOfScript(script)).some((v) => v >= 10 && !(Number.isInteger(v) && v >= 1100 && v <= 2100))) flags.push("sayı");
-    if (i === 0 || !(CONVERTIBLE.has(s.type) || s.type === "photo") || s.outro) flags.push("dokunma");
+    if (i === 0 || !(CONVERTIBLE.has(s.type) || s.type === "photo") || s.outro || inEndScreen({ starts, total }, i)) flags.push("dokunma");
     const what = s.type === "counter" ? ` ${s.prefix || ""}${s.to}${s.suffix || ""} ${s.label || ""}` : s.type === "headline" ? ` "${s.headline}"` : s.type === "map" ? ` ${s.region}` : "";
     return `#${i} [b${(s.chapter ?? 0) + 1} ${clock(starts[i])}] ${s.type}${what} · ${src}${s.search ? ` "${s.search}"` : ""}${flags.length ? ` {${flags.join(", ")}}` : ""} | ${stripTags(s.say)}`;
   }).join("\n");
@@ -977,7 +1189,7 @@ function planPrompt(script) {
     "- timeline: yıllara yayılan olaylar. events[{year, label}] 3-7 olay; yıllar senaryoda GEÇMELİ.",
     "- quote: gerçek bir alıntı kartı. quote = sahnenin say satırında AYNEN geçen sözler (kelimesi kelimesine, aynı sırayla), who = söyleyen (senaryoda geçen kişi), when? kısa. Anlatımda alıntı yoksa quote KOYMA; alıntı uydurma.",
     "- annotate: arşiv fotoğrafında 'bu adam / bu ayrıntı' anı — yalnızca archive/stock kaynaklı photo sahnesinde. label kısa etiket (anlatımda geçen), target İngilizce işaretlenecek şey, atWord işaretin belireceği kelime.",
-    `- map: yer/rota. region yalnızca: ${GEO_REGIONS.join(", ")} — hikâyenin yeri bu bölgelerin içindeyse. places[{label, lat, lon}] gerçek koordinatlar, route nokta indeksleri, focus.`,
+    `- map: yer/rota — DÜNYANIN HER YERİ. region "world" (Natural Earth haritası; çerçeve yerlere göre kendiliğinden kurulur) ya da elle çizilmiş özel bölgeler (${GEO_REGIONS.join(", ")}). places[{label, lat, lon}] GERÇEK koordinatlar, route nokta indeksleri, focus, countries = boyanacak ülkeler (anlatımda geçen adlarıyla). Anlatımda bir ülke/şehir/bölge adı geçen, yeri izleyici için yeni olan her bölümde bir harita: tutmuş kanallar ilk dakikada 1-3 harita gösteriyor.`,
     "- headline: basın tepkisi — gazete manşeti. paper, headline (gazetenin dilinde, 2-8 kelime), date, translation (video dilinde). Yalnızca anlatım basından/manşetten söz ediyorsa ya da manşet anlatılan olayı birebir veriyorsa.",
     "",
     "İNFOGRAFİKLER (veri anları — anlatım SAYI söylüyorsa; {sayı} işaretli sahneler adaydır). Her sayı ve etiket o sahnenin ya da komşusunun say satırında GEÇMELİ (rakamla ya da yazıyla); sayı UYDURMA, yuvarlama, hesaplama yok — kod doğrular, uymayanı atar:",
@@ -993,6 +1205,9 @@ function planPrompt(script) {
     "- Anlatım (say), sahne sırası, sayısı ve süresi DEĞİŞMEZ. Yalnızca {dokunma} işareti OLMAYAN sahnelerin görselini cihaza çevirirsin; anlatımı o cihaza gerçekten uyan sahneyi seç.",
     `- Aralık: iki cihaz arasında en az 35-45 sn. Aynı cihaz tipi art arda iki kez gelmez. Toplam cihaz (var olan ${existing} dahil) en fazla ${budget}.`,
     "- Tercih: şu an AI görseline düşen ya da aynı resmi tekrar eden (önceki-kare, tekrar-sorgu) anlar; bilgi yoğun anlar (tarih dizisi, iki kişi, belge, rota).",
+    // 20 Ekim 2026 derin inceleme (39 tutmuş video): en çok tekrar izlenen anların çoğu izleyicinin durdurup baktığı yoğun
+    // veri kareleri — sıralama listesinde kendi ülkesini aradığı liste, ikonla sayım, aynı haritada ölçek, büyüklük farkı.
+    `- ZİRVE KARELERİ: videoda EN AZ ${PEAK_CARDS_MIN} tane durdurulup bakılacak YOĞUN veri karesi olsun — bars (sort:true sıralı liste, highlightIndex hikâyenin öğesi), icons (oran), scale (büyüklük farkı) ya da çok yerli map. İlk aday: anlatımın bir sayıyı tanıdık bir şeyle kıyasladığı satır ('hotter than the core of our sun', 'busier than Charles de Gaulle airport').`,
     "- Olgular YALNIZCA senaryodan: senaryoda olmayan isim, tarih, yer, alıntı, belge metni yazma.",
     "- fromScene: yalnızca ÖNCEKİ bir sahne, ve o kişiyi/yeri gerçekten gösteren sahne (numarası listede). Emin değilsen fromScene verme, yalnızca label yaz.",
     "- Etiketler ve kısa metinler video dilinde; target İngilizce.",
@@ -1064,6 +1279,8 @@ export async function directEdit(script, { settings = {}, usage, logFn = () => {
   const why = {};
   for (const x of r.rejected) why[x.why] = (why[x.why] || 0) + 1;
   if (r.rejected.length) logFn(`  Reddedilenler: ${Object.entries(why).slice(0, 6).map(([k, v]) => `${v}× ${k}`).join("; ")}`);
+  const peaks = peakCards(out.scenes);
+  if (peaks < PEAK_CARDS_MIN) logFn(`  Zirve karesi ${peaks}/${PEAK_CARDS_MIN}: durdurulup bakılacak yoğun veri karesi az (sıralı liste, ikonla sayım, ölçek, çok yerli harita)`);
   return { script: out, changes: r.accepted, rejected: r.rejected, cached: fromCache };
 }
 

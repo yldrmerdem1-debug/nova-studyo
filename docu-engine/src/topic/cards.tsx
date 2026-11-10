@@ -3,8 +3,42 @@ import { AbsoluteFill, Easing, interpolate, useCurrentFrame } from 'remotion';
 import { fitFont } from '../fonts';
 import { SoftPlate, clipOf } from '../fx';
 import type { FontKey, Genre, TitleScene } from '../types';
+import { alpha, mix } from '../looks/color';
+import { useLook } from '../looks/context';
+import { isLightVariant } from '../looks/variants';
 import { h01, morse, roman, rng, type TopicCtx } from './context';
-import { MorseRow, MotifTexture, contour, morseWidth, motifPalette, type MotifPalette } from './motifs';
+import { DEVICE_PLATE, MorseRow, MotifTexture, contour, devicePicture, morseWidth, motifPalette, type MotifPalette } from './motifs';
+
+/**
+ * The soft picture behind a device (explainer, UI card, chapter card): the scene's or chapter's related picture at
+ * brightness DEVICE_PLATE.brightness (>= 0.8) and opacity DEVICE_PLATE.opacity (>= 0.45); a light look lays its paper
+ * veil over it. Gimli 9ff721 önce/sonra, 29 Ekim 2026: şema ve bölüm kartı zemini neredeyse siyah — the explainer had no
+ * picture at all and the UI card's plate sat at brightness 0.25.
+ */
+export const DevicePlate: React.FC<{
+  pic?: { image?: string; video?: string; videoStart?: number; videoDur?: number; videoW?: number; videoH?: number };
+  P: Pick<MotifPalette, 'ground' | 'light'>;
+  durFrames: number;
+  opacity?: number;
+  focus?: [number, number];
+}> = ({ pic, P, durFrames, opacity = DEVICE_PLATE.opacity, focus }) => {
+  if (!pic || !(pic.image || pic.video)) return null;
+  return (
+    <>
+      <AbsoluteFill style={{ opacity }}>
+        <SoftPlate src={pic.image ?? ''} clip={clipOf(pic)} dim={DEVICE_PLATE.brightness} blur={DEVICE_PLATE.blur} zoom={DEVICE_PLATE.zoom} focus={focus} durFrames={durFrames} />
+      </AbsoluteFill>
+      {P.light ? <AbsoluteFill style={{ background: alpha(P.ground, DEVICE_PLATE.lightVeil * opacity) }} /> : null}
+    </>
+  );
+};
+
+/** A split-flap board in the look's own tones: mid-dark slate in a dark look, printed card in a light one (never #0b0c0b). */
+function boardTones(P: MotifPalette) {
+  return P.light
+    ? { face: mix(P.ground2, P.paperInk, 0.08), edge: mix(P.ground2, P.paperInk, 0.2), cell: mix(P.ground, '#ffffff', 0.55), seam: alpha(P.paperInk, 0.2), ink: P.paperInk, num: P.dim }
+    : { face: P.ground2, edge: mix(P.ground, '#ffffff', 0.14), cell: mix(P.ground, '#ffffff', 0.05), seam: alpha('#000000', 0.3), ink: '#f4f1e8', num: P.dim };
+}
 
 /*
  * CHAPTER CARDS in the topic's own language. Same contract as the engine's
@@ -147,7 +181,7 @@ const TelegraphCard: React.FC<CardProps> = ({ t, P, no, title, land, durFrames }
           padding: '40px 64px 54px',
           background: `linear-gradient(176deg, ${P.paper}, #d9ceb2)`,
           color: P.paperInk,
-          boxShadow: '0 40px 90px rgba(0,0,0,0.7), 0 2px 0 rgba(0,0,0,0.25)',
+          boxShadow: '0 40px 90px rgba(0,0,0,0.42), 0 2px 0 rgba(0,0,0,0.2)',
           transform: `translateY(${(1 - p) * 60}px) rotate(${-1.2 + (1 - p) * 2}deg)`,
           opacity: p,
         }}
@@ -185,9 +219,10 @@ const TickerCard: React.FC<CardProps> = ({ t, P, no, word, title, land, durFrame
   const tapeText = (tape.length ? tape : ['DOW']).join('   ▼   ');
   const shift = (f * 9) % 2400;
   const boardIn = interpolate(f, [0, land], [0, 1], { ...clamp, easing: ease });
+  const board = boardTones(P);
   return (
     <AbsoluteFill style={{ justifyContent: 'center', alignItems: 'center' }}>
-      <div style={{ padding: 26, background: '#0b0c0b', border: `3px solid #2b2a26`, boxShadow: '0 40px 90px rgba(0,0,0,0.75), inset 0 0 40px rgba(0,0,0,0.8)', opacity: boardIn, transform: `scale(${0.96 + 0.04 * boardIn})` }}>
+      <div style={{ padding: 26, background: board.face, border: `3px solid ${board.edge}`, boxShadow: '0 40px 90px rgba(0,0,0,0.42), inset 0 0 40px rgba(0,0,0,0.25)', opacity: boardIn, transform: `scale(${0.96 + 0.04 * boardIn})` }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: P.mono, fontSize: 22, letterSpacing: '0.3em', color: P.dim, marginBottom: 14 }}>
           <span>QUOTATIONS</span>
           <span style={{ color: P.accent }}>{`${word} ${String(no).padStart(2, '0')}`}</span>
@@ -206,15 +241,15 @@ const TickerCard: React.FC<CardProps> = ({ t, P, no, word, title, land, durFrame
                   style={{
                     width: cell,
                     height: Math.round(cell * (row === 1 ? 1.32 : 0.8)),
-                    background: '#161714',
-                    borderBottom: '2px solid #050505',
+                    background: board.cell,
+                    borderBottom: `2px solid ${board.seam}`,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     fontFamily: P.display,
                     fontWeight: 700,
                     fontSize: row === 1 ? cell * 0.95 : cell * 0.5,
-                    color: row === 1 ? '#f4f1e8' : '#5d5b54',
+                    color: row === 1 ? board.ink : board.num,
                     transform: `scaleY(${flip})`,
                   }}
                 >
@@ -225,7 +260,7 @@ const TickerCard: React.FC<CardProps> = ({ t, P, no, word, title, land, durFrame
           </div>
         ))}
       </div>
-      <div style={{ position: 'absolute', left: -40, right: -40, bottom: 120, height: 66, background: P.paper, transform: 'rotate(-2.5deg)', boxShadow: '0 12px 30px rgba(0,0,0,0.6)', overflow: 'hidden' }}>
+      <div style={{ position: 'absolute', left: -40, right: -40, bottom: 120, height: 66, background: P.paper, transform: 'rotate(-2.5deg)', boxShadow: '0 12px 30px rgba(0,0,0,0.38)', overflow: 'hidden' }}>
         <div style={{ position: 'absolute', top: 10, left: -shift, whiteSpace: 'nowrap', fontFamily: P.mono, fontSize: 38, letterSpacing: '0.12em', color: P.paperInk }}>
           {`${tapeText}   ▼   ${tapeText}   ▼   ${tapeText}   ▼   ${tapeText}`}
         </div>
@@ -338,7 +373,7 @@ const ElectricCard: React.FC<CardProps> = ({ P, no, title, land, durFrames }) =>
           <path d="M 300 840 H 740" pathLength={1} strokeDasharray={1} strokeDashoffset={1 - draw} />
         </g>
         {arcOn ? (
-          <path d={arc} fill="none" stroke="#ffffff" strokeWidth={3} style={{ filter: `drop-shadow(0 0 8px ${P.accent}) drop-shadow(0 0 22px ${P.accent})` }} />
+          <path d={arc} fill="none" stroke={P.light ? P.ink : '#ffffff'} strokeWidth={3} style={{ filter: `drop-shadow(0 0 8px ${P.accent}) drop-shadow(0 0 22px ${P.accent})` }} />
         ) : null}
         <text x={520} y={930} textAnchor="middle" fill={P.ink} fontFamily={P.display} fontStyle="italic" fontSize={40} opacity={draw}>
           Fig. {no}.
@@ -373,7 +408,7 @@ const CaseFileCard: React.FC<CardProps> = ({ t, P, no, word, title, land, durFra
         <div style={{ position: 'absolute', top: -58, left: 70, width: 420, height: 74, background: '#d4bf8f', borderRadius: '14px 14px 0 0', fontFamily: P.typed, fontSize: 32, color: P.paperInk, display: 'flex', alignItems: 'center', paddingLeft: 30, letterSpacing: '0.08em' }}>
           {`${word} ${String(no).padStart(2, '0')}`}
         </div>
-        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(170deg, #dcc596, #c8ae78)', boxShadow: '0 40px 90px rgba(0,0,0,0.75)' }} />
+        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(170deg, #dcc596, #c8ae78)', boxShadow: '0 40px 90px rgba(0,0,0,0.42)' }} />
         {ref ? <div style={{ position: 'absolute', top: 40, right: 60, fontFamily: P.typed, fontSize: 30, color: `${P.paperInk}cc`, letterSpacing: '0.1em' }}>{`REF: ${ref.toUpperCase()}`}</div> : null}
         <div style={{ position: 'absolute', left: 80, right: 80, top: 230, padding: '34px 40px', background: '#f3eee2', boxShadow: '0 4px 0 rgba(0,0,0,0.12)' }}>
           <Typed text={T} start={land + 2} per={per} style={{ fontFamily: P.typed, fontSize: tSize, color: P.paperInk, letterSpacing: '0.05em' }} cursor={P.paperInk} />
@@ -464,7 +499,7 @@ const SiegeCard: React.FC<CardProps> = ({ P, no, title, land, durFrames }) => {
   return (
     <AbsoluteFill style={{ justifyContent: 'center', alignItems: 'center' }}>
       <div style={{ position: 'relative', width: 1400, height: 660, opacity: p, transform: `scale(${0.97 + 0.03 * p})` }}>
-        <div style={{ position: 'absolute', inset: 0, background: `radial-gradient(ellipse at 50% 45%, ${P.paper} 30%, #c9ae7a 100%)`, boxShadow: '0 40px 100px rgba(0,0,0,0.8)' }} />
+        <div style={{ position: 'absolute', inset: 0, background: `radial-gradient(ellipse at 50% 45%, ${P.paper} 30%, #c9ae7a 100%)`, boxShadow: '0 40px 100px rgba(0,0,0,0.42)' }} />
         <div style={{ position: 'absolute', inset: 22, border: `3px solid ${P.paperInk}`, opacity: 0.8 }} />
         <div style={{ position: 'absolute', inset: 34, border: `1px solid ${P.paperInk}`, opacity: 0.6 }} />
         <svg width={1400} height={660} style={{ position: 'absolute', inset: 0 }}>
@@ -527,9 +562,19 @@ const CARDS: Record<string, React.FC<CardProps>> = {
   siege: SiegeCard,
 };
 
+/*
+ * Kartal Yuvası 950730 / Gimli 20261028-9ff721, 29 Ekim 2026: every chapter card was a near-black frame — the motif's
+ * night ground, the next shot at 55% opacity and brightness 0.32, then a 0.6 black ring — even in a paper look
+ * ('const light = false'). Cards now follow the look: a light look gets the motif's paper version; the next shot shows
+ * through (opacity ~0.8, dimmed only ~15%); the black ring is at most 0.3.
+ */
+export const CARD_PLATE = { opacity: 0.8, dim: 0.15, ring: 0.3, lightRing: 0.12, lightVeil: 0.55, scrim: 0.4 } as const;
+
 /** A chapter card in the topic motif: ground, the next shot blurred behind, texture, the motif's card. */
 export const MotifChapterCard: React.FC<{ t: TopicCtx; scene: TitleScene; genre: Genre; durFrames: number; locale: string; land: number }> = ({ t, scene, genre, durFrames, locale, land }) => {
-  const P = motifPalette(t, genre);
+  // The VIDEO's look decides (the card's own resolved genre is dark whenever the next shot sits behind it).
+  const light = genre.light === true || isLightVariant(genre.variant);
+  const P = motifPalette(t, genre, light);
   const kickerDigits = String(scene.kicker ?? '').match(/\d+/)?.[0];
   const no = scene.chapterNo ?? (scene.chapter != null ? scene.chapter + 1 : kickerDigits ? Number(kickerDigits) : 1);
   const word =
@@ -539,16 +584,33 @@ export const MotifChapterCard: React.FC<{ t: TopicCtx; scene: TitleScene; genre:
       .trim()
       .toUpperCase() || (locale.toLowerCase().startsWith('tr') ? 'BÖLÜM' : 'CHAPTER');
   const Card = CARDS[t.motif] ?? CipherCard;
-  const light = false;
+  /*
+   * Gimli 9ff721 önce/sonra, 29 Ekim 2026: şema ve bölüm kartı zemini neredeyse siyah ('NO PROCEDURE FOR THIS', 'A RUNWAY
+   * FROM MEMORY' on black-brown). The ground is the motif's MID-DARK tone now (luma >= 45), and the card takes the
+   * chapter's related picture from the look when the scene carries none of its own.
+   */
+  const look = useLook();
+  const pic = devicePicture(scene, look);
+  const pictured = !!pic;
   return (
     <AbsoluteFill style={{ background: `radial-gradient(ellipse at 50% 45%, ${P.ground} 0%, ${P.ground2} 120%)` }}>
-      {scene.image || scene.video ? (
-        <AbsoluteFill style={{ opacity: 0.55 }}>
-          <SoftPlate src={scene.image ?? ''} clip={clipOf(scene)} dim={0.32} blur={8} zoom={1.3} focus={[no % 2 ? 0.3 : 0.7, 0.6]} durFrames={durFrames} />
+      {pic ? (
+        <AbsoluteFill style={{ opacity: CARD_PLATE.opacity }}>
+          <SoftPlate src={pic.image ?? ''} clip={clipOf(pic)} dim={1 - CARD_PLATE.dim} blur={8} zoom={1.3} focus={[no % 2 ? 0.3 : 0.7, 0.6]} durFrames={durFrames} />
         </AbsoluteFill>
       ) : null}
+      {/* Where the title lands: a paper veil (light) or a soft wash of the motif's ground (dark) — never a black hole. */}
+      {pictured ? (
+        <AbsoluteFill
+          style={{
+            background: light
+              ? alpha(P.ground, CARD_PLATE.lightVeil)
+              : `radial-gradient(ellipse 58% 46% at 50% 50%, ${alpha(P.ground, CARD_PLATE.scrim)} 0%, ${alpha(P.ground, 0)} 100%)`,
+          }}
+        />
+      ) : null}
       <MotifTexture t={t} light={light} strength={1.6} />
-      <AbsoluteFill style={{ background: 'radial-gradient(ellipse 75% 65% at 50% 50%, rgba(0,0,0,0) 0%, rgba(0,0,0,0.6) 100%)' }} />
+      <AbsoluteFill style={{ background: `radial-gradient(ellipse 75% 65% at 50% 50%, rgba(0,0,0,0) 0%, rgba(0,0,0,${light ? CARD_PLATE.lightRing : CARD_PLATE.ring}) 100%)` }} />
       <Card t={t} P={P} no={no} word={word} title={String(scene.title ?? '').trim()} land={land} durFrames={durFrames} />
     </AbsoluteFill>
   );

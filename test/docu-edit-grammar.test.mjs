@@ -8,12 +8,19 @@ const A = await import('../docu-engine/lib/audio-director.mjs');
 
 const scene = (o) => ({ type: 'photo', say: 'x', mood: 'tension', energy: 3, chapter: 1, ...o });
 
-test('gravity: war, crashes and crime are grave; a science story is open; the script can override', () => {
+test('gravity: war, crashes and crime are grave; any other story is serious, open only on request', () => {
   assert.equal(A.storyGravity({ scenes: [] }, 'epic'), 'grave');
   const crash = { title: '1929', scenes: Array.from({ length: 10 }, () => ({ say: 'The market crashed and banks collapsed; men were ruined.' })) };
   assert.equal(A.storyGravity(crash, 'finance'), 'grave');
-  assert.equal(A.storyGravity({ title: 'Webb', scenes: [{ say: 'Light fell toward us for billions of years.' }] }, 'science'), 'open');
+  // KURAL DEĞİŞTİ (27 Ekim 2026): kanalların hepsi ciddi (haber, tarih, finans); 'open' yalnız istenince.
+  // Eskiden bu bilim hikâyesi 'open' çıkıyordu ve 'open' yalnız oyun müziğini dışarıda tutuyordu: Hormuz
+  // mayın haberinin altında hafif synth-pop (Videodrome), Lula seçiminin altında hafif latin parça çaldı.
+  assert.equal(A.storyGravity({ title: 'Webb', scenes: [{ say: 'Light fell toward us for billions of years.' }] }, 'science'), 'serious');
+  assert.equal(A.storyGravity({ musicGravity: 'serious', scenes: [] }, 'epic'), 'grave', "'serious' is a floor: an epic is still grave");
   assert.equal(A.storyGravity({ musicGravity: 'open', scenes: [] }, 'epic'), 'open');
+  // Mines, an attack, a blast: grave words now (Hormuz 8a1eca had 2.93 per 1000 words, under the old 3.0).
+  const mines = { title: 'Tankers hit mines', scenes: [{ say: 'Two tankers hit mines. An explosion, then a fire. The attack left two wounded. ' + 'The strait was quiet for hours that day. '.repeat(30) }] };
+  assert.equal(A.storyGravity(mines, 'documentary'), 'grave');
 });
 
 test('gravity: a grave story hears only grave or dramatic, serious, non-game tracks', () => {
@@ -25,7 +32,12 @@ test('gravity: a grave story hears only grave or dramatic, serious, non-game tra
   assert.equal(A.fitsGravity(t('dramatic', 0.3), 'grave'), false);
   assert.equal(A.fitsGravity(t('dramatic', 0.9, true), 'grave'), false, 'game-like');
   assert.equal(A.fitsGravity(t('heroic'), 'open'), true);
-  assert.equal(A.fitsGravity({ tags: {} }, 'grave'), true, 'untoned libraries still work');
+  // KURAL DEĞİŞTİ (27 Ekim 2026): etiketsiz parça artık geçmiyor (fail closed). "Dusty Road Magic"in ton
+  // etiketi yoktu ve bu yüzden her ağır havuzdaydı (sıcak Americana gitar).
+  assert.equal(A.fitsGravity({ tags: {} }, 'grave'), false, 'an untoned track never plays under a serious story');
+  assert.equal(A.fitsGravity({ tags: {} }, 'serious'), false);
+  assert.equal(A.fitsGravity(t('dramatic'), 'serious'), true, 'serious gates like grave');
+  assert.equal(A.fitsGravity(t('light'), 'serious'), false);
 });
 
 test('grammar: banned devices go, accents only on impacts and chapter turns, once per chapter in a grave story', () => {
@@ -43,8 +55,9 @@ test('grammar: banned devices go, accents only on impacts and chapter turns, onc
     ],
   };
   const r = G.applyEditGrammar(script, { gravity: 'grave' });
-  // the film's first beat is a turn too: a banned device there becomes a fade up from black
-  assert.deepEqual(script.scenes.map((s) => s.transition), ['blackout', 'whip', 'cut', 'cut', 'ink', 'blackout']);
+  // KURAL DEĞİŞTİ (29 Ekim 2026, Gimli 20261028-9ff721 / Kartal Yuvası 950730: %21-39 kare luma < 40): a banned device at
+  // a turn (the film's first beat, a new chapter) used to become a fade to black; it is a plain cut now.
+  assert.deepEqual(script.scenes.map((s) => s.transition), ['cut', 'whip', 'cut', 'cut', 'ink', 'cut']);
   assert.equal(r.transitions, 4);
   assert.deepEqual(script.transitionPalette, ['ink', 'whip']);
   assert.deepEqual(script.fxPalette, ['dust'], 'loud devices are never the engine default in a grave story');
@@ -113,21 +126,21 @@ test('breath: a chapter end, a toll, a slam or a quiet line lands before the cut
   const a = (o) => ({ type: 'photo', mood: 'tension', energy: 3, chapter: 0, dur: 3, voiceDur: 4, ...o });
   const scenes = [a({}), a({ type: 'counter' }), a({ mood: 'sad' }), a({}), a({ chapter: 1 })];
   assert.equal(G.breathAfter(scenes[0], scenes[1]), 0, 'a plain line keeps the old 0.4 s');
-  assert.equal(G.breathAfter(scenes[1], scenes[2]), 1.0);
-  assert.equal(G.breathAfter(scenes[2], scenes[3]), 0.9);
+  assert.equal(G.breathAfter(scenes[1], scenes[2]), 0.7);
+  assert.equal(G.breathAfter(scenes[2], scenes[3]), 0.7);
   assert.equal(G.breathAfter(scenes[3], scenes[4]), 1.4, 'the last line of a chapter');
   assert.equal(G.breathAfter(scenes[4], undefined), 0);
   const r = G.applyBreath({ scenes });
   assert.equal(r.scenes, 3);
-  assert.equal(scenes[1].dur, 5);
+  assert.equal(scenes[1].dur, 4.7);
   assert.equal(scenes[0].dur, 3, 'untouched');
 });
 
 test('cutaways: only climax picture lines, cut on spoken content words, never on a person or a held still', async () => {
   const I = await import('../docu-engine/lib/inserts.mjs');
   const wt = (text, step = 0.4) => text.split(' ').map((word, k) => ({ word, t: +(k * step).toFixed(2) }));
-  const guns = { type: 'photo', image: 'a.jpg', energy: 5, pace: 'rapid', mood: 'tension', say: 'Then the guns opened, and for fourteen hours they hardly stopped.', voiceDur: 4.6, wordTimes: wt('Then the guns opened, and for fourteen hours they hardly stopped.') };
-  const chart = { type: 'photo', image: 'b.jpg', energy: 4, pace: 'quick', mood: 'tension', say: 'At its far end, a thin black thread. What does it mean?', voiceDur: 4.6, wordTimes: wt('At its far end, a thin black thread. What does it mean?') };
+  const guns = { type: 'photo', image: 'a.jpg', imagePrompt: 'Cannons firing across a field', energy: 5, pace: 'rapid', mood: 'tension', say: 'Then the guns opened, and for fourteen hours they hardly stopped.', voiceDur: 4.6, wordTimes: wt('Then the guns opened, and for fourteen hours they hardly stopped.') };
+  const chart = { type: 'photo', image: 'b.jpg', imagePrompt: 'A long chart on a wall', energy: 4, pace: 'quick', mood: 'tension', say: 'At its far end, a thin black thread. What does it mean?', voiceDur: 4.6, wordTimes: wt('At its far end, a thin black thread. What does it mean?') };
   const person = { ...guns, name: 'Bagration' };
   const held = { ...guns, pace: 'hold' };
   const card = { ...guns, type: 'words', textMode: 'key' };

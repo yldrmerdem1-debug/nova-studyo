@@ -3,12 +3,13 @@ import { callJSON } from "../llm.js";
 import { demoSeo } from "../demo.js";
 import { fmtTime } from "../util.js";
 import { kunyeUret, muzikKunyesi } from "./kunye.js";
+import { storyAnchor, titleAnchorErrors } from "./docu-lint.js";
 
-const SEO_SCHEMA = {
+export const SEO_SCHEMA = {
   type: "object",
   properties: {
     titles: { type: "array", minItems:3, maxItems:5, uniqueItems:true, items: { type: "string", minLength:8, maxLength:70 }, description: "3-5 tıklanabilir başlık önerisi, 60 karakter altı" },
-    description: { type: "string", minLength:30, description: "YouTube açıklaması. İlk 2 satır kancayı atsın. {BOLUMLER} yazan yere bölüm zaman damgaları eklenecek. Sonda 3-5 hashtag." },
+    description: { type: "string", minLength:30, description: "YouTube açıklaması. İlk 2 satır kancayı atsın VE izleyicinin YouTube'da arayacağı ana kavramları doğal cümleyle içersin (olayın adı, yılı, kilit kişi/yer adları). {BOLUMLER} yazan yere bölüm zaman damgaları eklenecek. Sonda 3-5 hashtag." },
     tags: { type: "array", minItems:5, items: { type: "string", minLength:1 }, description: "12-20 etiket" },
     thumbnailText: { type: "string", minLength:2, description: "Thumbnail üzerine yazılacak 2-4 kelimelik vurucu ifade" },
     pinnedComment: { type: "string", minLength:15, pattern:"[?？]", description: "Sabitlenecek yorum: etkileşim sorusu" },
@@ -24,6 +25,9 @@ export async function runSeo(job, script, usage, logFn, options = {}) {
   if (job.demo) return demoSeo(job.topic, job.language);
   logFn("SEO paketi hazırlanıyor (başlık, açıklama, etiketler)...");
   const brief = scriptBrief(script);
+  // 26 Ekim 2026 (denizaltı videosu): başlık olayın adıyla ve yılıyla başlar; geri sayım ve dizi kendi kalıbını kullanır.
+  const a = script.format === "ranking" || job.docuSeries ? null : storyAnchor({ topic: job.topic, title: script.title, era: script.era });
+  const anchor = a?.names.length ? a : null;
   const out = await callJSON({
     ...(seoModel ? { model: seoModel } : {}),
     system: `Sen YouTube SEO uzmanısın. Video dili ${job.language === "tr" ? "Türkçe" : "İngilizce"} — başlık/açıklama/etiketler de o dilde olsun. Tıklanabilir ama clickbait-dürüst dengesi kur.`,
@@ -33,15 +37,18 @@ export async function runSeo(job, script, usage, logFn, options = {}) {
       `Tüm bölümlerin özeti (açılış, her sahne ve sonuç):\n${brief}`,
       engagementInstructions(job),
       `Başlık, kapak ve sabit yorum AYNI somut soruya bağlansın. İzleyicinin videoda alamayacağı bir cevap, sayı veya kesinlik vaat etme.`,
+      ...(anchor ? [`HER BAŞLIK olayın adıyla${anchor.year ? ` ve yılıyla (${anchor.year}, iki noktadan önce)` : ""} başlar, açı iki noktadan sonra gelir: "${anchor.year ? `The ${anchor.year} <olay>: <açı>` : "<Ad>: <açı>"}". İlk kelime ("The" hariç) şunlardan biri: ${anchor.names.slice(0, 8).join(", ")}. Başlıkta alıntı (tırnak) yok, konuyu saklayan gizem açılışı yok ("Why…", "How…", "The Night…", "Neither…").`] : []),
       `Her başlık için evidence içine titleIndex (0 tabanlı), segId (s0g0 gibi) ve o sahneden BİREBİR destekleyici kısa quote ekle. Alıntılar başlık vaadini gerçekten desteklemeli.`,
       `Sabit yorum videodaki belirli bir örnek/kanıt/karar hakkında cevaplanabilir TEK soru olsun; genel görüş veya abone isteği olmasın.`,
       ``,
       `Bu video için SEO paketi üret. description içinde tam olarak "{BOLUMLER}" yer tutucusunu bölümlerin geleceği satıra koy.`,
+      // YouTube Studio'nun kanal önerisi (Yom Kippur analizi, Ekim 2026): arama kavramları açıklamanın ilk satırlarında.
+      `description'ın İLK İKİ SATIRI hem kanca hem arama: izleyicinin bu konuyu ararken yazacağı 3-5 ana kavram (olayın yaygın adı ve varsa diğer adı, yılı, kilit kişi ve yer adları — ör. "Yom Kippur War", "1973 Arab-Israeli War", "Anwar Sadat", "Golda Meir") doğal cümle içinde geçsin; anahtar kelime listesi gibi sıralama. Bu kavramlar etiketlerde de olsun.`,
       `thumbnailText: kapağa basılacak EN FAZLA 4 KELİME. Başlığın kısaltılmışı DEĞİL,`,
       `merak uyandıran bir vuruş olsun ("30 YIL SONRA", "KİM YAZIYOR?", "TEK BİR SATIR YOK").`,
     ].join("\n"),
     schema: SEO_SCHEMA,
-    validate: out => validateSeoGrounding(out,script),
+    validate: out => [...(validateSeoGrounding(out,script) || []), ...(out.titles || []).flatMap((t,i) => titleAnchorErrors(t, anchor).map(x => `Başlık ${i}: ${x}`))],
     ...(options.request ? {request:options.request} : {}),
     // Tavan AÇIKÇA veriliyor. Çıktı küçük (başlık, açıklama, etiketler) ama
     // düşünme de aynı bütçeden yiyor ve varsayılana güvenmek senaryo hattında
@@ -124,16 +131,21 @@ export function renderSeoMarkdown(job, script, seo, sectionTimes, durationSec, m
   // üretilmiş drone oldukları için künyeye girmez (bkz. kunye.js).
   const mk = muzikler ? muzikKunyesi(muzikler, { dil: job.language }) : { metin: "" };
   const assemble = credits => [baseDescription.trim(),credits?.metin,mk.metin].filter(Boolean).join('\n\n');
-  let description=assemble(kunye),creditsCompacted=false;
+  let description=assemble(kunye),creditsCompacted=false,used=kunye;
   // YouTube descriptions stop at 5,000 characters. Keep every required
   // attribution and music license; shorten or omit optional public-domain
   // item lines only in the copy-paste block. Full provenance remains below.
   if(description.length>5000&&media){
-    description=assemble(kunyeUret(media,{dil:job.language,compact:true}));
+    description=assemble(used=kunyeUret(media,{dil:job.language,compact:true}));
     creditsCompacted=true;
   }
-  if(description.length>5000&&media)description=assemble(kunyeUret(media,{dil:job.language,mandatoryOnly:true}));
+  if(description.length>5000&&media)description=assemble(used=kunyeUret(media,{dil:job.language,mandatoryOnly:true}));
+  // Still too long (Hastings: 43 required credits = 20,197 characters): one line per licence, nothing dropped.
+  if(description.length>5000&&media)description=assemble(used=kunyeUret(media,{dil:job.language,grouped:true}));
   const tooLong=description.length>5000;
+  // The image credits' own notes ("Permission not verified: <clip>") went inside the block to viewers (Kartal Yuvası,
+  // Fransa, 24 Oct 2026): they are the publisher's, printed below it like the music ones.
+  const gorselUyari=[...new Set(used.warnings||[])];
   return [
     `# ${script.title}`,
     ``,
@@ -151,6 +163,7 @@ export function renderSeoMarkdown(job, script, seo, sectionTimes, durationSec, m
     "```",
     ``,
     // Publisher-only checks: never inside the copy-paste block above.
+    ...(gorselUyari.length ? [`**Yayın öncesi kontrol (görsel):**`, ...gorselUyari.map((u) => `- ${u}`), ``] : []),
     ...(mk.uyarilar?.length ? [`**Yayın öncesi kontrol (müzik):**`, ...mk.uyarilar.map((u) => `- ${u}`), ``] : []),
     `## Etiketler`,
     "```",

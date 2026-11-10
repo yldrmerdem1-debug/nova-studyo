@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 // @ts-ignore -- plain ESM shared with Node: the ONE full-bleed rule (effects/variety.js fullBleedOK).
 import * as varietyFit from './effects/variety.js';
 const { isLowResFootage, isLowResStill } = varietyFit as unknown as { isLowResFootage: (w?: number, h?: number) => boolean; isLowResStill: (w?: number, h?: number) => boolean };
@@ -19,10 +19,11 @@ import type { Genre, Pattern, TransitionKind, VideoRef } from './types';
 import { useSceneFx } from './effects/context';
 import { CameraPhoto } from './effects/photo';
 import { speedRampMap } from './effects/timing';
-import { useLook } from './looks/context';
+import { DEFAULT_LOOK, useLook } from './looks/context';
 import { useTopic } from './topic/context';
 import { MotifTexture } from './topic/motifs';
 import { applyGrade, gradeFilter } from './looks/grades';
+import { globalVignette } from './looks/resolve';
 
 const clamp = { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' } as const;
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
@@ -145,6 +146,18 @@ export interface Clip {
    * the same lift on screen — blacks stay black, the midtones open.
    */
   lift?: number;
+  /** Real footage (steadyFootage): played as filmed — no camera push, sway, cut-in or shake on it. */
+  steady?: boolean;
+}
+
+/**
+ * REAL FOOTAGE PLAYS STILL (channel owner, Oct 2026: "videolar gözükürken ekran titremesin, izleyen düzgünce izlesin").
+ * An archive or source clip (an eyewitness phone video, a news clip, the person's own words) already moves; the
+ * engine's tense-scene sway, impact shake, push and cut-ins on top of it made it hard to watch. Generated motion (an
+ * AI still brought to life) keeps the camera.
+ */
+export function steadyFootage(o?: { video?: string; archived?: boolean; sourceLabel?: string; sourceVoice?: unknown } | null): boolean {
+  return !!o?.video && !!(o.archived || o.sourceLabel || o.sourceVoice);
 }
 
 /** The clip a scene (or a montage cut / extra card) carries, or undefined when it is a still. */
@@ -159,7 +172,8 @@ export function clipOf(o?: Partial<VideoRef> | null, still?: string): Clip | und
   // ENGINE GUARD: a clip whose still had to be lifted is dark footage — lift the clip too (gamma from the pipeline, else a typical 1.65 — a still lifted at Y~33).
   const g = Number(o.liftGamma);
   const lift = g > 1.01 ? Math.min(1.9, g) : st && /\.lift\.jpg$/i.test(st) ? 1.65 : undefined;
-  return { src: o.video, start, end, w: o.videoW, h: o.videoH, still: st, ...(lift ? { lift } : {}) };
+  const steady = steadyFootage(o as Parameters<typeof steadyFootage>[0]);
+  return { src: o.video, start, end, w: o.videoW, h: o.videoH, still: st, ...(lift ? { lift } : {}), ...(steady ? { steady } : {}) };
 }
 
 /**
@@ -232,8 +246,12 @@ const ClipMedia: React.FC<{ clip: Clip; still?: string; durFrames: number; style
   const [failed, setFailed] = useState(false);
   // Speed ramp (effects): a time remap of the playing part, same footage, slow motion on the scene's hit.
   const sfx = useSceneFx(durFrames);
-  const rampPlay = sfx?.fx.has('speed-ramp') ? clipTiming(clip, durFrames, fps).play : 0;
-  const ramp = useMemo(() => (rampPlay > 8 ? speedRampMap(rampPlay, sfx?.hit ?? null) : null), [rampPlay, sfx?.hit]);
+  // Real footage (clip.steady) runs at its own speed: no slow-motion ramp, no creeping push on its held tail.
+  const rampPlay = sfx?.fx.has('speed-ramp') && !clip.steady ? clipTiming(clip, durFrames, fps).play : 0;
+  // No real hit (effects/timing.ts mainHit is strict now) = no ramp: the clip plays at 1x instead of slowing at 45%.
+  // Gimli 20261028-9ff721 / Kartal Yuvası 950730, 29 Ekim 2026.
+  const rampHit = sfx?.hit ?? null;
+  const ramp = useMemo(() => (rampPlay > 8 && rampHit !== null ? speedRampMap(rampPlay, rampHit) : null), [rampPlay, rampHit]);
   // Stable identity: OffthreadVideo refetches its frame whenever onError changes.
   const onError = useCallback(
     (e: Error) => {
@@ -278,7 +296,7 @@ const ClipMedia: React.FC<{ clip: Clip; still?: string; durFrames: number; style
   const holding = f >= t.play;
   // The freeze keeps creeping in, so a held frame never reads as a stalled render.
   const tailSec = Math.max(0, (durFrames - t.play) / fps);
-  const push = holding ? interpolate(f, [t.play, Math.max(t.play + 1, durFrames)], [1, 1 + Math.min(0.08, 0.025 * tailSec)], clamp) : 1;
+  const push = holding && !clip.steady ? interpolate(f, [t.play, Math.max(t.play + 1, durFrames)], [1, 1 + Math.min(0.08, 0.025 * tailSec)], clamp) : 1;
   return (
     <div style={wrap}>
       {liftDefs}
@@ -311,11 +329,26 @@ const ClipMedia: React.FC<{ clip: Clip; still?: string; durFrames: number; style
   );
 };
 
+/**
+ * The scene mood's colour shift (moods.json grade), provided by the Engine around one scene and read ONLY by the
+ * pictures (Media, LayeredPhoto). Gimli 20261028-9ff721 / Kartal Yuvası 950730, 29 Ekim 2026: the mood filter wrapped
+ * the whole scene — type, cards and devices went grey and dim with the photo on every dread/sad scene.
+ */
+export const PictureMoodContext = React.createContext<string>('');
+
+/** A picture's filter with the mood shift appended (the mood never touches type). */
+const withMood = (filter: string | undefined, mood: string): string | undefined => (mood ? [filter, mood].filter(Boolean).join(' ') : filter);
+
 /** A still, or the clip when there is one — same framing, same grade. */
 export const Media: React.FC<{ src?: string; clip?: Clip; durFrames: number; style: React.CSSProperties }> = ({ src, clip, durFrames, style: raw }) => {
   // The scene's grade (src/looks): the duotone reference is swapped for it; blur, brightness etc. stay.
-  const grade = useLook().grade;
-  const style = grade === 'duotone' ? raw : { ...raw, filter: applyGrade(raw.filter as string | undefined, grade) };
+  // No look at all (outside the Engine) = no grade = natural colour (grades.tsx NO_GRADE_FILTER), never the duotone.
+  const look = useLook();
+  const grade = look === DEFAULT_LOOK ? undefined : look.grade;
+  const mood = useContext(PictureMoodContext);
+  const graded = grade === 'duotone' ? (raw.filter as string | undefined) : applyGrade(raw.filter as string | undefined, grade);
+  const filter = withMood(graded, mood);
+  const style = filter === raw.filter ? raw : { ...raw, filter };
   return clip ? <ClipMedia clip={clip} still={clip.still ?? src} durFrames={durFrames} style={style} /> : <SafeImg src={src ?? ''} style={style} />;
 };
 
@@ -441,7 +474,9 @@ export const Photo: React.FC<{
   const { width, height } = useVideoConfig();
   // The scene's own full-frame picture under the camera system (fit + camera vocabulary): effects/photo.tsx.
   const cam = useSceneFx(durFrames, fill);
-  if (cam?.camera) {
+  // Real footage (clip.steady): no camera vocabulary, no push, no cut-ins — it plays as filmed.
+  const steady = !!clip?.steady;
+  if (cam?.camera && !steady) {
     return (
       <CameraPhoto
         src={src}
@@ -483,7 +518,7 @@ export const Photo: React.FC<{
     const fit = Math.min((width * 0.9) / w0, (safeH ?? height * 0.86) / h0);
     const shown = Math.min(fit, maxUp);
     const room = Math.max(1, maxUp / shown);
-    const s = Math.min(1 + push * (clip ? 0.25 : 0.5) * speed * t, room);
+    const s = steady ? 1 : Math.min(1 + push * (clip ? 0.25 : 0.5) * speed * t, room);
     return (
       <AbsoluteFill>
         <SoftPlate src={src} natural={natural} durFrames={durFrames} clip={clip} />
@@ -510,7 +545,7 @@ export const Photo: React.FC<{
     );
   }
 
-  const passed = reframes.filter((r) => f >= r).length;
+  const passed = steady ? 0 : reframes.filter((r) => f >= r).length;
   const isTight = passed % 2 === 1;
   const aim = isTight ? aims[passed - 1] ?? [0, 0] : [0, 0];
   const ox = clamp01(fc[0] + aim[0]) * 100;
@@ -523,7 +558,7 @@ export const Photo: React.FC<{
    * an edge) and creeps at most to 1.06: a still's 16% push on top of a
    * moving shot reads as a zoom, not a camera.
    */
-  const base = clip ? 1.02 + Math.min(0.04, push * 0.33 * speed) * t : 1.04 + push * speed * t;
+  const base = steady ? 1 : clip ? 1.02 + Math.min(0.04, push * 0.33 * speed) * t : 1.04 + push * speed * t;
   // A borrowed crop is already tight: its cut-ins go half as far, so the pair never over-magnifies.
   const k = crop && crop > 1 ? Math.min(crop, 1.8) : 1;
   const cut = isTight ? (k > 1 ? 1 + (tight - 1) * 0.5 : tight) : 1;
@@ -577,7 +612,9 @@ export const LayeredPhoto: React.FC<{
   const fy = (box[1] + (box[3] - box[1]) * 0.25) * 100;
   const origin = `${fx}% ${fy}%`;
   const look = useLook();
-  const grade = natural ? 'contrast(1.06)' : gradeFilter(look.grade);
+  const mood = useContext(PictureMoodContext);
+  const graded = natural ? 'contrast(1.06)' : gradeFilter(look === DEFAULT_LOOK ? undefined : look.grade);
+  const grade = withMood(graded, mood) ?? graded;
   const bgMove = interpolate(t, [0, 1], [-22, 22]) * speed;
   const fgMove = interpolate(t, [0, 1], [14, -30]) * speed;
   return (
@@ -762,14 +799,22 @@ export const Dust: React.FC = () => {
   );
 };
 
-export const Vignette: React.FC<{ strength: number }> = ({ strength }) => (
-  <AbsoluteFill
-    style={{
-      pointerEvents: 'none',
-      background: `radial-gradient(ellipse at center, rgba(0,0,0,0) 42%, rgba(0,0,0,${strength}) 100%)`,
-    }}
-  />
-);
+/**
+ * The film's one global vignette, capped at VIGNETTE_MAX (looks/resolve.ts globalVignette). Gimli 20261028-9ff721 /
+ * Kartal Yuvası 950730, 29 Ekim 2026: variants drew 0,6-0,9 here, a black ring on every frame of the video.
+ */
+export const Vignette: React.FC<{ strength: number }> = ({ strength }) => {
+  const k = globalVignette(strength);
+  if (k <= 0.005) return null;
+  return (
+    <AbsoluteFill
+      style={{
+        pointerEvents: 'none',
+        background: `radial-gradient(ellipse at center, rgba(0,0,0,0) 48%, rgba(0,0,0,${k}) 100%)`,
+      }}
+    />
+  );
+};
 
 /** Hard ceiling on a flicker dip: past ~30% black it stops reading as a bad bulb and starts reading as a broken file. */
 export const FLICKER_MAX = 0.3;

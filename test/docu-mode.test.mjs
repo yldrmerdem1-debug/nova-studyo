@@ -420,7 +420,9 @@ test('writers get the whole research (hook material lives past 9k chars); the ma
 });
 
 /** A fake model with llm.js semantics: validate may fix in place; errors → retry; 3 strikes → throw. */
-function fakeModel({ chapterWords = () => 214, onCall = () => {}, failChapter = -1 } = {}) {
+// Default: every chapter is written to its own target (the opening chapter is shorter since Oct 2026).
+const targetOf = (opts) => Number(/toplam (\d+) kelime anlatım/.exec(opts.user)?.[1] || 214);
+function fakeModel({ chapterWords = (i, attempt, opts) => targetOf(opts), onCall = () => {}, failChapter = -1 } = {}) {
   const calls = [];
   const llm = async (opts) => {
     calls.push(opts);
@@ -428,6 +430,8 @@ function fakeModel({ chapterWords = () => 214, onCall = () => {}, failChapter = 
     let lastErrors = [];
     for (let attempt = 1; attempt <= 3; attempt++) {
       if (opts.isCancelled?.()) throw new Error('cancelled');
+      if (opts.schema?.properties?.edits) return { edits: [] }; // son okuma (docu-editor-pass.js)
+      if (opts.schema?.properties?.patches) return { verdict: '', promise: '', patches: [] }; // plan editörü (docu-plan-editor.js)
       const isScenes = !!opts.schema?.properties?.scenes;
       const parsed = isScenes ? fakeChapter(opts, attempt, chapterWords, failChapter) : fakeBible(opts);
       const errors = opts.validate?.(parsed) || [];
@@ -454,7 +458,7 @@ function fakeChapter(opts, attempt, chapterWords, failChapter) {
   const i = Number(opts.user.match(/BÖLÜM (\d+)\/\d+/)[1]) - 1;
   if (i === failChapter) throw Object.assign(new Error('Anthropic 529 overloaded'), { status: 529 });
   const extending = /UZAT: en az (\d+) kelime/.test(opts.user);
-  const words = extending ? Number(/toplam ~(\d+) kelime\)/.exec(opts.user)[1]) + 5 : chapterWords(i, attempt);
+  const words = extending ? Number(/toplam ~(\d+) kelime\)/.exec(opts.user)[1]) + 5 : chapterWords(i, attempt, opts);
   const genre = opts.system?.[0]?.text?.match(/KURGU STİLİ: .*?\((\w+)\)/)?.[1] || 'documentary';
   const scenes = [];
   if (i === 0) {
@@ -483,7 +487,9 @@ test('the writer: long-form bible, genre brief, full research, cached prefix, co
   const research = 'R'.repeat(15000) + ' HOOK-MARKER';
   const script = await DS.runDocuScript(longJob({ docuGenre: 'horror' }), research, {}, () => {}, { dir, llm });
   const plan = DS.docuPlan(longJob());
-  const [bibleCall, ...chapterCalls] = calls;
+  assert.equal(calls.filter((c) => c.schema?.properties?.patches).length, 1, 'the plan is reviewed once, before any chapter');
+  const [bibleCall, ...chapterCalls] = calls.filter((c) => !c.schema?.properties?.edits && !c.schema?.properties?.patches);
+  assert.equal(calls.filter((c) => c.schema?.properties?.edits).length, 1, 'one final editorial read of the whole script');
   assert.match(bibleCall.user, /centralQuestion/);
   assert.match(bibleCall.user, /10 dk; bölüm başı ~100 sn/);
   assert.equal(chapterCalls.length, plan.chapters, 'chapters are written one by one');
@@ -507,10 +513,11 @@ test('the writer: long-form bible, genre brief, full research, cached prefix, co
 
 test('a short chapter is sent back with "N kelime daha ekle"; if it stays short the extension pass lengthens it with its JSON', async () => {
   const seen = [];
-  const { llm, calls } = fakeModel({ chapterWords: (i) => (i === 1 ? 120 : 214), onCall: (o) => seen.push(o) });
+  const { llm, calls } = fakeModel({ chapterWords: (i, attempt, o) => (i === 1 ? 120 : targetOf(o)), onCall: (o) => seen.push(o) });
   const script = await DS.runDocuScript(longJob(), 'araştırma', {}, () => {}, { llm });
   const ch2 = seen.find((o) => /BÖLÜM 2\/\d+/.test(o.user) && !/UZAT/.test(o.user));
-  assert.match(ch2.errorsSeen.join(), /bölüm 2: 120\/214 kelime — 94 kelime daha ekle/);
+  const t2 = targetOf(ch2);
+  assert.match(ch2.errorsSeen.join(), new RegExp(`bölüm 2: 120/${t2} kelime — ${t2 - 120} kelime daha ekle`));
   const ext = calls.filter((c) => /UZAT/.test(c.user));
   assert.ok(ext.length >= 1, 'the extension pass ran');
   assert.match(ext[0].user, /MEVCUT BÖLÜM JSON/);
@@ -527,14 +534,15 @@ test('chapters persist and resume: a failure keeps written chapters, a resumed r
   const second = fakeModel();
   const script = await DS.runDocuScript(longJob(), 'araştırma', {}, () => {}, { dir, llm: second.llm });
   const n = DS.docuPlan(longJob()).chapters;
-  assert.equal(second.calls.length, n - 3, 'bible and chapters 1-3 come from disk');
+  assert.equal(second.calls.length, n - 3 + 1, 'bible and chapters 1-3 come from disk (+ the final read)');
   assert.equal(script.chapters.length, n);
   const third = fakeModel();
   await DS.runDocuScript(longJob(), 'araştırma', {}, () => {}, { dir, llm: third.llm });
   assert.equal(third.calls.length, 0, 'a finished script is rebuilt for free');
   const changed = fakeModel();
   await DS.runDocuScript(longJob({ guidance: 'başka bir odak' }), 'araştırma', {}, () => {}, { dir, llm: changed.llm });
-  assert.equal(changed.calls.length, 1 + n, 'a changed job never reuses stale chapters');
+  // The rewritten chapters read word for word like the old ones here, so the final read is reused (same text, same edits).
+  assert.equal(changed.calls.filter((c) => !c.schema?.properties?.patches).length, 1 + n, 'a changed job never reuses stale chapters');
 });
 
 test('cancel stops the writer between chapters', async () => {

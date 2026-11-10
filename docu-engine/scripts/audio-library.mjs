@@ -136,6 +136,10 @@ export function measure(file, o = {}) {
   return out;
 }
 
+/* Licence a new music entry carries. English, because it reaches English descriptions as written (Kartal Yuvası,
+   24 Oct 2026); kunye.js muzikKunyesi reads this and the older 'YouTube Ses Kitaplığı — atıf gerekmez' alike. */
+export const musicLicense = (source) => (source === 'youtube-audio-library' ? 'YouTube Audio Library — no attribution required' : '');
+
 function ingestMusic(dir, source) {
   mkdirSync(MUSIC, { recursive: true });
   const have = new Set(load().music.map((m) => m.id));
@@ -161,7 +165,7 @@ function ingestMusic(dir, source) {
     copyFileSync(src, join(ROOT, file));
     let m;
     try { m = measure(join(ROOT, file)); } catch (e) { console.log('ölçülemedi', f, e.message.slice(0, 80)); continue; }
-    batch.push({ id, file, title: title.trim(), artist, source, license: source === 'youtube-audio-library' ? 'YouTube Ses Kitaplığı — atıf gerekmez' : '', ...m, tags: null });
+    batch.push({ id, file, title: title.trim(), artist, source, license: musicLicense(source), ...m, tags: null });
     have.add(id);
     added++;
     if (added % 20 === 0) { flush(); console.log('eklendi', added); }

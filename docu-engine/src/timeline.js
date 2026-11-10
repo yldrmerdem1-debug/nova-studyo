@@ -266,14 +266,62 @@ export function duckCurve(ranges, total, { depth, attack, release }) {
 
 /* ============================================================== music bed */
 
+/**
+ * Bed depth under narration by the scene's mood, relative to the base.
+ * MEASURED (27 Ekim 2026, ses denetimi; Çernobil 20261026-24122a, Fransa 20261020-37f9d2): one depth for every
+ * mood (0.28 = -11 dB) left the bed only ~13.5 dB under the voice (loudest tenth ~11.5 dB); the rulebook and the
+ * research ask >= 18 dB for dense narration. With base 0.55 (-5.2 dB), the score at -16 LUFS and the voice at
+ * -19 these put the bed ~19.3 dB (sad/calm), ~17.6 dB (curious), ~16.2 dB (tension/dread) and ~15.3 dB
+ * (reveal/triumph) under the voice: grief and calm lines get the most room, tension and reveal a little body.
+ */
+export const DUCK_BY_MOOD = { sad: 0.14, calm: 0.14, curious: 0.17, tension: 0.2, dread: 0.2, reveal: 0.22, triumph: 0.22 };
+
 /** Music mix constants (frames at 30 fps unless noted). */
 export const MIX = {
-  /** Bed level under narration, relative to the base: ~ -11 dB. */
-  duck: 0.28,
+  /** Bed level under narration for a scene without a known mood (DUCK_BY_MOOD otherwise): ~ -15.4 dB. */
+  duck: 0.17,
+  /** Into a passage from a short-pause lift (~5 dB down) ... */
   attack: 5,
+  /** ... and from a fully open bed (~15-17 dB down): 0.4 s, back under the voice just before the first word. */
+  openAttack: 12,
+  /** Ambience beds (ambienceEnvelope) release this fast after a passage. */
   release: 20,
-  /** Lines closer than this (1.2 s) are one continuous passage. */
-  mergeGap: 36,
+  /**
+   * Lines closer than this (2 s) are one continuous passage. At 1.2 s the bed rose 7 times in Chernobyl and
+   * 9 times in France inside ordinary breaths (measured 27 Ekim 2026); hold through gaps < 1.5-2 s.
+   */
+  mergeGap: 60,
+  /**
+   * A pause shorter than `openGap` (4 s) may lift the bed at most +5 dB (x1.78 of its duck), reached over
+   * `liftRise` frames and held — never a full release. Measured: in 1.2-4 s pauses the bed climbed the full
+   * 11 dB to speech level (France 7:31.7: -26 -> -15 dBFS in ~1 s). Rulebook: "beds may rise at most +5 dB".
+   */
+  liftMax: 1.78,
+  liftRise: 25,
+  openGap: 120,
+  /** Pauses >= 4 s, chapter cards, music windows and the closing hold open to full over this. */
+  openRise: 36,
+  /**
+   * Music windows: after an emotional peak line (energy 5, mood reveal/sad/triumph, the last line of a
+   * chapter) a pause of at least `windowMin` (3 s) opens fully even under 4 s — the score speaks after the
+   * line has landed (Murch). About one per `windowEvery` (90 s); measured, music was up front only 4-5% of
+   * the runtime and never after the emotional lines.
+   */
+  windowMin: 90,
+  windowEvery: 2700,
+  /**
+   * Quotes and grief lines (scene.grief, or GRIEF in the narration): the bed comes down TO a level, not by a
+   * fixed factor — `griefDuck` (0.14, the sad duck: ~20-21 dB under the voice) on a death line, `quoteDuck`
+   * (0.12) under a quote — `griefIn` frames before the first word, recovering over `griefOut` after the line.
+   * A line already at that depth (a sad scene) does not dip again. An emotional quote (mood sad/reveal,
+   * energy <= 2) stops the music (the ambience stays). Measured 27 Ekim 2026: the bed played at full duck under
+   * "The work killed twelve" (Kartal Yuvası 20261024-950730); the first fix (duck x0.4 on top of the sad duck
+   * and the selector's -3 dB) put a death line's mournful track ~31 dB under the voice — inaudible, not felt.
+   */
+  griefDuck: 0.14,
+  quoteDuck: 0.12,
+  griefIn: 10,
+  griefOut: 36,
   /**
    * Stop-down: the bed ramps out over [hit-35, hit-30] (a ~150 ms ramp, the
    * rulebook's slam protocol) and is TRULY silent for the last second before
@@ -283,17 +331,24 @@ export const MIX = {
   stopLevel: 0,
   stopFrom: 35,
   stopTo: 30,
-  /** ... and comes back ON the hit, then holds (~1.2 s) before settling under the voice. */
-  swell: 0.9,
-  swellCapped: 0.55,
-  swellAttack: 3,
-  swellHold: 36,
-  swellRelease: 20,
+  /**
+   * ... and stays out while the hit's tail rings (`hitTail`, 1.5 s), then returns over `hitReturn` (1.5 s)
+   * to whatever the voice allows. It used to swell back ON the hit (+10 dB in 0.1 s, held 1.2 s): measured
+   * 27 Ekim 2026 the music re-entered ~0.1 s after the hit, against the rulebook's "the tail rings, then
+   * music returns over 1.5 s" — on "The work killed twelve" that stack was the loudest moment of the stretch.
+   */
+  hitTail: 45,
+  hitReturn: 45,
   /** A `silence` scene: out over 6 frames, back over 36 (not a 4-frame jump mid-phrase). */
   silenceOut: 6,
   silenceIn: 36,
-  /** The last 2.5 s fade to nothing, so the video never ends on a cut-off bar. */
-  endFade: 2.5,
+  /** The composed (non-library) score's end fade, = audio-director SCORE_FADE_OUT (3.5 s). */
+  endFade: 105,
+  /*
+   * No end fade here: renderScore (audio-director.mjs) owns the single final fade (3.5 s, equal power).
+   * Both fading made it quadratic (-12 dB at half way instead of -6; measured 27 Ekim 2026, the closing
+   * music dropped away ~1 s early under the sonic logo).
+   */
   /** Ambience beds sit ~4 dB lower under narration. */
   ambienceDuck: 0.63,
   /** Beds come back this long after a slam hit (its tail rings alone first), over `bedReturn` frames. */
@@ -306,17 +361,148 @@ export const MIX = {
 
 const isTag = (w) => /^\[.*\]$/.test(w) || /^[—–-]+$/.test(w);
 
-/**
- * Frame (scene-local) of the first spoken word after `localF`, or null. Tells
- * whether a post-hit swell would run over the narrator.
+/* ------------------------------------------------------- grief and gravity */
+
+/*
+ * GRIEF: the narration states a real death or loss — the shared contract with the pipeline (scene.grief) and
+ * the audio director; copied here because this file is bundled for the browser (no Node imports). A negated
+ * or zero toll ("no one was killed") is checked first, per sentence.
  */
-function nextWordAfter(scene, localF, fps) {
-  for (const w of scene.wordTimes ?? []) {
-    if (isTag(w.word)) continue;
-    const f = Math.round(w.t * fps);
-    if (f > localF + 1) return f;
+const GRIEF = /\b(died|dies|dying|killed|kills|dead|deaths?|death toll|funeral|buried|burial|mourn\w*|victims?|perished|executed|suicide|lost (?:his|her|their) li(?:fe|ves)|never (?:came|come) home)\b/i;
+const NOT_GRIEF = /\b(no|not|never|nobody|no one|none|without|zero)\b[^.!?]{0,40}\b(killed|died|dead|deaths?|injur\w*|casualt\w*|victims?)\b/i;
+/* Not a death that happened: a question, a condition, a legend or a claim (= audio-director GRIEF_UNREAL). */
+const GRIEF_UNREAL = /\?\s*$|\b(if|unless|whether|legend\w*|myths?|mythical|rumou?r\w*|hoax|invented|fabricated|supposedly|claimed|alleged\w*)\b/i;
+/* "Not one of the eight musicians survived": a death line (= audio-director NO_SURVIVOR). */
+const NO_SURVIVOR = /\b(not one|none|no one|nobody|did not|didn't|never|not a single)\b[^.!?]{0,40}\bsurviv\w*/i;
+
+/** True when a sentence of `text` (voice tags ignored) states a death or loss. */
+export function griefText(text) {
+  return String(text ?? '')
+    .replace(/\[[^\]]*\]/g, ' ')
+    .split(/(?<=[.!?])\s+/)
+    .some((s) => ((GRIEF.test(s) && !NOT_GRIEF.test(s)) || NO_SURVIVOR.test(s)) && !GRIEF_UNREAL.test(s.trim()));
+}
+/** A grief line: the pipeline's flag (an explicit false wins over the words), else the fallback regex. */
+export const isGrief = (s) => !!s && (s.grief === true || (s.grief !== false && griefText(s.say)));
+/**
+ * A grave moment: the scene's mood is sad or calm, or this or one of the next two lines states a death.
+ * Rulebook: "There are no hits under calm or sad moods"; never a stinger under deaths or victims.
+ * @param {string} [mood]  the mood that decides (a chapter card passes its incoming chapter's)
+ */
+export function graveAt(scenes, i, mood = scenes[i]?.mood) {
+  if (mood === 'sad' || mood === 'calm') return true;
+  for (let j = i; j <= i + 2 && j < scenes.length; j++) if (isGrief(scenes[j])) return true;
+  return false;
+}
+
+/* ------------------------------------------------------------ bed curve */
+
+/** Scene-local frame of the first spoken word (voice tags skipped), 0 when unknown. */
+function firstWordAt(scene, fps) {
+  for (const w of scene.wordTimes ?? []) if (!isTag(w.word)) return Math.max(0, Math.round(w.t * fps));
+  return 0;
+}
+
+/** dB-linear (geometric) step from g0 to g1 at t in 0..1: a duck that moves evenly to the ear. */
+const glide = (g0, g1, t) => (g0 > 0 && g1 > 0 ? g0 * Math.pow(g1 / g0, Math.min(1, Math.max(0, t))) : g0 + (g1 - g0) * Math.min(1, Math.max(0, t)));
+
+/** An emotional peak line: the music may speak in the pause after it. */
+const peakLine = (scenes, i) => {
+  const s = scenes[i];
+  if (!s) return false;
+  if (s.energy === 5 || s.mood === 'reveal' || s.mood === 'sad' || s.mood === 'triumph') return true;
+  // The last line of a chapter: no later line in the same chapter.
+  for (let j = i + 1; j < scenes.length; j++) {
+    if (scenes[j].chapterCard || chapterOf(scenes[j]) !== chapterOf(s)) return true;
+    if (scenes[j].voice && scenes[j].voiceDur) return false;
   }
-  return null;
+  return true;
+};
+
+/**
+ * The bed under the narration, before stops and dips (0..1, base not applied):
+ *  - inside a passage: the mood's duck depth (DUCK_BY_MOOD), gliding over ~0.7 s where the mood changes;
+ *  - a pause < 4 s: lifts at most +5 dB (depth x1.78) over 25 frames and holds;
+ *  - a pause >= 4 s, one holding a chapter card, a music window, the closing hold: opens to full over 36;
+ *  - before the first line: full, down under the voice over 0.4 s.
+ * @returns {{env: Float32Array, depth: Float32Array, pauses: {a:number, b:number, level:number, open:boolean, window:boolean}[]}}
+ */
+export function bedCurve({ placed, scenes, fps }) {
+  const total = placed.length ? placed[placed.length - 1].from + placed[placed.length - 1].frames : 0;
+  const k = fps / 30;
+  const fr = (n) => Math.max(1, Math.round(n * k));
+  // Per-frame depth from the scene on screen, smoothed (moving average) so a mood change mid-passage glides.
+  const raw = new Float32Array(total).fill(MIX.duck);
+  placed.forEach((p, i) => {
+    const d = DUCK_BY_MOOD[scenes[i]?.mood] ?? MIX.duck;
+    for (let f = Math.max(0, p.from); f < Math.min(total, p.from + p.frames); f++) raw[f] = d;
+  });
+  const depth = new Float32Array(total);
+  const half = fr(10);
+  let sum = 0;
+  let lo = 0;
+  let hi = -1;
+  for (let f = 0; f < total; f++) {
+    while (hi < Math.min(total - 1, f + half)) sum += raw[++hi];
+    while (lo < f - half) sum -= raw[lo++];
+    depth[f] = sum / (hi - lo + 1);
+  }
+
+  // Passages: lines closer than mergeGap are one; each remembers the line that ends it.
+  const lines = [];
+  placed.forEach((p, i) => {
+    const s = scenes[i];
+    if (s?.voice && s.voiceDur) lines.push({ a: p.from, b: Math.min(total, p.from + Math.round(s.voiceDur * fps)), i });
+  });
+  lines.sort((x, y) => x.a - y.a);
+  const gap = fr(MIX.mergeGap);
+  const passages = [];
+  for (const l of lines) {
+    const prev = passages[passages.length - 1];
+    if (prev && l.a - prev.b < gap) {
+      if (l.b >= prev.b) prev.last = l.i;
+      prev.b = Math.max(prev.b, l.b);
+    } else passages.push({ a: l.a, b: l.b, last: l.i });
+  }
+
+  const env = new Float32Array(total).fill(1);
+  if (!passages.length) return { env, depth, pauses: [] };
+  const cards = placed.filter((p, i) => scenes[i]?.chapterCard).map((p) => [p.from, p.from + p.frames]);
+  const pauses = [];
+  let lastWindow = -Infinity;
+  for (let n = 0; n < passages.length; n++) {
+    const { a, b, last } = passages[n];
+    for (let f = Math.max(0, a); f < Math.min(total, b); f++) env[f] = depth[f];
+    const next = passages[n + 1]?.a ?? total;
+    const len = next - b;
+    if (len <= 0) continue;
+    const closing = n === passages.length - 1;
+    const card = cards.some(([x, y]) => x < next && y > b);
+    const peak = !closing && peakLine(scenes, last);
+    const long = closing || card || len >= fr(MIX.openGap);
+    // A window: a peak line's pause long enough to hold one, about 90 s from the last. A long pause after a
+    // peak line opens anyway, and spends the budget like one.
+    const spaced = b - lastWindow >= fr(MIX.windowEvery);
+    const window = !long && peak && spaced && len >= fr(MIX.windowMin);
+    if (peak && spaced && (window || long)) lastWindow = b;
+    const open = long || window;
+    const from = depth[Math.max(0, b - 1)];
+    const to = closing ? 1 : depth[Math.min(total - 1, next)];
+    const level = open ? 1 : Math.min(1, from * MIX.liftMax);
+    const rise = fr(open ? MIX.openRise : MIX.liftRise);
+    const fall = closing ? 0 : fr(open ? MIX.openAttack : MIX.attack);
+    for (let f = Math.max(0, b); f < Math.min(total, next); f++) {
+      // Up from the line's end, down into the next line's first word; a pause too short for both meets halfway.
+      const up = glide(from, level, (f - b) / rise);
+      env[f] = fall ? Math.min(up, glide(level, to, (f - (next - fall)) / fall)) : up;
+    }
+    pauses.push({ a: b, b: next, level, open, window });
+  }
+  // Before the first line: full, then down under the voice.
+  const a0 = passages[0].a;
+  const fall0 = fr(MIX.openAttack);
+  for (let f = Math.max(0, a0 - fall0); f < Math.min(total, a0); f++) env[f] = glide(1, depth[Math.min(total - 1, a0)], (f - (a0 - fall0)) / fall0);
+  return { env, depth, pauses };
 }
 
 /**
@@ -324,18 +510,45 @@ function nextWordAfter(scene, localF, fps) {
  * frame with a scan over every line).
  *
  * @param {{placed:{from:number,frames:number}[], scenes:object[], fps:number, base?:number,
- *          hits?: {scene:number, f:number}[]}} o
+ *          hits?: {scene:number, f:number}[], sfx?: {kind:string, at:number}[]}} o
  *   hits = punch frames (scene-local): slam landings and the montage hook
+ *   sfx  = the planSfx cues (absolute frames): every other hit or stinger (a chapter card, a blackout)
+ *          also keeps the music out while its tail rings
  *   logo = true when the sonic logo opens the video: the score starts under it at
  *          MIX.logoFloor and opens up over MIX.logoRamp, so the two never fight
  * @returns {Float32Array} absolute gain per frame (base already applied)
  */
-export function musicEnvelope({ placed, scenes, fps, base = 0.55, hits = [], logo = false }) {
+export function musicEnvelope({ placed, scenes, fps, base = 0.55, hits = [], sfx = [], logo = false, endFade = false }) {
   const total = placed.length ? placed[placed.length - 1].from + placed[placed.length - 1].frames : 0;
   const k = fps / 30;
   const fr = (n) => Math.round(n * k);
-  const voiced = mergeRanges(voiceRanges(placed, scenes, fps), fr(MIX.mergeGap));
-  const env = duckCurve(voiced, total, { depth: MIX.duck, attack: fr(MIX.attack), release: fr(MIX.release) });
+  const { env } = bedCurve({ placed, scenes, fps });
+
+  /*
+   * Quotes and grief lines: the bed comes down to MIX.quoteDuck / griefDuck just before the first word and
+   * recovers after the line; an emotional quote (mood sad/reveal, energy <= 2) stops it — the room tone carries the words.
+   */
+  const dip = new Float32Array(total).fill(1);
+  placed.forEach((p, i) => {
+    const s = scenes[i];
+    if (!s?.voice || !s.voiceDur) return;
+    const quote = s.type === 'quote';
+    if (!quote && !isGrief(s)) return;
+    const own = DUCK_BY_MOOD[s.mood] ?? MIX.duck;
+    const to = quote && (s.mood === 'sad' || s.mood === 'reveal') && (s.energy ?? 3) <= 2 ? 0 : Math.min(1, (quote ? MIX.quoteDuck : MIX.griefDuck) / own);
+    if (to >= 1) return;
+    const w0 = p.from + firstWordAt(s, fps);
+    const end = p.from + Math.round(s.voiceDur * fps);
+    const din = Math.max(1, fr(MIX.griefIn));
+    const dout = Math.max(1, fr(MIX.griefOut));
+    for (let f = Math.max(0, w0 - din); f < Math.min(total, end + dout); f++) {
+      let g = to;
+      if (f < w0) g = 1 - ((f - (w0 - din)) / din) * (1 - to);
+      else if (f >= end) g = to + (1 - to) * Math.sin((Math.PI / 2) * ((f - end) / dout));
+      if (g < dip[f]) dip[f] = g;
+    }
+  });
+  for (let f = 0; f < total; f++) env[f] *= dip[f];
 
   // Silence scenes: the held breath. Out quickly, back slowly onto whatever level the voice allows.
   const sil = new Float32Array(total).fill(1);
@@ -355,54 +568,58 @@ export function musicEnvelope({ placed, scenes, fps, base = 0.55, hits = [], log
   for (let f = 0; f < total; f++) env[f] *= sil[f];
 
   /*
-   * Stop-down before a punch: the bed drops out ~0.3 s before the slam word,
-   * the word and the hit land in the hole, and the music comes back ON the
-   * hit and holds for ~1.2 s — the hit is felt because the music made room.
-   * If the narrator keeps talking right after the word, the swell is capped
-   * (or skipped) so it never buries the next line.
+   * Stop-down before a punch: the bed drops out ~1 s before the slam word and
+   * the word and the hit land in the hole. The hit's tail then rings alone for
+   * 1.5 s and the music returns over 1.5 s, onto whatever level the voice
+   * allows (no swell on the hit: see MIX.hitTail).
    */
+  const hole = new Float32Array(total).fill(1);
+  const tail = fr(MIX.hitTail);
+  const back = Math.max(1, fr(MIX.hitReturn));
+  const after = (at) => {
+    for (let f = Math.max(0, at); f < Math.min(total, at + tail + back); f++) {
+      const g = f < at + tail ? 0 : Math.sin((Math.PI / 2) * ((f - at - tail) / back));
+      if (g < hole[f]) hole[f] = g;
+    }
+  };
+  const punches = [];
   for (const h of hits) {
     const p = placed[h.scene];
-    const s = scenes[h.scene];
     if (!p) continue;
     const at = p.from + h.f;
+    punches.push(at);
     const a0 = at - fr(MIX.stopFrom);
     const a1 = at - fr(MIX.stopTo);
     for (let f = Math.max(0, a0); f < Math.min(total, at); f++) {
       const t = f < a1 ? (f - a0) / Math.max(1, a1 - a0) : 1;
-      env[f] *= 1 - t * (1 - MIX.stopLevel);
+      const g = 1 - t * (1 - MIX.stopLevel);
+      if (g < hole[f]) hole[f] = g;
     }
-    if (s.silence || at >= total) continue;
-    const next = nextWordAfter(s, h.f, fps);
-    const gap = next === null ? Infinity : next - h.f;
-    const hold = fr(MIX.swellHold);
-    let level = MIX.swell;
-    let holdEnd = at + hold;
-    if (gap < hold) {
-      if (gap < fr(15)) continue; // words follow at once: no swell, the duck simply resumes
-      level = MIX.swellCapped;
-      holdEnd = at + gap - fr(3);
-    }
-    const pre = at > 0 ? env[at - 1] : 0;
-    const atk = fr(MIX.swellAttack);
-    const rel = fr(MIX.swellRelease);
-    // Where no voice holds the bed down it is already above the swell; attack straight to that.
-    const top = Math.max(level, env[Math.min(total - 1, at + atk)]);
-    for (let f = at; f < Math.min(total, holdEnd + rel); f++) {
-      let g;
-      if (f < at + atk) g = pre + ((f - at) / atk) * (top - pre);
-      else if (f < holdEnd) g = level;
-      else g = level + ((f - holdEnd) / rel) * (env[f] - level);
-      if (f < at + atk || g > env[f]) env[f] = g;
-    }
+    after(at);
   }
+  // Every other hit (a chapter card's, a blackout's): out over 4 frames onto the hit, then the same tail and return.
+  for (const c of sfx) {
+    if ((c.kind !== 'hit' && c.kind !== 'stinger') || punches.some((x) => Math.abs(x - c.at) <= fr(3))) continue;
+    const pre = Math.max(1, fr(4));
+    for (let f = Math.max(0, c.at - pre); f < Math.min(total, c.at); f++) {
+      const g = 1 - (f - (c.at - pre)) / pre;
+      if (g < hole[f]) hole[f] = g;
+    }
+    after(c.at);
+  }
+  for (let f = 0; f < total; f++) env[f] *= hole[f];
 
   if (logo) {
     const ramp = fr(MIX.logoRamp);
     for (let f = 0; f < Math.min(total, ramp); f++) env[f] *= MIX.logoFloor + (1 - MIX.logoFloor) * Math.sin((Math.PI / 2) * (f / ramp));
   }
-  const fade = Math.round(MIX.endFade * fps);
-  for (let f = Math.max(0, total - fade); f < total; f++) env[f] *= Math.max(0, (total - 1 - f) / Math.max(1, fade - 1));
+  // No end fade for a library score: renderScore's single 3.5 s equal-power fade ends it (see MIX). A composed
+  // (ElevenLabs) score has no fade of its own (composeScore joins its parts with no afade): `endFade` gives it the
+  // same 3.5 s equal-power fade here, or it is cut off on the last frame.
+  if (endFade) {
+    const n = Math.min(total, fr(MIX.endFade));
+    for (let j = 0; j < n; j++) env[total - 1 - j] *= Math.sin((Math.PI / 2) * (j / n));
+  }
   for (let f = 0; f < total; f++) env[f] *= base;
   return env;
 }
@@ -518,6 +735,8 @@ export const PRELAP_MAX = 0.8;
 
 /** Budget rules for sound effects (seconds). */
 export const SFX_RULES = {
+  /** Seconds between two story hits (chapter card, slam, montage hook): closer ones are dropped. */
+  storyHitGap: 20,
   /** A decorative cue stands down when anything else sounds within this. */
   decorGap: 0.9,
   /** At most this many decorative cues (whoosh, glitch, swell, thud) in any 30 s. */
@@ -528,6 +747,24 @@ export const SFX_RULES = {
   hitGap: 20,
   /** Horror / crime transition hits are rarer still. */
   darkHitGap: 45,
+  /**
+   * Risers: at least this far apart, and at most `riserMax` per film (slams first, then chapter cards in
+   * film order, then the writer's other risers). Measured 27 Ekim 2026: Chernobyl had 12 risers, 7 of them
+   * within 60 s of the one before (0:29.2 -> 0:43.7); rulebook "3-6 per 10-15 min, none within 60 s".
+   */
+  riserGap: 60,
+  riserMax: 6,
+  /**
+   * A chapter card's sound by the mood of the chapter it opens: tension/dread a riser + a hit, reveal a hit
+   * only, curious/triumph none, sad/calm (grave) a soft swell or nothing. Every card used to get riser 0.55 +
+   * hit 0.6 — the same trailer treatment 7 times in Chernobyl, the triumph card included.
+   */
+  cardHit: 0.4,
+  cardSwell: 0.2,
+  /** A slam on a grave line (sad/calm, or a death in it or the next two lines): a low thud, no hit, no stinger, no riser. */
+  graveThud: 0.35,
+  /** A blackout into a reveal/dread on a grave line: a thud at most this loud instead of the 0.85 hit. */
+  graveBlackout: 0.4,
 };
 
 const DECOR = new Set(['whoosh', 'glitch', 'swell', 'thud']);
@@ -576,7 +813,14 @@ function windowOk(list, t, win, max) {
  *
  * Rules an editor follows by hand:
  *  - story beats always sound: slam hits, the montage hook, chapter cards
- *    (riser + hit), risers the writer asked for, counter ticks, montage shutters
+ *    (by the incoming chapter's mood: tension/dread riser + hit, reveal a hit,
+ *    curious/triumph nothing), risers the writer asked for, counter ticks,
+ *    montage shutters
+ *  - grave lines (mood sad/calm, or a death stated in this or the next two
+ *    lines) get no hit, no stinger and no riser: a slam lands on a low thud,
+ *    a chapter card on a soft swell (nothing when a death is near), a blackout
+ *    on a thud
+ *  - risers at least 60 s apart, at most 6 per film
  *  - a blackout gets a real hit only into a chapter card or on a mood change
  *    into dread/reveal, and only if no other hit fired within ~20 s (45 s in
  *    horror/crime); every other blackout gets a quiet thud, as decoration
@@ -607,40 +851,101 @@ export function planSfx({ placed, scenes, fps, genre, marks, events = [], seed =
   const underVoice = (t) => voiced.some(([a, b]) => t >= a - 3 && t < b);
   const sec = (s) => Math.round(s * fps);
 
+  /*
+   * LESS POUNDING (user, Oct 2026: "heryere vuruculuğu kesip tam uyumlu editler koymamız lazım"): story hits stay at
+   * least SFX_RULES.storyHitGap apart — a hit that would land closer to the last one is simply not placed.
+   */
+  let lastPlaced = false;
   const story = (key, kind, at, gain, align = 'onset') => {
+    lastPlaced = !(kind === 'hit' && hitsAt.some((h) => Math.abs(h - at) < sec(SFX_RULES.storyHitGap)));
+    if (!lastPlaced) return false;
     cues.push({ key, kind, at, align, gain });
     all.push(at);
     if (kind === 'hit') hitsAt.push(at);
+    return true;
   };
-  const riser = (key, at, gain) => story(key, 'riser', at, underVoice(at - sec(0.8)) ? gain * 0.7 : gain, 'end');
+  /*
+   * GRAVE LINES (27 Ekim 2026, ses denetimi): a hit 1.0 landed on "The work killed twelve" (mood sad, Kartal
+   * Yuvası 20261024-950730) as the loudest moment of its stretch, a sub-heavy blackout hit went into the
+   * Chernobyl death toll, a stinger on "was anyone actually killed?" (France). A chapter card takes the mood
+   * of the chapter it opens.
+   */
+  const cardInto = (i) => scenes[i + 1]?.mood ?? scenes[i]?.mood ?? 'curious';
+  const isCard = (s) => s?.type === 'title' && !!s.chapterCard;
+  const grave = scenes.map((s, i) => graveAt(scenes, i, isCard(s) ? cardInto(i) : s?.mood));
+  const griefNear = (i) => [i, i + 1, i + 2].some((j) => isGrief(scenes[j]));
+
+  /*
+   * Which risers play: slams (and the montage hook) first, then chapter cards in film order, then the
+   * writer's other risers — each SFX_RULES.riserGap from every other, at most SFX_RULES.riserMax. None on a
+   * grave line ("risers and impacts" are forbidden under grief).
+   */
+  const riserWants = [];
+  placed.forEach((p, i) => {
+    const s = scenes[i];
+    const m = marks[i] ?? {};
+    if (grave[i]) return;
+    if (isCard(s)) {
+      if (cardInto(i) === 'tension' || cardInto(i) === 'dread') riserWants.push({ pri: 1, key: `cr${i}`, at: p.from });
+    } else if (s.type === 'slam') {
+      if (s.riser) riserWants.push({ pri: 0, key: `r${i}`, at: p.from + (m.slam ?? sec(1)) });
+    } else if (s.type === 'montage') {
+      if (s.riser && m.hook !== undefined) riserWants.push({ pri: 0, key: `mr${i}`, at: p.from + m.hook });
+    } else if (s.riser) riserWants.push({ pri: 2, key: `r${i}`, at: p.from });
+  });
+  const risers = new Set();
+  const riserAt = [];
+  for (const w of riserWants.sort((a, b) => a.pri - b.pri || a.at - b.at)) {
+    if (riserAt.length >= SFX_RULES.riserMax || riserAt.some((t) => Math.abs(t - w.at) < sec(SFX_RULES.riserGap))) continue;
+    risers.add(w.key);
+    riserAt.push(w.at);
+  }
+  const riser = (key, at, gain) => risers.has(key) && story(key, 'riser', at, underVoice(at - sec(0.8)) ? gain * 0.7 : gain, 'end');
   /*
    * A punch that lands in the stop-down hole starts at most ~0.12 s before its
    * peak (`tight`): a trailer hit whose build sits 1 s ahead of its peak would
    * otherwise fill the second of silence the music just made for it.
    */
   const tight = () => {
-    cues[cues.length - 1].tight = true;
+    if (lastPlaced) cues[cues.length - 1].tight = true;
   };
 
   // An infographic's decorative whoosh (the scale's pull-out) waits for pass 2's budget.
   const infoWants = [];
+  // A grave chapter card's soft swell: decoration, served before the transitions' own sounds.
+  const cardWants = [];
   // Pass 1 — the story beats. Always placed.
   placed.forEach((p, i) => {
     const s = scenes[i];
     const m = marks[i] ?? {};
-    if (s.type === 'title' && s.chapterCard) {
-      riser(`cr${i}`, p.from, 0.55);
-      story(`ch${i}`, 'hit', p.from, 0.9);
+    if (isCard(s)) {
+      const into = cardInto(i);
+      if (grave[i]) {
+        // A sad/calm chapter opens on a soft swell; one that opens on a death, on nothing.
+        if (!griefNear(i)) cardWants.push({ pri: 0, key: `cs${i}`, kind: 'swell', at: p.from, gain: SFX_RULES.cardSwell, align: 'peak' });
+      } else if (into === 'tension' || into === 'dread') {
+        riser(`cr${i}`, p.from, 0.55);
+        story(`ch${i}`, 'hit', p.from, SFX_RULES.cardHit);
+      } else if (into === 'reveal') {
+        story(`ch${i}`, 'hit', p.from, SFX_RULES.cardHit);
+      }
+      // curious / triumph: no riser, no hit — the music's own turn carries the card.
     } else if (s.type === 'slam') {
       const hit = p.from + (m.slam ?? sec(1));
-      const sting = dark && s.mood === 'dread';
-      story(`s${i}`, 'hit', hit, sting ? 0.85 : 1);
-      tight();
-      if (sting) {
-        story(`st${i}`, 'stinger', hit, 0.7);
+      if (grave[i]) {
+        // The word lands on a low body blow: no hit, no stinger, no riser (and the music does not swell).
+        story(`s${i}`, 'thud', hit, SFX_RULES.graveThud);
         tight();
+      } else {
+        const sting = dark && s.mood === 'dread';
+        story(`s${i}`, 'hit', hit, sting ? 0.85 : 1);
+        tight();
+        if (sting) {
+          story(`st${i}`, 'stinger', hit, 0.7);
+          tight();
+        }
+        if (s.riser) riser(`r${i}`, hit, 0.6);
       }
-      if (s.riser) riser(`r${i}`, hit, 0.6);
     } else if (s.riser && s.type !== 'montage') {
       riser(`r${i}`, p.from, 0.6);
     }
@@ -656,7 +961,8 @@ export function planSfx({ placed, scenes, fps, genre, marks, events = [], seed =
     if (s.type === 'montage') {
       (m.cuts ?? []).forEach((c, k) => story(`m${i}_${k}`, 'snap', p.from + c, k ? 0.55 : 0.8));
       if (m.hook !== undefined) {
-        story(`mh${i}`, 'hit', p.from + m.hook, 1);
+        // A montage hook on a grave line punches like a grave slam: a thud, no riser.
+        story(`mh${i}`, grave[i] ? 'thud' : 'hit', p.from + m.hook, grave[i] ? SFX_RULES.graveThud : 1);
         tight();
         if (s.riser) riser(`mr${i}`, p.from + m.hook, 0.55);
       }
@@ -664,24 +970,33 @@ export function planSfx({ placed, scenes, fps, genre, marks, events = [], seed =
   });
 
   // Pass 2 — decoration, served in priority order: turning points first.
-  const wants = [...infoWants];
+  const wants = [...cardWants, ...infoWants];
   placed.forEach((p, i) => {
     if (!i) return;
     const s = scenes[i];
     const t = p.transition;
     const c = boundaryContext(scenes[i - 1], s);
     const turning = c.chapter || c.mood || c.story;
+    // A grave chapter card is heard as its soft swell or not at all: no whoosh or glitch on its transition.
+    if (isCard(s) && grave[i]) return;
     if (t === 'blackout') {
-      if (s.type === 'title' && s.chapterCard) return; // its hit is already there
+      if (isCard(s)) return; // its hit (or its silence) is already decided
       if (s.type === 'slam') {
         // The word's own hit is the payoff; the black before it only needs body if the word comes late.
         if ((marks[i]?.slam ?? 0) > sec(1.5)) wants.push({ pri: 0, key: `b${i}`, kind: 'thud', at: p.from, gain: 0.28 });
         return;
       }
       const gap = sec(dark ? SFX_RULES.darkHitGap : SFX_RULES.hitGap);
-      if (c.mood && (c.into === 'dread' || c.into === 'reveal') && !hitsAt.some((h) => Math.abs(h - p.from) < gap)) {
-        story(`b${i}`, 'hit', p.from, 0.85);
-        return;
+      if (c.mood && (c.into === 'dread' || c.into === 'reveal')) {
+        // Into a death toll the black falls on a thud, never on the 0.85 trailer hit.
+        if (grave[i]) {
+          wants.push({ pri: 0, key: `b${i}`, kind: 'thud', at: p.from, gain: SFX_RULES.graveBlackout });
+          return;
+        }
+        if (!hitsAt.some((h) => Math.abs(h - p.from) < gap)) {
+          story(`b${i}`, 'hit', p.from, 0.85);
+          return;
+        }
       }
       wants.push({ pri: 0, key: `b${i}`, kind: 'thud', at: p.from, gain: 0.28 });
       return;

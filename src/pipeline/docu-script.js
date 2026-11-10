@@ -24,9 +24,13 @@ import crypto from "node:crypto";
 import path from "node:path";
 import { TONES, DURATIONS } from "../config.js";
 import { callJSON } from "../llm.js";
+import { bibleGrowthLines, editGrowthLines, endGrowthLines, hookGrowthLines, middleGrowthLines, nicheOf, voiceGrowthLines, voiceStyleOf, backstageLines, spokenFix, roundAboutScene, honestyLines, spineLines } from "./growth-lessons.js";
 import { readJson, writeJson, DATA_DIR } from "../util.js";
 import { hookCandidates, hookPromptLines, hookById, readHookHistory, recordHook } from "./docu-hooks.js";
-import { readRhetoricHistory, recordRhetoric, rhetoricLines, rhetoricPlan } from "./docu-rhetoric.js";
+import { editorialPass, removeScenes, trimToWords } from "./docu-editor-pass.js";
+import { scriptLint, stripLeakSentences, stripHookPreamble, hookContext } from "./docu-lint.js";
+import { reviewPlan } from "./docu-plan-editor.js";
+import { likeAskLines, readRhetoricHistory, recordRhetoric, rhetoricLines, rhetoricPlan, sensitiveTopic } from "./docu-rhetoric.js";
 import { catalogQueries, commonsCatalogFor, catalogPromptBlock } from "./docu-commons-catalog.js";
 import { numbersIn, spokenHas } from "./docu-edit-director.js";
 
@@ -57,11 +61,210 @@ const AMBIENCE_PER_SEC = 40;
 /** Bir türün efekt havuzu ilk kez üretilirken (7 tür × ~4 varyant). */
 const SFX_POOL_CREDITS = 1300;
 /** Senaryo istemleri değişince eski bölüm kayıtları geçersizleşsin. */
-export const DOCU_PROMPT_VERSION = "docu-writer-3";
+export const DOCU_PROMPT_VERSION = "docu-writer-4";
 /** Bölüm bu oranın altında kalırsa "N kelime daha ekle" ile geri çevrilir. */
 const MIN_CHAPTER_RATIO = 0.9;
 /** Toplam bu oranın altındaysa en kısa bölümler uzatılır. */
 const EXTEND_BELOW = 0.97;
+/**
+ * ÜST SINIR (Fransa borcu, 24 Ekim 2026): senaryo 1997/1798 kelimeyle (~15,6 dk) geldi; kılavuz "Target 11-13 minutes",
+ * kurgu karnesi "süre 14.9 dk (hedef 11-14)" dedi ve render başladı, video 14:55 çıktı. Kısa senaryo uzatılıyordu, uzunu
+ * hiçbir adım kısaltmıyordu.
+ * 25 Ekim denetimi: kırpma hedefi planın %105'iydi (1888 kelime) — o işin gerçek temposunda (1997 kelime → 895 sn film)
+ * ~14,1 dk, hem kılavuzun hem karnenin üstünde; kırpmayı da yalnızca modelin uyması taşıyordu. Tavan artık DAKİKADAN
+ * gelir (lengthLimits): kılavuzun üst sınırı, yoksa planın süresi + payı + %5; ölçülen film temposuyla kelimeye çevrilir.
+ * Son okumadan sonra hâlâ TRIM_SLACK'ten uzunsa kod en zayıf satırları çıkarır (docu-editor-pass.js trimToWords).
+ */
+const PLAN_MAX = 1.05;
+const TRIM_SLACK = 1.05;
+/**
+ * Ölçülen FİLM temposu (kelime/dk): VOICE_SPEED 1.1 okuma, en çok 1.15x sıkılaştırma (docu-engine/lib/pace.mjs), bölüm
+ * kartları, nefesler ve tutuşlar dahil. en, 1.16.16 tempo kuralından sonra: Fransa borcu 1997 kelime / 14:55 = 134,
+ * Hürmüz 1998 / 13:45 = 145, Fransa isyanları 1986 / 13:49 = 144, Kartal Yuvası 1855 / 12:47 = 145. Sesi ölçülmemiş işte
+ * tavan en YAVAŞ sesle de tutmalı: 134 (ölçülen kanal sesleri DOCU_STYLE_WPM). tr henüz ölçülmedi: planın hızı.
+ */
+export const DOCU_FILM_WPM = { tr: DOCU_WPM.tr, en: 134 };
+
+/**
+ * GÖRSEL DİL KONU TAŞIMAZ (26 Ekim 2026, 2009 denizaltı çarpışması, 20261024-373aaf). visualStyle her AI isteğine
+ * eklenir; yazar "…documentary photograph of North Atlantic nuclear submarines and their bases, cold steel-grey…"
+ * yazdı ve "Whitehall'da taş bir hükümet binası" istemi denizaltı üssü çizdi (WHITEHALL etiketi altında), AI kareleri
+ * birbirinin aynısı denizaltı siluetlerine döndü. "photograph/photo/footage/image of …" konusu cümleden atılır;
+ * ışık, lens, renk, doku kalır. Yalnızca yeni yazılan senaryoya uygulanır (eski işlerin görsel önbelleği bozulmaz).
+ */
+export function lookOnly(style) {
+  const s = String(style || "").trim();
+  if (!s) return s;
+  return s
+    .replace(/\b(photographs?|photos?|photography|images?|stills?|footage|pictures?|shots?)\s+(?:of|showing|depicting|featuring)\s+[^,.;:]+/gi, "$1")
+    .replace(/\s+,/g, ",")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+/**
+ * GÖRSEL DİL KARANLIK DEĞİL (Gimli 20261028-9ff721 / Kartal Yuvası 950730, 29 Ekim 2026: son 7 videoda ortalama
+ * parlaklık 52-75, doygunluk 2,5-7,5, karelerin %21-39'u parlaklık 40'ın altında; kanal sahibi "her video siyah,
+ * karanlık, aynı" dedi; en iyi video Panama doğal renkte 88/10,2). visualStyle her AI isteğine eklenir: "deep shadows",
+ * "low-key", "noir", "moody", "harsh flash against black", "green-black" her kareyi karartıyordu. Bu kelimeler planda
+ * kodla atılır (yalnızca yeni plan: kayıtlı planın görsel önbelleği bozulmaz); motor istek metnini ayrıca temizler.
+ */
+export const LOOK_FORBIDDEN = [
+  { label: "deep shadows", re: /\bdeep\s+(?:black\s+)?shadows?\b/i },
+  { label: "low-key", re: /\blow[- ]key\b/i },
+  { label: "noir", re: /\bnoir\b/i },
+  { label: "moody", re: /\bmood(?:y|ily)\b/i },
+  { label: "harsh … against … black", re: /\bharsh\b[^,.;]*\bagainst\b[^,.;]*\bblack\b/i },
+  { label: "green-black", re: /\bgreen[- ]black\b/i },
+  { label: "crushed blacks", re: /\bcrushed\s+blacks?\b/i },
+  { label: "underexposed", re: /\bunder-?exposed\b/i },
+];
+/** The forbidden dark-look phrases a visualStyle carries (labels of LOOK_FORBIDDEN), [] when it is clean. */
+export function darkLookWords(style) {
+  const s = String(style || "");
+  return LOOK_FORBIDDEN.filter((f) => f.re.test(s)).map((f) => f.label);
+}
+/** Single dark adjectives: taken out of the head clause ("Moody noir documentary photograph" keeps "documentary photograph"). */
+const LOOK_ADJ = /\s*\b(?:mood(?:y|ily)|noir|low[- ]key|green[- ]black|under-?exposed)\b\s*/gi;
+/**
+ * visualStyle without its dark-look phrases: every clause (between commas/semicolons) that carries one goes, the head
+ * clause of the first sentence only loses the words (it names the medium). Everything else stays word for word.
+ */
+export function brightLook(style) {
+  const s = String(style || "").trim();
+  if (!darkLookWords(s).length) return s;
+  const bad = (c) => LOOK_FORBIDDEN.some((f) => f.re.test(c));
+  const out = s.split(/(?<=\.)\s+/).map((sentence, si) => {
+    const end = /\.$/.test(sentence) ? "." : "";
+    const clauses = (end ? sentence.slice(0, -1) : sentence).split(/\s*[,;]\s*/);
+    const kept = clauses.map((c, ci) => (si === 0 && ci === 0 && bad(c) ? c.replace(LOOK_ADJ, " ").replace(/\s{2,}/g, " ").trim() : c)).filter((c) => c && !bad(c));
+    if (kept.length && si === 0) kept[0] = kept[0].replace(/^\p{Ll}/u, (ch) => ch.toUpperCase());
+    return kept.length ? `${kept.join(", ")}${end}` : "";
+  });
+  return out.filter(Boolean).join(" ").trim();
+}
+
+/*
+ * KARANLIK İSTEM ORANI (aynı ölçüm, 29 Ekim 2026): görsel istemlerin çoğu "at night", "dimly lit", "in shadow",
+ * "silhouette" diyordu, anlatım geceyi söylemediği hâlde. İstem karanlık sayılır: koyu ışık kelimesi taşıyorsa ve
+ * sahnenin anlatımı gece/akşam/karanlık demiyorsa ("dark suit", "dark hull" gibi renk adları sayılmaz).
+ */
+const DARK_PROMPT = /\b(?:dark(?!\s+(?:suits?|uniforms?|coats?|raincoats?|jackets?|blazers?|dress(?:es)?|hair(?:ed)?|skin(?:ned)?|eyes|wood(?:en)?|navy|blue|green|red|gr[ae]y|brown|hull|ink|paint(?:ed)?)\b)|darkness|darkened|dim(?:ly)?(?:[- ]lit)?|shadow(?:s|y|ed)?|low[- ]key|noir|moody|gloom(?:y)?|murky|pitch[- ]black|unlit|night(?:time)?|midnight|dusk|twilight|silhouett\w*|candle-?lit)\b/i;
+const NIGHT_SAID = /(?<![\p{L}\p{N}])(?:night|nights|tonight|midnight|evening|dusk|dark|darkness|blackout|sunset|gece|akşam|karanlık|gün batımı|alacakaranlık)/iu;
+const SILHOUETTE = /silhouett|siluet|silüet/i;
+/** Over this share of a chapter's image prompts dark (and the narration not saying so), the chapter is rewritten. */
+export const DARK_PROMPT_SHARE = 0.3;
+/** Silhouettes per video (the real-person rule asks for backs and distance, not silhouettes). */
+export const SILHOUETTE_CAP = 5;
+/** Light of the image prompts: how many, which are dark without the narration saying so, how many silhouettes. */
+export function promptLight(scenes = []) {
+  const out = { total: 0, dark: [], silhouettes: 0, share: 0 };
+  scenes.forEach((s, i) => {
+    if (!s || s.chapterCard) return;
+    const said = NIGHT_SAID.test(stripTags(s.say));
+    const extra = Array.isArray(s.imagePrompts) ? s.imagePrompts.map((p) => (typeof p === "string" ? p : p?.prompt)) : [];
+    for (const p of [s.imagePrompt, ...extra]) {
+      if (typeof p !== "string" || !p.trim()) continue;
+      out.total++;
+      if (SILHOUETTE.test(p)) out.silhouettes++;
+      if (!said && DARK_PROMPT.test(p)) out.dark.push({ scene: i, prompt: p });
+    }
+  });
+  out.share = out.total ? out.dark.length / out.total : 0;
+  return out;
+}
+/** Writer errors for one chapter's prompts: more than 30 % dark (at least 4 prompts), or more than `silhouettes`. */
+export function promptLightErrors(scenes = [], { chapter = null, silhouettes = 2 } = {}) {
+  const l = promptLight(scenes);
+  const where = chapter == null ? "" : `bölüm ${chapter + 1}: `;
+  const errors = [];
+  if (l.total >= 4 && l.share > DARK_PROMPT_SHARE) {
+    errors.push(`${where}görsel istemlerin %${Math.round(l.share * 100)}'i karanlık (gece/loş/gölge/silüet) ama anlatım bunu söylemiyor — en az %60'ı gün ışığında ya da aydınlık iç mekânda, iyi pozlanmış ve doğal renkli olsun; şunları sahnenin gerçek saatinin ışığıyla yeniden yaz: ${l.dark.slice(0, 4).map((d) => `#${d.scene + 1} "${d.prompt.slice(0, 70)}"`).join("; ")}`);
+  }
+  if (l.silhouettes > silhouettes) errors.push(`${where}${l.silhouettes} silüet istemi (en çok ${silhouettes}): gerçek kişiyi arkadan ya da uzaktan, ellerinden ya da mekânından göster`);
+  return errors;
+}
+/**
+ * KANAL SESİNİN KENDİ TEMPOSU (25 Ekim 2026 gözden geçirme): tek tavan en yavaş sesle (finans, 134) hesaplanınca Kartal
+ * Yuvası (gündem 20261024-950730: 1855 kelime = 12:47, "Target 11-13 minutes" içinde) 1742'ye kırpılacaktı. Tempo sesin ve
+ * stilin ölçüsü; stil işten belli (docuFormat news → gündem sesi, docuGenre epic/finance → tarih/finans sesi; ayarlar
+ * docuStyleVoices). Her stilin EN YAVAŞ ölçümü (job.log "tahmini süre" + docu-script.json konuşulan kelime, karnenin sayımı):
+ *   news    Hürmüz 8a1eca 1998/825,1 sn = 145 · Fransa isyanları 37f9d2 1986/829,2 = 144 · Ebola 1e3f09 2019/855,9 = 142 ·
+ *           Kartal Yuvası 950730 1855/766,7 = 145 → 142
+ *   epic    denizaltı 373aaf 1972/837,6 = 141
+ *   finance Fransa borcu 48ae2d 1997/895,3 = 134
+ * Ölçülmemiş stil (belgesel, suç, bilim, geri sayım…), kanal sesi dışında bir ses ya da tr: DOCU_FILM_WPM (en yavaş ölçülen).
+ */
+export const DOCU_STYLE_WPM = { news: 142, epic: 141, finance: 134 };
+const PACE_OF = { news: "gündem sesi", epic: "tarih sesi", finance: "finans sesi" };
+/** İşin kanal sesi (ayarlar docuStyleVoices anahtarı): gündem → news, epik tarih → epic, finans → finance; yoksa null. */
+export function voiceStyleKey(job = {}) {
+  if (job.docuFormat === "news") return "news";
+  return job.docuFormat !== "ranking" && ["epic", "finance"].includes(job.docuGenre) ? job.docuGenre : null;
+}
+/** Film temposunun ölçüldüğü okuma hızı (ayarlar docuVoiceSpeed). */
+const MEASURED_VOICE_SPEED = 1.1;
+/** Kurgu karnesinin süre tavanı (docu-engine/lib/edit-scorecard.mjs SCORE_TARGETS.maxMinutes ile aynı). */
+export const SCORECARD_MAX_MIN = 14;
+/**
+ * UZUN VİDEO TABANI (kanal kuralı: "≥ ~1.700 kelime, asla 10 dk altı"): 10 dk ve üstü video ~1.700 kelimenin altına
+ * kırpılmaz (en; ölçülen en hızlı tempoda, 145 kelime/dk, 11,7 dk). tr aynı süre, planın hızıyla. Planı geçmez: 10 dk'lık
+ * istek kendi planıyla tabandır.
+ */
+export const LONG_FLOOR = { minutes: 10, words: 1700 };
+/** Kırpılan senaryo ücretli adım kapısında (docu.js assertLongEnough) "kısa" kalmasın: tahminin bu payla üstünde. */
+const GATE_MARGIN = 1.03;
+
+/** Kılavuzdaki süre aralığı: "Target 11-13 minutes" → {min: 11, max: 13}, "under 14 min" → {min: 0, max: 14}. Tek sayı ("12-minute", "12+ minutes", "3 dakika 44 saniye") ve bir parçanın süresi ("the first 1-2 minutes", "2-3 minutes per chapter") üst sınır değildir → null. */
+export function guidanceMinutes(guidance) {
+  const t = String(guidance || "");
+  const unit = String.raw`\s*(?:min(?:ute)?s?\b|dk\b|dakika)`;
+  // Bir PARÇANIN süresi videonun süresi değildir ("the first 1-2 minutes", "2-3 minutes per chapter", "keep the hook under
+  // 1 min"): tavan sanılırsa 12 dk'lık senaryo uzun video tabanına kırpılırdı. Atlanır, sıradaki aralığa bakılır.
+  const whole = (m) => !PART_BEFORE.test(t.slice(0, m.index)) && !PART_AFTER.test(t.slice(m.index + m[0].length));
+  for (const r of t.matchAll(new RegExp(String.raw`\b(\d{1,2})\s*(?:-|–|—|to|and|ile)\s*(\d{1,2})${unit}`, "gi"))) {
+    if (+r[1] >= 1 && +r[1] <= +r[2] && +r[2] <= 60 && whole(r)) return { min: +r[1], max: +r[2] };
+  }
+  for (const u of t.matchAll(new RegExp(String.raw`\b(?:under|up to|at most|no more than|max(?:imum)?|en (?:çok|fazla))\s*(\d{1,2})${unit}`, "gi"))) {
+    if (+u[1] >= 1 && +u[1] <= 60 && whole(u)) return { min: 0, max: +u[1] };
+  }
+  return null;
+}
+const PART_BEFORE = /(?<![\p{L}\p{N}])(?:first|opening|intro|hook|each|every|per|chapter\p{L}*|section\p{L}*|segment\p{L}*|ilk|her|bölüm\p{L}*|açılış\p{L}*|kanca\p{L}*)(?![\p{L}\p{N}])[^.,;!?\n]{0,20}$/iu;
+const PART_AFTER = /^\s*(?:long\s+)?(?:per|each|apiece|a (?:chapter|section|segment)|for (?:the |each |every )?(?:opening|intro|hook|chapter|section|segment))(?![\p{L}\p{N}])/iu;
+
+/**
+ * Senaryonun uzunluk sınırları (kelime). maxWords: kılavuzun üst sınırı (yoksa planın süresi + payı + %5) × işin sesinin
+ * ölçülen film temposu; karne tavanını geçmez (süresi tavandan uzun bir istek hariç). minWords: uzun video tabanı ve —
+ * sahneler verilirse — ücretli adım kapısı. maxWords hiçbir zaman minWords'ün altında değildir.
+ * voiceSpeed: ayarlar docuVoiceSpeed (tempo onunla ölçeklenir). styleVoices: ayarlar docuStyleVoices — verilirse ve iş o
+ * stilin kanal sesiyle okunmuyorsa (job.elevenVoiceId başka) tempo bilinmiyor sayılır: en yavaş ölçülen.
+ */
+export function lengthLimits(job = {}, plan, { scenes = null, voiceSpeed = MEASURED_VOICE_SPEED, styleVoices = null } = {}) {
+  const lang = langOf(job);
+  const key = lang === "en" ? voiceStyleKey(job) : null;
+  const own = !!key && !(styleVoices?.[key] && job.elevenVoiceId !== styleVoices[key]);
+  const wpm = (own ? DOCU_STYLE_WPM[key] : DOCU_FILM_WPM[lang]) * ((Number(voiceSpeed) || MEASURED_VOICE_SPEED) / MEASURED_VOICE_SPEED);
+  const g = guidanceMinutes(job.guidance);
+  let maxMinutes = g?.max ?? plan.minutes * DOCU_HEADROOM * PLAN_MAX;
+  // Karne tavanı (≤ 14 dk) kendi süresi tavandan kısa her istekte geçerli: 20 dk'lık bir istek 14 dk'ya inmez.
+  if (plan.minutes < SCORECARD_MAX_MIN) maxMinutes = Math.min(maxMinutes, SCORECARD_MAX_MIN);
+  let minWords = plan.minutes >= LONG_FLOOR.minutes ? Math.min(plan.words, Math.round((LONG_FLOOR.words * DOCU_WPM[lang]) / DOCU_WPM.en)) : 0;
+  if (scenes?.length) {
+    // Kapı tahmini sahneyle birlikte azalır: kırpılan senaryonun tahmini hedef × LENGTH_GATE'in altına inmesin, yoksa iş
+    // "Senaryo kısa" diye durur ve her devam aynı kırpmayı yeniden yapar.
+    const st = docuScriptStats({ scenes }, job);
+    if (st.estSeconds > 0) minWords = Math.max(minWords, Math.ceil(((st.actualWords * st.targetMinutes * 60 * LENGTH_GATE) / st.estSeconds) * GATE_MARGIN));
+  }
+  return {
+    maxWords: Math.max(Math.round(maxMinutes * wpm), minWords),
+    minWords,
+    maxMinutes: Math.round(maxMinutes * 10) / 10,
+    wpm: Math.round(wpm),
+    from: g ? "kılavuz" : "plan",
+    pace: own ? PACE_OF[key] : lang === "en" ? "ölçülmemiş ses, en yavaş" : "tr, planın hızı",
+  };
+}
 /** Ücretli adımlardan önce: tahmini süre ≥ hedef × bu oran olmalı (tahmin zaten düşük tutuluyor). */
 export const LENGTH_GATE = 1.02;
 
@@ -74,7 +277,15 @@ export const LENGTH_GATE = 1.02;
  *   openers   ilk sahnenin olabileceği tipler (soğuk açılış)
  *   remap     türe yabancı duygu → yerine geçen (müziği o seçer)
  *   lastAllows remap'e rağmen SON bölümde serbest olanlar (suçta çözümün zaferi)
+ *   accent    türün renk vurgusu (grafik, kart, geçiş) — yazara GİTMEZ. Gimli 20261028-9ff721 / Kartal Yuvası 950730,
+ *             29 Ekim 2026: son 7 videoda ortalama parlaklık 52-75, doygunluk 2,5-7,5; "soğuk mavi-gri", "yeşil-siyah",
+ *             "karanlık, siyah geçişler" gibi palet kelimeleri `when` içinden visualStyle'a sızıp her kareyi karartıyordu.
+ *             `when` yalnızca konuyu ve sesi anlatır; fotoğrafın ışığı ve rengi sahnenin gerçek yerinden ve saatinden gelir.
  */
+/** Slam word cards: at most one per SLAM_EVERY_MIN minutes, SLAM_GAP_SEC apart. */
+export const SLAM_EVERY_MIN = 3;
+export const SLAM_GAP_SEC = 90;
+
 export const DOCU_GENRES = [
   {
     id: "documentary", ad: "Belgesel", when: "iş/marka/insan hikâyesi, sıcak arşiv belgeseli (MagnatesMedia)",
@@ -89,10 +300,10 @@ export const DOCU_GENRES = [
     },
   },
   {
-    id: "crime", ad: "Suç / Gizem", when: "cinayet, soygun, dolandırıcılık, kayıp, çözülmemiş dosya; soğuk mavi-gri, delil kartları, daktilo",
+    id: "crime", ad: "Suç / Gizem", when: "cinayet, soygun, dolandırıcılık, kayıp, çözülmemiş dosya; delil kartları, daktilo", accent: "soğuk mavi-gri",
     write: {
       openers: ["photo", "words", "montage"],
-      coldOpen: "Tek bir delil üzerinde yavaş açılış: photo ya da words, fısıltıyla (boş bir duvar, kilitli bir kapı, bir saat). Hız değil gerginlik; istersen kısa bir montaj.",
+      coldOpen: "Tek bir delil üzerinde sert açılış: delilin gerçek fotoğrafı ve hikâyenin en tuhaf olgusu tek kısa cümlede (boş bir duvar, kilitli bir kapı, bir saat). Gerginlik ondan SONRA yavaşlayarak kurulur; ilk 10 sn fısıltısız.",
       stance: "Soğuk, kesin, zaman damgalı: saati ve tarihi söyler ('Pazartesi. Sabah yedi yirmi.'). Yargılamaz, kanıtı gösterir; şüpheyi izleyiciye bırakır.",
       tags: ["[quietly]", "[serious]", "[whispers]", "[slowly]"],
       moods: "ana duygular tension · dread · reveal; calm nadir; triumph YALNIZCA son bölümdeki çözümde",
@@ -102,10 +313,10 @@ export const DOCU_GENRES = [
     },
   },
   {
-    id: "epic", ad: "Epik Tarih / Savaş", when: "imparatorluk, savaş, fetih, kuşatma, büyük tarihî figürler; bronz-altın, savaş davulları, koro",
+    id: "epic", ad: "Epik Tarih / Savaş", when: "imparatorluk, savaş, fetih, kuşatma, büyük tarihî figürler; savaş davulları, koro", accent: "bronz-altın",
     write: {
       openers: ["title", "photo", "montage"],
-      coldOpen: "Yavaş, geniş açılış: ufuk, sur, ordu; bir ilan gibi tek cümle ('[slowly] Bin yıllık surlar... yirmi bir yaşında bir sultan...'), davullar. Ya da olayın İLK ANI, saatiyle ve tarihiyle ('Saat ikiyi gösterirken, 6 Ekim 1973'te, sirenler çalmaya başladı' — Yom Kippur videosu, kanal sahibi: 'mükemmel'): o günün sessizliği, ardından iki cephede saldırı. Konunun adı ilk 30 sn'de, başlık erken gelir.",
+      coldOpen: "Olayın İLK ANI, saatiyle ve tarihiyle ('Saat ikiyi gösterirken, 6 Ekim 1973'te, sirenler çalmaya başladı' — Yom Kippur videosu, kanal sahibi: 'mükemmel'): o günün sessizliği, ardından iki cephede saldırı. Ya da geniş ama sert: ufuk, sur, ordu ve bir ilan gibi tek cümle ('Bin yıllık surlar. Yirmi bir yaşında bir sultan.'), davullar — [slowly] ilk 10 sn'de değil (Napolyon'un yavaş sis açılışı ilk 40 sn'de izleyicinin %85'ini kaybetti). Konunun adı ilk 30 sn'de, başlık ~20 sn'de gelir.",
       stance: "Görkemli ve ölçülü, tarihçi ağzı; kısa hükümler. Kahramanlaştırmadan büyüklüğü ve bedelini hissettir.",
       tags: ["[slowly]", "[confident]", "[dramatic]", "[serious]"],
       moods: "ana duygular tension · triumph · sad; reveal dönüm anında; curious yalnızca açılışta",
@@ -114,7 +325,7 @@ export const DOCU_GENRES = [
     },
   },
   {
-    id: "science", ad: "Bilim / Uzay", when: "uzay, fizik, keşif, teknoloji, doğa bilimleri; lacivert-camgöbeği, ambient synth, hayranlık",
+    id: "science", ad: "Bilim / Uzay", when: "uzay, fizik, keşif, teknoloji, doğa bilimleri; ambient synth, hayranlık", accent: "lacivert-camgöbeği",
     write: {
       openers: ["counter", "words", "montage"],
       coldOpen: "Ölçeğin çarpıcılığıyla aç: tek bir sayı (counter: mesafe, yaş, hız) ya da tek cümle words; istersen kısa montaj.",
@@ -126,10 +337,10 @@ export const DOCU_GENRES = [
     },
   },
   {
-    id: "inspire", ad: "Biyografi / İlham", when: "bir insanın yükselişi, azim, başarı, dönüm noktaları; sıcak ışık, piyano ve yaylılar, umut",
+    id: "inspire", ad: "Biyografi / İlham", when: "bir insanın yükselişi, azim, başarı, dönüm noktaları; piyano ve yaylılar, umut", accent: "sıcak ışık",
     write: {
       openers: ["photo", "words"],
-      coldOpen: "Bir portre ve tek, sessiz bir satır ('[softly] Uçağı kendi yaptı... uçtuğu için ceza aldı.'). Montaj yok.",
+      coldOpen: "Bir portre ve tek, çarpıcı bir satır ('Uçağı kendi yaptı... uçtuğu için ceza aldı.'), fısıltısız; yumuşaklık sonraki sahnelerde. Montaj yok.",
       stance: "Samimi ve yakın: kişinin bedelini ve iç sesini anlat, başarıyı değil yolculuğu. Övgü sıfatı yok; sahne ve karar var.",
       tags: ["[warmly]", "[softly]", "[sad]", "[confident]"],
       moods: "yay: sad → tension → triumph; calm teneffüs; dread yerine tension",
@@ -138,7 +349,7 @@ export const DOCU_GENRES = [
     },
   },
   {
-    id: "finance", ad: "Finans", when: "borsa, kriz, para, şirket çöküşü; yeşil-siyah veri gerilimi",
+    id: "finance", ad: "Finans", when: "borsa, kriz, para, şirket çöküşü; veri gerilimi", accent: "veri grafiklerinde amber vurgu",
     write: {
       openers: ["counter", "words", "montage"],
       coldOpen: "Bir rakamla aç (counter: '381 puan', sonra '41'), ya da manşet gibi tek bir words.",
@@ -150,14 +361,14 @@ export const DOCU_GENRES = [
     },
   },
   {
-    id: "horror", ad: "Korku", when: "lanet, perili yer, doğaüstü, gerçek dehşet olayları; karanlık, kan kırmızısı, siyah geçişler",
+    id: "horror", ad: "Korku", when: "lanet, perili yer, doğaüstü, gerçek dehşet olayları; sert geçişler", accent: "kan kırmızısı vurgu",
     write: {
       openers: ["words", "photo"],
-      coldOpen: "Yavaş ve sessiz inşa: boş bir mekân (photo) ya da tek satır words, [whispers]. HIZLI MONTAJ YOK.",
-      stance: "Kısık ve ölçülü: asla bağırmaz, gösterilmeyeni hissettirir. Kan ve ceset değil; iz, gölge, boş yer, tarih damgası.",
+      coldOpen: "Sessiz inşa ama ilk satır sert: boş bir mekânın gerçek fotoğrafı ve hikâyenin en ürpertici olgusu tek kısa cümlede; [whispers] ilk 10 sn'den sonra. HIZLI MONTAJ YOK — onun yerine kısa, ayrı sahneler.",
+      stance: "Kısık ve ölçülü: asla bağırmaz, gösterilmeyeni hissettirir. Kan ve ceset değil; iz, geride kalan nesne, boş yer, tarih damgası.",
       tags: ["[whispers]", "[quietly]", "[slowly]", "[serious]"],
       moods: "ana duygular dread · tension · sad; zafer yok (ifşa reveal ile)",
-      mix: "boş mekânlar, siluetler, tarih damgalı words, eski belgeler",
+      mix: "boş mekânlar (gün ışığında da ürpertir), geride kalan nesneler, tarih damgalı words, eski belgeler; silüet yalnızca anlatım söylüyorsa",
       remap: { triumph: "reveal" },
     },
   },
@@ -169,12 +380,34 @@ const TYPES = ["montage", "title", "counter", "words", "photo", "slam", "chart",
 /** Kurgu cihazları (motorun yeni sahne tipleri): docu-edit-director.js aynı kurallarla doğrular. */
 const DEVICE_SCENE_TYPES = ["headline", "map", "board", "document", "timeline", "split", "quote"];
 /** Yazarın kullanabildiği harita bölgeleri (docu-engine/src/geo.ts; yalnızca coğrafi olanlar — yer enlem/boylamla verilir). */
-const WRITER_MAP_REGIONS = ["pacific-northwest", "bosphorus", "north-atlantic", "urals"];
+// 1.16.16: "world" = dünyanın her yeri (Natural Earth; çerçeve yerlere göre kurulur). Eski dört bölge elle çizilmiş özel haritalar.
+const WRITER_MAP_REGIONS = ["world", "pacific-northwest", "bosphorus", "north-atlantic", "urals"];
 const TRANSITIONS = ["", "cut", "flash", "zoom", "glitch", "blackout", "whip", "leak"];
 /** Motorun v3 satırına etiket yoksa eklediği duygu etiketi (produce.mjs MOOD_TAG ile aynı). */
 const MOOD_TAG = { curious: "[curious]", calm: "[warmly]", tension: "[quietly]", dread: "[whispers]", reveal: "[dramatic]", sad: "[sad]", triumph: "[confident]" };
 
 const langOf = (job) => (job?.language === "en" ? "en" : "tr");
+
+/*
+ * AÇILIŞ BÜTÇESİ (22 Ekim 2026 yazım denetimi): her bölüme eşit kelime veriliyordu (15 dk'da 225) ve %90 tabanıyla
+ * soğuk açılış en az ~85 sn olmak zorundaydı; model boşluğu vaat listesi, meta cümle ("As I record this…"), "First, the
+ * basics" ve fragmanlarla doldurdu — Fransa'da 0:20-0:50 arasında izleyicinin dörtte biri gitti. Açılış bölümü ~55 sn.
+ */
+export const OPENING_WORDS = 140;
+export function openingBudget(words, chapters, range) {
+  const even = Math.round(words / chapters);
+  const chapterWords = Array.from({ length: chapters }, () => even);
+  const chapterScenes = Array.from({ length: chapters }, () => range);
+  if (chapters < 3 || even <= OPENING_WORDS) return { chapterWords, chapterScenes };
+  const moved = even - OPENING_WORDS;
+  chapterWords[0] = OPENING_WORDS;
+  const each = Math.floor(moved / (chapters - 1));
+  for (let i = 1; i < chapters; i++) chapterWords[i] += each + (i - 1 < moved - each * (chapters - 1) ? 1 : 0);
+  const ratio = OPENING_WORDS / even;
+  // The cold open keeps its short, fast lines: scenes scale less than words.
+  chapterScenes[0] = [Math.max(5, Math.round(range[0] * Math.sqrt(ratio))), Math.max(7, Math.round(range[1] * Math.sqrt(ratio)))];
+  return { chapterWords, chapterScenes };
+}
 
 export function docuPlan(job) {
   const minutes = DURATIONS[job.durationPreset]?.minutes || 8;
@@ -188,15 +421,21 @@ export function docuPlan(job) {
   if (job.docuFormat === "ranking") return rankingPlan({ minutes, words, scenes });
   const scenesPerChapter = Math.round(scenes / chapters);
   const range = [Math.max(4, Math.round(scenesPerChapter * 0.85)), Math.max(6, Math.round(scenesPerChapter * 1.15))];
+  const { chapterWords, chapterScenes } = openingBudget(words, chapters, range);
   return {
     minutes, words, chapters, scenes,
     wordsPerChapter: Math.round(words / chapters),
     scenesPerChapter,
     scenesRange: range,
     secondsPerChapter: Math.round((minutes * 60) / chapters),
-    chapterWords: Array.from({ length: chapters }, () => Math.round(words / chapters)),
-    chapterScenes: Array.from({ length: chapters }, () => range),
+    chapterWords,
+    chapterScenes,
     ...(job.docuFormat === "news" ? { news: true } : {}),
+    ...(job.docuMapMode === "haritali" ? { maps: true } : {}),
+    // 1.16.16 orta/son dersleri: finans kapanışı "izlenecek işaretler" alır, seri bir sonraki bölüme işaret eder.
+    ...(job.docuGenre === "finance" ? { finance: true } : {}),
+    ...(job.docuGenre === "science" ? { explain: true } : {}),
+    ...(job.docuSeries ? { series: job.docuSeries } : {}),
   };
 }
 
@@ -249,8 +488,17 @@ export function openingRule(bible, g) {
   return `GİRİŞ MANTIĞI "${h.ad}": ${h.how} (Türün varsayılan açılışını değil BUNU uygula; ilk sahne tipi bu mantığa uyan ${[...new Set([...g.write.openers, "photo", "words"])].join(" / ")}.)`;
 }
 
+/** A news chapter that tells events from before the news week (root causes, earlier weeks) — at most ~60-75 s. */
+export const BACKGROUND_WORDS = 170;
 function bibleSchema(plan) {
   const base = docuBibleSchema(plan);
+  if (plan.news) {
+    // Fransa videosu (22 Ekim 2026, izlenme eğrisi): 2. bölüm Eylül'e döndü ve 1:47 sürdü — izleyicinin üçte biri
+    // orada gitti (%45 → %30). Arka plan bölümü işaretlenir; kod yerini ve bütçesini sınırlar.
+    const ch = base.properties.chapters.items;
+    ch.properties = { ...ch.properties, background: { type: "boolean", description: "true: bu bölüm haber haftasından ÖNCEKİ olayları anlatıyor (kök nedenler, haftalar önceki gelişmeler). Videoda en çok BİR tane; 2. bölüm asla; en çok ~60-75 sn." } };
+    ch.required = [...ch.required, "background"];
+  }
   if (!plan.ranking) return base;
   // Countdown: chapter 1 is the intro (rank 0), then ranks N..1; every item names where and when it happened.
   const ch = base.properties.chapters.items;
@@ -275,7 +523,7 @@ function docuBibleSchema(plan) {
     properties: {
       title: { type: "string", description: "Videonun başlığı (video dilinde, merak uyandıran)" },
       genre: { type: "string", enum: DOCU_GENRES.map((g) => g.id), description: "Kurgu stili — hikâyenin RUHUNA en uyan: " + DOCU_GENRES.map((g) => `${g.id} = ${g.when}`).join("; ") },
-      visualStyle: { type: "string", description: "İNGİLİZCE, tek cümle: TEK BİR KARENİN ortak dili (dönem, film stoğu, ışık, lens) — her görsel isteğine eklenir. Kurguyu anlatma ('intercut with archival prints', 'mixed with', 'collage' YAZMA: görsel üretici kolaj yapar). Örn: 'Authentic 1970s Istanbul documentary photograph, grainy Kodak Tri-X black and white film, natural available light, candid, archival print texture.'" },
+      visualStyle: { type: "string", description: "İNGİLİZCE, tek cümle: TEK BİR KARENİN ortak dili (dönem, film stoğu, ışık, lens, renk, doku) — her görsel isteğine eklenir. KONU YAZMA: kişi, gemi, bina, yer, nesne adı yok ('photograph of submarines and their bases' her kareyi denizaltıya çevirir; konuyu her sahnenin imagePrompt'u söyler). Kurguyu anlatma ('intercut with archival prints', 'mixed with', 'collage' YAZMA: görsel üretici kolaj yapar). PARLAK, İYİ POZLANMIŞ, DOĞAL RENKLİ fotoğraf; siyah-beyaz ya da sepya yalnızca hikâye renkli filmden önceyse (1940 öncesi). Işığı sahnenin gerçek yeri ve saati belirler, visualStyle karanlık bir ruh hâli dayatmaz. YASAK: 'deep shadows', 'deep black shadows', 'low-key', 'noir', 'moody', 'harsh … against … black', 'green-black' (Gimli 20261028-9ff721 / Kartal Yuvası 950730, 29 Ekim 2026: bu kelimelerle videolar parlaklık 52-56, doygunluk 2,5-6 ölçüldü, kanal sahibi 'hepsi siyah, karanlık, aynı' dedi). Örn: 'Authentic 1970s documentary photograph, Kodak Ektachrome colour film, bright natural daylight, well exposed, candid, fine grain, archival print texture.'" },
       centralQuestion: { type: "string", description: "Videonun MERKEZ SORUSU (video dilinde, tek soru cümlesi). İzleyici cevabı için sonuna kadar kalır; son bölüm cevaplar." },
       stakes: { type: "string", description: "Ne kaybedilebilirdi, neden önemli (video dilinde, 1 cümle)" },
       promise: { type: "string", description: "İlk 30 saniyede anlatıcının söyleyeceği VAAT: izleyici sonunda neyi anlayacak (video dilinde, 1 cümle, 'bu videoda' kalıbı OLMADAN)" },
@@ -314,7 +562,7 @@ function docuBibleSchema(plan) {
         items: {
           type: "object",
           properties: {
-            title: { type: "string", description: "Bölüm başlığı (ekranda bölüm kartı + YouTube bölüm işareti; kısa, video dilinde)" },
+            title: { type: "string", description: "Bölüm başlığı (ekranda bölüm kartı + YouTube bölüm işareti; kısa, video dilinde). Tercihen bir MERAK KARTI: bölümün cevapladığı soru ya da cesur iddia ('The Numbers Don't Match', 'Who Was Really in Charge?')" },
             goal: { type: "string", description: "Bu bölümün anlatı hedefi ve duygusal yayı, 1-2 cümle" },
             covers: { type: "array", items: { type: "string" }, description: "Bu bölümde işlenecek somut olgular (2-5); başka bölümde tekrar etmez" },
             hookIn: { type: "string", description: "Bölümün ilk cümlesinin kancası: izleyiciyi neyle içeri çekeceği" },
@@ -343,7 +591,9 @@ const SHOT = {
   additionalProperties: false,
 };
 
-const SCENES_SCHEMA = {
+/** Split tarafının resmi: kurgu yönetmeni iki tarafı da fromScene'siz split'i atar (docu-edit-director.js buildDevice). */
+const SPLIT_REF = "split: BU BÖLÜMDE daha önceki, bu tarafı gösteren sahnenin sırası (0'dan) — iki taraftan EN AZ BİRİNDE şart";
+export const SCENES_SCHEMA = {
   type: "object",
   properties: {
     scenes: {
@@ -357,6 +607,12 @@ const SCENES_SCHEMA = {
           dur: { type: "number", description: "Sahnenin en kısa süresi (sn). Ses daha uzunsa sahne uzar." },
           imagePrompt: { type: "string", description: "İNGİLİZCE çekim tarifi (montage/counter/chart dışında zorunlu)" },
           cast: { type: "array", items: { type: "string" }, description: "Bu karede görünen karakter anahtarları" },
+          // The picture's source fields sit right after it: nearly every scene uses them, and the API's wire
+          // schema keeps the first-declared optional fields in the grammar (structured-output.js wireSchema).
+          source: { type: "string", enum: ["archive", "stock", "ai"], description: "Görselin kaynağı: archive = gerçek arşiv fotoğrafı, stock = ücretsiz genel atmosfer fotoğrafı, ai = üretilir (en fazla ~15)" },
+          bg: { type: "string", enum: ["prev"], description: "words/slam: yeni görsel yerine önceki sahnenin fotoğrafı" },
+          search: { type: "string", description: "source=archive ise İNGİLİZCE arşiv arama sorgusu: özel isim + yer + yıl ('Apollo 13 crew 1970 portrait', 'Topkapi Palace treasury'). 3-6 kelime. Her sorgu hikâyenin ÜLKESİNİ/ŞEHRİNİ taşır ('French police Paris school gate', 'police' değil) ve satırdaki tek bir nesne kelimesini değil anın kendisini arar ('eat through a straw' → 'hospital patient after jaw surgery', 'straw' değil)." },
+          commons: { type: "string", description: "source=archive ve tam adını BİLDİĞİN bir Wikimedia Commons dosyası bu anı gösteriyorsa: 'File:...' (ör. 'File:Stena Impero 2019-07-21 02.jpg'). Emin değilsen boş bırak; search yine dolu olsun." },
           depth: { type: "boolean", description: "Karede TEK kişi net ve orta planda ise true (2.5D derinlik, yazı kişinin arkasına geçer)" },
           sound: { type: "string", description: "İNGİLİZCE ortam sesi: 'rain on a window, distant thunder'. Aynı mekânda ardışık sahnelerde AYNI metin. Müzik/konuşma yazma." },
           transition: { type: "string", enum: TRANSITIONS, description: "Boş = motor seçer" },
@@ -364,7 +620,10 @@ const SCENES_SCHEMA = {
           riser: { type: "boolean", description: "Bu sahneye yükselen gerilim sesiyle girilsin (slam ve montaj için)" },
           kicker: { type: "string" }, title: { type: "string" },
           word: { type: "string", description: "slam: say'deki bir kelimenin eklerle birlikte AYNISI" }, sub: { type: "string" },
-          from: { type: "number" }, to: { type: "number" }, label: { type: "string" }, prefix: { type: "string" }, suffix: { type: "string" }, decimals: { type: "number" },
+          // counter: sayı; chart: ilk/son noktanın etiketi ("Aug", "2014") — sceneEnds() ikisini türüne çevirir.
+          from: { type: ["number", "string"], description: "counter: başlangıç sayısı; chart: ilk noktanın etiketi (yıl/ay)" },
+          to: { type: ["number", "string"], description: "counter: hedef sayı; chart: son noktanın etiketi (yıl/ay)" },
+          label: { type: "string" }, prefix: { type: "string" }, suffix: { type: "string" }, decimals: { type: "number" },
           year: { type: "boolean", description: "counter: sayı bir YIL ise true (1453) — binlik ayırıcı olmadan gösterilir" },
           name: { type: "string" }, role: { type: "string" }, caption: { type: "string" },
           text: { type: "string", description: "words: ekrana yazılacak cümle (say'in kelimeleri, aynı sırayla). montage: say içinde AYNEN geçen 2-4 anahtar kelime, sonuncusu kanca" },
@@ -372,16 +631,13 @@ const SCENES_SCHEMA = {
           points: { type: "array", items: { type: "number" }, description: "chart: 4-12 gerçek veri noktası" },
           imagePrompts: { type: "array", items: SHOT, description: "montage: 5-7 çekim; photo: 0-1 ek belge/detay kartı" },
           fullBleed: { type: "boolean" },
-          source: { type: "string", enum: ["archive", "stock", "ai"], description: "Görselin kaynağı: archive = gerçek arşiv fotoğrafı, stock = ücretsiz genel atmosfer fotoğrafı, ai = üretilir (en fazla ~15)" },
-          bg: { type: "string", enum: ["prev"], description: "words/slam: yeni görsel yerine önceki sahnenin fotoğrafı" },
-          search: { type: "string", description: "source=archive ise İNGİLİZCE arşiv arama sorgusu: özel isim + yer + yıl ('Apollo 13 crew 1970 portrait', 'Topkapi Palace treasury'). 3-6 kelime." },
-          commons: { type: "string", description: "source=archive ve tam adını BİLDİĞİN bir Wikimedia Commons dosyası bu anı gösteriyorsa: 'File:...' (ör. 'File:Stena Impero 2019-07-21 02.jpg'). Emin değilsen boş bırak; search yine dolu olsun." },
           // ---- kurgu cihazları (SAHNE DİLİ'ndeki KURGU CİHAZLARI) ----
           paper: { type: "string", description: "headline: gazetenin adı (THE OREGONIAN)" },
           headline: { type: "string", description: "headline: manşet, gazetenin dilinde, 2-8 kelime" },
           date: { type: "string", description: "headline: gazetedeki tarih satırı" },
           translation: { type: "string", description: "headline: yabancı dildeki manşetin video dilinde çevirisi" },
-          region: { type: "string", enum: WRITER_MAP_REGIONS, description: "map: harita bölgesi" },
+          region: { type: "string", enum: WRITER_MAP_REGIONS, description: "map: harita — \"world\" dünyanın her yeri (çoğu zaman bu); diğerleri elle çizilmiş özel bölgeler" },
+          countries: { type: "array", items: { type: "string" }, description: "map (world): boyanacak ülkeler, anlatımda geçen adlarıyla (en çok 4)" },
           places: {
             type: "array",
             description: "map: 1-6 yer, GERÇEK enlem/boylamla (kod karedeki konuma çevirir)",
@@ -411,8 +667,8 @@ const SCENES_SCHEMA = {
             description: "timeline: 3-7 olay, yıllar anlatımda geçen yıllar",
             items: { type: "object", properties: { year: { type: "integer" }, label: { type: "string" } }, required: ["year", "label"], additionalProperties: false },
           },
-          left: { type: "object", properties: { fromScene: { type: "integer" }, label: { type: "string" } }, required: ["label"], additionalProperties: false },
-          right: { type: "object", properties: { fromScene: { type: "integer" }, label: { type: "string" } }, required: ["label"], additionalProperties: false },
+          left: { type: "object", properties: { fromScene: { type: "integer", description: SPLIT_REF }, label: { type: "string" } }, required: ["label"], additionalProperties: false },
+          right: { type: "object", properties: { fromScene: { type: "integer", description: SPLIT_REF }, label: { type: "string" } }, required: ["label"], additionalProperties: false },
           mode: { type: "string", enum: ["versus", "before-after"] },
           quote: { type: "string", description: "quote: say içinde AYNEN geçen alıntı" },
           who: { type: "string", description: "quote: alıntının sahibi" },
@@ -484,7 +740,7 @@ export function sourceRule(job) {
   return [
     "GÖRSEL KAYNAĞI: ARŞİV AĞIRLIKLI. Gerçek hikâyede izleyici gerçek fotoğrafa inanır; AI yalnızca fotoğrafı olamayacak anlar için.",
     "- source \"archive\": GERÇEK kişi (portre), gerçek yer/bina, gerçek nesne/belge, gerçek olayın fotoğrafı. search = özel isim + yer + yıl, İngilizce, 3-6 kelime ('Gene Kranz mission control 1970', 'Apollo 13 service module damage'). Genel kavram arama ('sad man', 'money'). Aynı sorguyu videoda ikiden fazla yazma.",
-    "- source \"stock\": GENEL atmosfer/ara plan (yağmurlu cam, fırtınalı deniz, karlı orman, eski gazete, şehir ışıkları). search = stok sitesinin bulacağı 2-4 düz İngilizce kelime ('rain window night', 'stormy sea'). Ücretsiz gerçek fotoğraf (Pexels/Pixabay/Unsplash).",
+    "- source \"stock\": GENEL atmosfer/ara plan (yağmurlu cam, fırtınalı deniz, karlı orman, eski gazete, şehir ışıkları). search = stok sitesinin bulacağı 2-4 düz İngilizce kelime ('rain on window', 'stormy sea'). Ücretsiz gerçek fotoğraf (Pexels/Pixabay/Unsplash).",
     "- bg \"prev\": words ve slam sahneleri çoğunlukla YENİ görsel istemez — yazı bir önceki fotoğrafın üstüne gelir; imagePrompt yazma. Profesyonel kurguda her cümleye yeni kare kesilmez.",
     "- source \"ai\": YALNIZCA fotoğrafı OLAMAYACAK ve stokla da gösterilemeyecek an (o gece uçaktan atlayan adam, fotoğraf öncesi dönemde bir an, iç dünya). Videoda EN FAZLA ~15 AI görsel, montaj kareleri dahil.",
     // Çok uzun videoda hep aynı kişi/yer sorgusu zayıf aday getiriyordu: genel kareler stoktan gelir.
@@ -498,7 +754,7 @@ export function sourceRule(job) {
 }
 
 const SCENE_GRAMMAR = `SAHNE DİLİ (motorun bildiği çekimler):
-- montage: soğuk açılış cihazı; yalnızca videonun İLK sahnesi olabilir (tür montajla açılıyorsa). 5-7 kısa çekim müziğin vuruşuna kesilir; text = say içinde AYNEN geçen 2-4 anahtar kelime (aynı sırayla), sonuncusu kanca (ekrana kırmızı ve büyük düşer). say kısa: "[whispers] Bir tarif... Bir sokak... [dramatic] Ve bir ihanet." imagePromptlar makro detaylar, gölgeler, gözler — hikâyenin parçaları, sırrı vermeden.
+- montage: soğuk açılış cihazı; yalnızca videonun İLK sahnesi olabilir (tür montajla açılıyorsa). 5-7 kısa çekim müziğin vuruşuna kesilir; text = say içinde AYNEN geçen 2-4 anahtar kelime (aynı sırayla), sonuncusu kanca (ekrana kırmızı ve büyük düşer). say kısa: "[whispers] Bir tarif... Bir sokak... [dramatic] Ve bir ihanet." imagePromptlar makro detaylar, eller, nesneler, yerler — hikâyenin parçaları, sırrı vermeden; gün ışığında ya da aydınlık iç mekânda (gece yalnızca anlatım geceyi söylüyorsa).
 - title: YALNIZCA ilk bölümde, videonun adı (kicker küçük üst yazı + title iki-üç kelime), ilk 4 sahnenin içinde. Bölüm kartlarını ("BÖLÜM 2" + bölüm adı) motor kendisi ekler: bölüm kartı ya da ikinci bir title YAZMA.
 - counter: büyük bir sayı sayarak yükselir (from→to, label). Yalnızca araştırmadaki gerçek ve çarpıcı rakamlar; aynı sayıyı iki kez sayaç yapma. Sayı bir YIL ise year:true. imagePrompt yazma.
 - words: bir cümle kelime kelime anlatıcıyla ekrana gelir, keyword vurgulanır. text = say'in kelimeleri AYNEN ve AYNI SIRAYLA (tamamı ya da say'den sıralı bir anahtar ifade); keyword text'te AYNEN geçen tek kelime — satırın en güçlü İÇERİK kelimesi (isim, sayı, kavram; 'something/thing/very' gibi boş kelime değil). Arkada bir görsel (imagePrompt). Ekran yazısı sesin ötesinde bir şey katmalı: isim, yer, tarih/saat, sayı, gerçek alıntı ya da bölümün kilit kavramı; anlatıcının söylediği sıradan bir ifadeyi ekrana kopyalama (sanat yönetmeni böyle dolgu satırları yazısız görüntüye çevirir).
@@ -508,15 +764,15 @@ const SCENE_GRAMMAR = `SAHNE DİLİ (motorun bildiği çekimler):
 
 KURGU CİHAZLARI (seyrek ve yerinde: yalnızca anlatım gerçekten o cihazı istiyorsa). İki cihaz arasında en az 35-45 sn; aynı cihaz art arda iki kez gelmez; 12 dk'lık videoda toplam 12-20 (bölüm başına 1-3). Olgular yalnızca araştırmadan ve anlatımdan: uydurma isim, tarih, alıntı, belge metni YOK. Her cihaz sahnesine de imagePrompt yaz (cihaz geçersiz sayılırsa sahne onunla fotoğrafa döner). İsim kartı taşıyan sahne cihaz olmaz.
 - headline: basın tepkisi — gazete manşeti. paper, headline (gazetenin dilinde 2-8 kelime), date, translation (video dilinde). Yalnızca anlatım basından/manşetten söz ediyorsa.
-- map: yer ve rota. region (pacific-northwest, bosphorus, north-atlantic, urals — hikâyenin yeri bunların içindeyse), places [{label, lat, lon}] GERÇEK koordinatlarla, route (indeksler), focus. Etiketler anlatımda geçen yer adları.
+- map: yer ve rota — DÜNYANIN HER YERİ. region "world" (gerçek dünya haritası; çerçeve yerlere göre kendiliğinden kurulur) — yalnızca hikâye tam olarak elle çizilmiş bir bölgedeyse pacific-northwest, bosphorus, north-atlantic, urals. places [{label, lat, lon}] GERÇEK koordinatlarla (1-6), route (indeksler), focus, countries (world: boyanacak ülkeler, anlatımda geçen adlarıyla). Etiketler anlatımda AYNEN geçen yer adları (geçmeyen yer haritadan düşer). Yer adı geçen her bölümde bir harita düşün: tutmuş kanallar ilk dakikada 1-3 harita gösteriyor.
 - board: dedektif panosu — şüpheliler, kişiler, olası açıklamalar birbirine bağlanır. items [{label, note?, fromScene?}], links [[0,1]]. fromScene: bu bölümde DAHA ÖNCEKİ, o kişiyi gerçekten gösteren sahnenin sırası (0'dan); emin değilsen yazma.
-- split: iki şey karşı karşıya ya da önce/sonra. left/right {label, fromScene?}, mode versus | before-after.
+- split: iki RESİMLİ şey karşı karşıya ya da önce/sonra. left/right {label, fromScene}, mode versus | before-after. EN AZ BİR tarafta fromScene ŞART: bu bölümde DAHA ÖNCEKİ, o şeyi gerçekten gösteren sahnenin sırası (0'dan); fromScene'siz taraf bu sahnenin kendi resmini gösterir (imagePrompt o tarafı çizsin). İki tarafı da fromScene'siz split kod tarafından atılır. Etiketler anlatımda geçen kelimeler. İki SAYININ kıyası split DEĞİLDİR: sayıları satırda söyle, kıyas kartını (bars/scale) kurgu yönetmeni koyar (Fransa borcu, 24 Ekim 2026: "France · 5.04%" / "Italy · about 4.5%" gibi beş resimsiz split düz fotoğrafa döndü).
 - document: kilit bir belge/ifade/telgraf. doc {kind: fbi-teletype | letter | report | telegram | ledger, heading, lines: anlatımdaki olgulardan 2-6 kısa belge satırı}, highlight (satırlarda AYNEN geçen), redact, stamp.
 - timeline: yıllara yayılan olaylar. events [{year, label}] 3-7 olay; her yıl anlatımda GEÇEN bir yıl.
 - quote: gerçek bir alıntı kartı. say satırı alıntıyı içerir ve quote = o sözler AYNEN (kelimesi kelimesine); who = söyleyen, when. Alıntı uydurma.
 - annotate (photo sahnesinin alanı, source archive): "bu adam / bu ayrıntı" anı. annotate {label: kısa etiket (anlatımda geçen), target: İNGİLİZCE işaretlenecek şey}. Konum fotoğraf seçildikten sonra bulunur; bulunamazsa işaret kalkar.
 
-TEMPO: bir sahne = bir düşünce = 5-14 kelime ≈ 3-6 sn. Uzun paragraf YOK; bir cümle iki sahneye bölünebilir. Arka arkaya aynı tip en fazla 2 kez; words bir bölümün yarısını geçmesin.
+TEMPO: bir sahne = bir düşünce = 5-14 kelime ≈ 3-6 sn. Uzun paragraf YOK; bir cümle iki sahneye bölünebilir. Arka arkaya aynı tip en fazla 2 kez; words yalnızca bilgi taşıyan satıra (sayı, isim, yer, tarih, alıntı), bölüm başına en çok 2 — bilgisiz satır photo.
 UZUN FORM: izleyici her 60-90 saniyede yeni bir kanca almalı — bir soru, bir ifşa, bir sayı, bir slam ya da açık bir döngünün hatırlatılması. Bilgiyi sırayla sayma: merak kur, geciktir, sonra ver. Her bölüm bir öncekinden daha büyük bir bedel ya da soru açar.
 
 DUYGU (mood) MÜZİĞİN İŞARETİDİR: müzik bölümleri mood'dan kurulur. Bir duyguyu 5-10 sahne (20-60 sn) KORU, yalnızca bölümün dönüm noktasında (turn) değiştir; bölüm başına en fazla 3-4 değişim. Satır satır duygu farkını v3 etiketiyle ver, mood'u değiştirerek değil.
@@ -525,9 +781,13 @@ curious merak · calm sıcak · tension gerilim · dread tehdit · reveal ifşa 
 SES PERFORMANSI (ElevenLabs v4 — bir ses sanatçısını yönetiyorsun): say satırının başına İngilizce köşeli YÖNLENDİRME koy. Tek etiket ([whispers] [sighs] [exhales] [curious] [excited] [sarcastic]) ya da kısa tarif ("[low, hushed voice]", "[quiet, tense]", "[slowly, with weight]", "[softly, with sorrow]", "[firmly]", "[warm, unhurried]"). Yönlendirme satırın İŞLEVİNİ oynatır: açılış alçak ve sakin; ifşa yavaş ve ağırlıklı; tehdit fısıltıya yakın; vurucu kısa cümle kararlı (asla fısıltı değil); soru merakla; bölüm sonu yumuşak. Her satıra etiket koyma: aynı renk ardışık satırlarda bir kez yeter (ses satırdan satıra taşır); yönlendirmesiz satırı sistem sahnenin duygusuyla tamamlar. ANLATICININ VARSAYILAN SESİ NET VE GÜÇLÜDÜR: kısık/fısıltı/yavaş renkler ([quietly] [whispers] [low, hushed voice] [softly] [slowly]) bir EFEKTTİR — bölümde en fazla 1-2 satır (açılış, ifşa, bölüm sonu), filmde en fazla bir [whispers]; satırların çoğu yönlendirmesiz ya da [serious] [firmly] [curious] olsun (ses yönetmeni fazlasını siler). Ses efekti etiketi ([gunshot] [explosion] [applause]) ASLA.
 "..." gerçek bir duraklamadır: ifşadan önce nefes tut ("And that recipe... one night... [slowly, with weight] was stolen."). Çok nadir, tek kelimeyi BÜYÜK HARFLE vurgula. Etiket dışında köşeli parantez, emoji, madde işareti yok.
 
-GÖRSEL: imagePrompt İNGİLİZCE, somut bir çekim: çekim ölçeği + özne + eylem + ışık. Çekimleri ÇEŞİTLE: extreme close-up (eller, gözler, nesne), detail (belge, para, alet), wide (sokak, bina, kalabalık), silhouette, high angle, over-the-shoulder, empty place (kimsenin olmadığı mekân). Aynı kareyi videoda iki kez isteme.
+GÖRSEL: imagePrompt İNGİLİZCE, somut bir çekim: çekim ölçeği + özne + eylem + ışık. Çekimleri ÇEŞİTLE: extreme close-up (eller, gözler, nesne), detail (belge, para, alet), wide (sokak, bina, kalabalık), medium shot, high angle, over-the-shoulder, empty place (kimsenin olmadığı mekân). Aynı kareyi videoda iki kez isteme.
+IŞIK sahnenin GERÇEK yerinden ve saatinden gelir: gündüz olan olay gün ışığında, iç mekân lambalarla ve pencereden gelen ışıkla aydınlık, iyi pozlanmış ve doğal renkli. İstemlerin EN AZ %60'ı gün ışığında ya da aydınlık iç mekânda olsun; gece, alacakaranlık ve silüet YALNIZCA anlatım o anı öyle söylüyorsa (videoda en fazla 5 silüet). 'dark', 'dimly lit', 'shadowy', 'deep shadows', 'low-key', 'moody', 'noir', 'murky' yazma — gerilimi ışık değil olgu taşır (Gimli 20261028-9ff721 / Kartal Yuvası 950730, 29 Ekim 2026: karelerin %21-39'u neredeyse siyah ölçüldü; en iyi video Panama doğal renkte parlaklık 88).
 Karakter görünüyorsa cast'a anahtarını yaz ve istemde "the man"/"the woman" de; GERÇEK İSİM, yazı, tabela, logo, ekran metni isteme (görselde okunur yazı OLMAYACAK). Stil tarifi yazma, sistem ekler.
-Şiddeti GÖSTERME, ima et: gölgeler, geride kalan nesneler, polis şeridi, boş oda; kan, yara, ceset yok.
+Kurum, ordu, polis ya da kalabalık karesinde ÜLKEYİ ve ŞEHRİ istemde yaz ("the chamber of the Egyptian House of Representatives in Cairo, lawmakers in dark suits", "Saudi soldiers at a border post"): yer adı yoksa model başka bir ülkenin bayrağını, armasını ve kıyafetini çizer (Husi-Suudi haberi, 28 Ekim 2026: "a large parliament chamber" Mısır meclisi diye İran bayraklı, Körfez kıyafetli geldi).
+Hikâyenin kendi aracı (uçak, gemi, tren, roket) karede görünüyorsa TİPİNİ ve ayırt edici biçimini istemde yaz ("a twin-engine Boeing 767-200, two engines, no upper-deck hump"); "a widebody airliner" gibi genel ad başka bir tip çizdirir. Kişiler hikâyenin BAŞKA bir mekânındaysa o mekânı adıyla yaz ("air traffic controllers at a radar console in a ground control room"); "in a dark room" yazılırsa model kişileri bir önceki karelerin mekânına koyar (Gimli Glider, 28 Ekim 2026: ilk kare 767 yerine dört motorlu 747 geldi; yerdeki kontrolörlerin karton cetveli kokpitte, pilot üniformalı birinin elinde çizildi).
+Anlatımda ADI GEÇEN gerçek bir kişiyi (cast'ta olsun olmasın: oğulları, rakibi, yargıcı) AI karesinde YÜZÜYLE isteme — arşivde fotoğrafı çıkmazsa sahne AI'a düşer ve uydurma yüz gerçek kişinin yerine geçer: onu arkadan, uzaktan, elleriyle ya da bulunduğu mekânla anlat; tekrar görünüyorsa cast'a yaz. Gazete ön sayfası, manşet, dergi kapağı, okunur yazılı belge ya da afiş AI'a İSTENMEZ (sahte belge olur): gerçek manşet headline cihazıdır; AI karesi en fazla katlanmış, yazısı okunmayan bir gazete yığınıdır.
+Şiddeti GÖSTERME, ima et: geride kalan nesneler, polis şeridi, boş oda, olay yerinin ertesi sabahki hâli; kan, yara, ceset yok.
 depth:true yalnızca karede tek kişi orta planda net görünüyorsa. Kalabalık, makro, boş mekân → depth yok.
 sound: sahnenin mekân sesi (İngilizce, kısa): "busy 1970s street, distant tram bell", "silent kitchen, buzzing bulb, clock ticking". Aynı mekândaki ardışık sahnelerde AYNI sound metni (ortam sesi sahneler boyunca sürer). Sayaç, grafik ve slam'de gerekmez.
 silence: müzik tamamen çekilir. Yalnızca SON bölümde, en fazla 1 kez, en ağır duygu anında.`;
@@ -803,11 +1063,38 @@ function toPhoto(s) {
 }
 
 /**
+ * YAS SATIRI (27 Ekim 2026, müzik denetimi): ölüm ve kayıp söyleyen satırın duygusu 'sad' olur ve kilitlenir.
+ * Çernobil (20261026-24122a) 146 sahnede 0 'sad' taşıdı: "Borys Baranov died of a heart attack" (9:28) tension'dı,
+ * In Battery'nin (sad 0) altına düştü; Hastings'te "William is dead" zafer kokan Defying Gravity'nin altındaydı. Yazar
+ * bazen 'sad' yazıyor ama 1-2 sahnelik yas anı mergeMoodRuns'ta komşu gerilime katılıp siliniyordu.
+ * Ortak sözleşme (motorun müzik seçicisi ve karışım aynı iki ifadeyi kullanır): GRIEF gerçek bir ölüm/kayıp, NOT_GRIEF
+ * olumsuzlanmış ya da sıfır kayıp ("no one in Panama has been reported killed", "no injuries") — önce o bakılır.
+ */
+export const GRIEF = /\b(died|dies|dying|killed|kills|dead|deaths?|death toll|funeral|buried|burial|mourn\w*|victims?|perished|executed|suicide|lost (?:his|her|their) li(?:fe|ves)|never (?:came|come) home)\b/i;
+export const NOT_GRIEF = /\b(no|not|never|nobody|no one|none|without|zero)\b[^.!?]{0,40}\b(killed|died|dead|deaths?|injur\w*|casualt\w*|victims?)\b/i;
+/**
+ * Olmuş bir ölüm değil (27 Ekim 2026 incelemesi): soru ("was anyone actually killed?" — Fransa), koşul ("If your bank
+ * dies, your money dies with it." — 1929), efsane/iddia ("The legend calls them suicide divers" — Çernobil'in 11 yas
+ * isabetinin 7'si efsaneyi çürüten girişteydi). Motorda (audio-director GRIEF_UNREAL, timeline.js) aynı liste.
+ */
+export const GRIEF_UNREAL = /\?\s*$|\b(if|unless|whether|legend\w*|myths?|mythical|rumou?r\w*|hoax|invented|fabricated|supposedly|claimed|alleged\w*)\b/i;
+/** "Not one of the eight musicians survived" (Titanic): kurtulan yok = yas satırı. Motorda NO_SURVIVOR aynı. */
+export const NO_SURVIVOR = /\b(not one|none|no one|nobody|did not|didn't|never|not a single)\b[^.!?]{0,40}\bsurviv\w*/i;
+/**
+ * Satır gerçek bir ölümü/kaybı söylüyor mu: cümle cümle (noktalı virgül, ", but" ve ayraç tirelerinde de bölünür) bakılır,
+ * olumsuzlama yalnızca kendi cümlesini düşürür: "Two men — not three — died." yastır; bütün metne bakınca "not … died"
+ * eşleşip kaçıyordu. Bütün metne bakan tüketicinin (motorun yedek ifadesi) yas dediği her satırı bu da yas sayar.
+ */
+export function griefLine(say) {
+  return stripTags(say).split(/(?<=[.!?…])\s+|;\s*|,\s+but\s+|\s+[—–]\s+/i).some((t) => ((GRIEF.test(t) && !NOT_GRIEF.test(t)) || NO_SURVIVOR.test(t)) && !GRIEF_UNREAL.test(t.trim()));
+}
+
+/**
  * Duygu koşuları: müzik bölümleri mood'dan kuruluyor; her sahnede değişen
  * mood (ölçüldü: 17 sahnede 16 koşu) 240 sn'lik müzikte 50-60 bölüm demekti,
  * API sınırını aşıp tek prompt'a düşüyordu. 20 sn'den kısa koşu komşusuna
- * katılır, bölüm başına en fazla 4 değişim. Açılış sahnesi ve silence sahneleri
- * kilitli (kendi duyguları anlamlı).
+ * katılır, bölüm başına en fazla 4 değişim. Açılış sahnesi, silence sahneleri
+ * ve yas satırları (griefLine) kilitli (kendi duyguları anlamlı).
  */
 export function mergeMoodRuns(scenes, { lang = "tr", minSec = 20, maxChanges = 4, locked = () => false } = {}) {
   for (let guard = 0; guard < scenes.length * 2; guard++) {
@@ -880,7 +1167,14 @@ export function normalizeScenes(scenes, { castKeys = [], archive = true, first =
     if (scenes.filter((x) => x?.type === "words").length <= Math.ceil(scenes.length / 2)) break;
     toPhoto(s);
   }
-  mergeMoodRuns(scenes, { lang, locked: (s, i) => !!s.silence || (first && i === 0) });
+  // Yas kilidi (griefLine): ölüm/kayıp satırı 'sad', birleştirme onu komşu gerilime katmaz. scene.grief motora kadar
+  // taşınır (müzik seçicisi ve karışım okur; eski senaryolar için aynı ifadeyi kendileri de uygular).
+  for (const s of scenes) {
+    if (!s || typeof s !== "object" || !griefLine(s.say)) continue;
+    s.grief = true;
+    s.mood = "sad";
+  }
+  mergeMoodRuns(scenes, { lang, locked: (s, i) => !!s.silence || s.grief === true || (first && i === 0) });
   fillImagePrompts(scenes);
   return scenes;
 }
@@ -909,7 +1203,7 @@ export function fillImagePrompts(scenes) {
 }
 
 /** Kodla düzeltilemeyen, motoru bozan hatalar — yalnızca bunlar yeniden yazdırır. */
-function hardErrors(scenes, { first = false, genre = "documentary", lang = "tr" } = {}) {
+function hardErrors(scenes, { first = false, genre = "documentary", lang = "tr", aiCap = null } = {}) {
   const errors = [];
   if (!scenes.length) errors.push("sahne yok");
   scenes.forEach((s, i) => {
@@ -928,6 +1222,35 @@ function hardErrors(scenes, { first = false, genre = "documentary", lang = "tr" 
     const t = scenes.findIndex((s) => s?.type === "title" && !s.chapterCard);
     if (t < 0 || (t > 3 && startOf(scenes, t, lang) > 25)) errors.push("ilk dört sahneden biri title (videonun adı) olmalı");
   }
+  // AI TAVANI (Hastings, Ekim 2026): yazar "videoda en fazla ~15 AI" kuralını okuyup bölüm başına 6-13 AI sahne
+  // yazdı; motor tavanı aşan sahneleri önceki fotoğrafa düşürür → uzun bekleyen kareler, az gerçek görsel.
+  if (aiCap != null) {
+    const ai = scenes.filter((s) => s?.source === "ai" && !s.chapterCard).length;
+    if (ai > aiCap) errors.push(`bu bölümde ${ai} AI görseli var, en fazla ${aiCap} (videoda toplam ~15): gerçek arşiv (archive: Bayeux Halısı gibi dönem eseri, müze tablosu, yerin fotoğrafı), stok (stock: deniz, sis, tarla, nehir gibi dönemle çelişmeyen doğa) ya da words/slam için bg "prev" kullan`);
+  }
+  return errors;
+}
+
+/**
+ * from/to TÜRÜNE GÖRE (16 Ekim 2026, Ebola gündem videosu): yazara chart'ın from/to'su eksen etiketi diye anlatılıyor,
+ * şema ise sayı diyordu — "$.scenes[16].from: beklenen tür number, gelen string" üç denemede de, iş durdu. Motorda
+ * counter'ınki sayı, chart'ınki etiket (types.ts). counter: "9,144" / "~4,400+" → sayı; chart: etiket metni.
+ * @returns sayıya çevrilemeyen counter için hata (birim/etiket suffix veya label alanına).
+ */
+export function sceneEnds(scenes) {
+  const errors = [];
+  (scenes || []).forEach((s, i) => {
+    if (!s || typeof s !== "object") return;
+    for (const k of ["from", "to"]) {
+      if (s[k] == null) continue;
+      if (s.type === "chart") s[k] = String(s[k]);
+      else if (s.type === "counter" && typeof s[k] === "string") {
+        const t = s[k].replace(/[\s,_]/g, "").replace(/^[~≈+]+|\++$/g, "");
+        if (/^-?\d+(\.\d+)?$/.test(t)) s[k] = Number(t);
+        else errors.push(`sahne ${i + 1}: counter ${k} yalnızca sayı olmalı ("${s[k].slice(0, 30)}"); birim ve açıklama suffix/label alanına`);
+      }
+    }
+  });
   return errors;
 }
 
@@ -1003,35 +1326,91 @@ function borrowPrompt(scenes, i) {
 }
 
 /**
+ * MÜZİK SESSİZLİĞİ BÜTÇESİ (27 Ekim 2026, müzik denetimi): 11 videoda duygu dorucunda tek bir sessizlik vardı (Hastings
+ * 13:12, Harold'ın ölümü); öteki 5 sessizliğin hepsi kapanış satırıydı, Çernobil'de hiç yoktu. 16 alıntı sahnesinin 15'i
+ * her anlatım gibi kısılmış müziğin altındaydı. Artık ~5 dakikada bir bilinçli sessizlik (13 dk → 3), aralarında ≥120 sn;
+ * önce yas satırları (griefLine), sonra yazarın kendi sad/reveal sessizliği, sonra gerçek alıntılar (quote + who), en son
+ * kapanış satırı. Kancanın ilk 60 sn'si müziksiz kalmaz.
+ * Yas satırları arasında somut olan önce: adı geçen kişi ya da sayı ve tam cümle. Söylenti/efsane anlatan satır (HEARSAY)
+ * yine 'sad' kalır ama sessizlik almaz: Çernobil'in eski sırasıyla üç sessizlik "invented death tolls," (yarım cümle),
+ * "the legend of their deaths" ve "back to the legend once more" satırlarına düşüyordu; "Borys Baranov died" ve "Thirty
+ * deaths" boş kalıyordu.
+ */
+export const SILENCE_EVERY_MIN = 5;
+export const SILENCE_GAP_SEC = 120;
+const SILENCE_HOOK_SEC = 60;
+const HEARSAY = /\b(legends?|legendary|myths?|mythical|rumou?rs?|rumou?red|invented|supposedly|allegedly|conjured|hoax|falsely)\b/i;
+/**
+ * Bir tarafın bildirdiği sayım: yas kalır ama sessizlik almaz — Suudi haberinde "Colonel al-Nazili, reported 260 Houthi
+ * fighters killed" ve "GACA reported twelve people killed" iki sessizliği yiyordu (27 Ekim 2026 incelemesi).
+ */
+const REPORTED = /\b(reported|reports|according to|claimed|claims|said)\b/i;
+const COUNTED = /\d|\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundreds?|thousands?|millions?|dozens?)\b/i;
+/** Cümle içinde büyük harfle başlayan kelime (cümle başı değil): bir kişinin/yerin adı. */
+const NAMED = /[\p{Ll},;]\s+\p{Lu}\p{Ll}{2,}/u;
+/** Birinci ağızdan alıntı ("us" yok: alıntıdaki "US" ülke adıdır). */
+const TESTIMONY = /\b(i|i'm|i've|i'd|me|my|mine|we|we're|we've|our)\b/i;
+
+/**
  * Video geneli kotalar: bölümler ayrı yazıldığı için her bölüm kendi
  * slam'ini, sessizliğini, isim kartını ve sayacını koyuyordu.
- *   silence: son sahne + ikinci yarıdaki en güçlü (sad/reveal) bir an
+ *   silence: en fazla ceil(dk/5), aralarında ≥120 sn — yas satırı > yazarın sad/reveal anı > gerçek alıntı > kapanış
  *   slam: en fazla ceil(dk/1.5), aralarında ≥45 sn; fazlası words olur
  *   counter: aynı sayı ikinci kez sayılmaz
  *   isim kartı: kişi başına ilk görünüş
  */
 export function enforceGlobalQuotas(scenes, { minutes = 8, lang = "tr", intensity = [] } = {}) {
   const notes = [];
-  const { starts, total } = sceneStarts(scenes, lang);
+  const { starts } = sceneStarts(scenes, lang);
   // SESSİZLİK
-  const silent = scenes.map((s, i) => (s.silence ? i : -1)).filter((i) => i >= 0);
-  if (silent.length) {
-    const keep = new Set();
+  {
     const lastIdx = scenes.length - 1;
-    if (scenes[lastIdx]?.silence) keep.add(lastIdx);
-    const strong = silent
-      .filter((i) => i !== lastIdx && starts[i] >= total / 2 && ["sad", "reveal"].includes(scenes[i].mood))
-      .sort((a, b) => (intensity[scenes[b].chapter ?? 0] || 0) - (intensity[scenes[a].chapter ?? 0] || 0) || b - a)[0];
-    if (strong !== undefined) keep.add(strong);
-    for (const i of silent) if (!keep.has(i)) delete scenes[i].silence;
-    if (silent.length > keep.size) notes.push(`${silent.length - keep.size} sessizlik kaldırıldı`);
+    // Gerçek alıntı: quote + who, ve ya bir tanıklık (birinci ağızdan: "I was ordered to go there, so I went.") ya da
+    // duygulu bir an (sad/reveal/calm). Resmî açıklama sessizlik almaz: Kartal Yuvası'nda "the damage is certainly in the
+    // millions" alıntısı yazarın kapanış sessizliğini 2 dakika yakınlıktan düşürüyordu.
+    const realQuote = (s) => s.type === "quote" && !!String(s.quote || "").trim() && !!String(s.who || "").trim()
+      && (["sad", "reveal", "calm"].includes(s.mood) || TESTIMONY.test(String(s.quote)));
+    // 0 yas · 1 yazarın sad/reveal sessizliği · 2 gerçek alıntı · 3 kapanış satırının sessizliği · -1 aday değil
+    const rank = (s, i) => {
+      const text = stripTags(s.say);
+      if (s.chapterCard || !text) return -1;
+      if ((s.grief === true || griefLine(s.say)) && !HEARSAY.test(text) && !REPORTED.test(text)) return 0;
+      if (s.silence && i !== lastIdx && ["sad", "reveal"].includes(s.mood)) return 1;
+      if (realQuote(s)) return 2;
+      return s.silence && i === lastIdx ? 3 : -1;
+    };
+    // Aynı sırada: yazarın kendi seçtiği an (Hastings 13:12, Harold'ın ölümü: 11 videodaki tek doruk sessizliği) >
+    // somut (ad/sayı) ve tam cümle > tam cümle > yarım cümle; sonra bölümün yoğunluğu, sonra geç olan.
+    const weight = (s) => {
+      const text = stripTags(s.say);
+      const whole = /[.!?…]["'”’)]?$/.test(text);
+      return s.silence ? -1 : whole && (COUNTED.test(text) || NAMED.test(text)) ? 0 : whole ? 1 : 2;
+    };
+    const cands = scenes.map((s, i) => ({ i, r: rank(s, i), w: weight(s) }))
+      .filter(({ i, r }) => r >= 0 && starts[i] >= SILENCE_HOOK_SEC)
+      .sort((a, b) => a.r - b.r || a.w - b.w || (intensity[scenes[b.i].chapter ?? 0] || 0) - (intensity[scenes[a.i].chapter ?? 0] || 0) || b.i - a.i);
+    const budget = Math.max(1, Math.ceil(minutes / SILENCE_EVERY_MIN));
+    const keep = [];
+    for (const { i } of cands) {
+      if (keep.length >= budget) break;
+      if (keep.some((k) => Math.abs(starts[k] - starts[i]) < SILENCE_GAP_SEC)) continue;
+      keep.push(i);
+    }
+    let removed = 0, added = 0;
+    scenes.forEach((s, i) => {
+      if (keep.includes(i)) { if (!s.silence) { s.silence = true; added++; } }
+      else if (s.silence) { delete s.silence; removed++; }
+    });
+    if (added) notes.push(`${added} yas/alıntı satırında müzik susuyor`);
+    if (removed) notes.push(`${removed} sessizlik kaldırıldı`);
   }
   // SLAM
-  const cap = Math.max(1, Math.ceil(minutes / 1.5));
+  // One slam per ~3 minutes, 90 s apart (Oct 2026, user: "heryere vuruculuğu kesip uyumlu editler koymamız lazım").
+  const cap = Math.max(1, Math.ceil(minutes / SLAM_EVERY_MIN));
   let kept = 0, lastAt = -Infinity, demoted = 0;
   scenes.forEach((s, i) => {
     if (s.type !== "slam") return;
-    if (kept < cap && starts[i] - lastAt >= 45) { kept++; lastAt = starts[i]; return; }
+    if (kept < cap && starts[i] - lastAt >= SLAM_GAP_SEC) { kept++; lastAt = starts[i]; return; }
     s.type = "words";
     s.text = stripTags(s.say);
     const k = tokens(s.text).indexOf(norm(s.word));
@@ -1061,19 +1440,33 @@ export function enforceGlobalQuotas(scenes, { minutes = 8, lang = "tr", intensit
 }
 
 const STOP = new Set(["a", "an", "the", "of", "in", "on", "at", "with", "and", "to", "from", "by", "for", "his", "her", "their", "its", "is", "are", "into", "over", "under", "behind", "near", "one", "two", "very", "man", "woman"]);
+// person: yalnızca karede insan varsa · close/wide: çekim ölçeği · sky: günün saati (su altında, gece karesinde ve zaten
+// gündüz olan karede anlamsız).
 const VARIATIONS = [
-  "different angle: high-angle wide shot",
-  "different angle: low-angle close-up, shallow depth of field",
-  "seen from behind, over-the-shoulder",
-  "extreme close-up detail of hands and objects",
-  "wide establishing shot from far away",
-  "different time of day: night, practical lights",
+  { text: "different angle: high-angle wide shot", wide: true },
+  { text: "different angle: low-angle close-up, shallow depth of field", close: true },
+  { text: "seen from behind, over-the-shoulder", person: true },
+  { text: "extreme close-up detail of hands and objects", close: true, person: true },
+  { text: "wide establishing shot from far away", wide: true },
+  // Gimli 20261028-9ff721 / Kartal Yuvası 950730, 29 Ekim 2026 (parlaklık 52-56): "night, practical lights" her tekrar
+  // eden istemi geceye çeviriyordu. Gün değişirse gündüze doğru değişir.
+  { text: "different time of day: bright morning daylight", sky: true },
 ];
+const PERSON_IN = /\b(man|woman|men|women|people|person|crowd|crew|sailors?|soldiers?|officers?|figure|admiral|minister|worker|workers|hands?|faces?|boy|girl|child|children)\b/i;
+const WIDE_IN = /\b(wide|establishing|aerial|panoram\w*|long (?:telephoto )?shot|underwater)\b/i;
+const CLOSE_IN = /\b(close-up|close up|closeup|macro|detail)\b/i;
+const NO_SKY_IN = /\b(underwater|under water|seabed|night|dusk|dawn|sunset|sunrise|midnight|daylight|morning|midday|noon)\b/i;
+/** The variations that fit a prompt: none contradicts its framing or adds people it does not have. */
+const variationsFor = (p) => VARIATIONS.filter((v) => !(v.person && !PERSON_IN.test(p)) && !(v.close && WIDE_IN.test(p)) && !(v.wide && CLOSE_IN.test(p) && !WIDE_IN.test(p)) && !(v.sky && NO_SKY_IN.test(p)));
 
 /**
  * Aynı istem aynı önbellek dosyasına gider (motor istem+karakter+stil
  * özetiyle saklıyor): iki bölümde "empty office at night" aynı kareyi iki kez
  * gösteriyordu. Benzerlik ≥0,6 ise sonrakine farklı bir çekim eklenir.
+ * DENİZALTI (24 Ekim 2026): ek çekim istemin konusuna bakmadan sahne sırasıyla seçiliyordu — "Wide underwater shot of two
+ * dark submarine silhouettes…, extreme close-up detail of hands and objects", bir slamde "French ballistic missile
+ * submarine… near Brest, extreme close-up detail of hands and objects". Ek yalnızca istemin çekim ölçeğiyle çelişmeyen,
+ * karede olmayan insanı eklemeyen çeşitlemelerden seçilir.
  */
 export function varyDuplicatePrompts(scenes, castKeys = []) {
   const cast = new Set(castKeys);
@@ -1089,7 +1482,8 @@ export function varyDuplicatePrompts(scenes, castKeys = []) {
       const union = b.size + o.size - inter;
       return union > 0 && inter / union >= 0.6;
     });
-    if (clash) { s.imagePrompt = `${s.imagePrompt}, ${VARIATIONS[i % VARIATIONS.length]}`; varied++; }
+    const pool = clash ? variationsFor(s.imagePrompt) : [];
+    if (pool.length) { s.imagePrompt = `${s.imagePrompt}, ${pool[i % pool.length].text}`; varied++; }
     seen.push(bag(s.imagePrompt));
   });
   return varied;
@@ -1218,7 +1612,10 @@ export function finalizeScenes(scenes, { job, plan, castKeys = [], intensity = [
   const lastS = scenes.at(-1);
   if (lastS && plan.minutes >= 5) {
     const outro = ["photo", "words"].includes(lastS.type) && (Number(lastS.dur) || 0) >= 10;
-    if (!outro) {
+    // Yazarın kendi kapanışı da kapanıştır (Fransa borcu, 24 Ekim 2026): işaretsiz kalınca kurgu yönetmeni 13 sn'lik son
+    // fotoğrafı bitiş ekranı öğelerinin altında bir "5%" sayacına çevirdi.
+    if (outro) lastS.outro = true;
+    else {
       const base = [...scenes].reverse().find((s) => s.imagePrompt);
       if (base) {
         scenes.push({
@@ -1233,7 +1630,64 @@ export function finalizeScenes(scenes, { job, plan, castKeys = [], intensity = [
   }
   const varied = varyDuplicatePrompts(scenes, castKeys);
   if (varied) notes.push(`${varied} benzer görsel istemi çeşitlendirildi`);
+  const quotes = dropRepeatedQuotes(scenes);
+  if (quotes) notes.push(`${quotes} tekrar eden alıntı çıkarıldı (alıntı en çok iki kez: açılış ve kapanış)`);
+  const cards = capTextCards(scenes);
+  if (cards) notes.push(`${cards} açıklama yazı kartı fotoğrafa çevrildi (yazı kartı ≤ %${Math.round(TEXT_CARD_MAX * 100)})`);
   return notes;
+}
+
+/**
+ * AYNI ALINTI EN ÇOK İKİ KEZ (16 Ekim 2026, Ebola: DSÖ'nün "It is not known whether Ervebo may be protective…"
+ * cümlesi açılışta, ortada ve kapanışta üç quote sahnesi oldu): 8 kelimelik ortak dizisi olan quote sahnelerinden ilki
+ * ve sonuncusu kalır (açılış + kapanışa dönüş), aradakiler çıkar.
+ */
+export function dropRepeatedQuotes(scenes) {
+  const grams = (s) => {
+    const t = tokens(s.say).filter((w) => w.length > 1);
+    const g = new Set();
+    for (let k = 0; k + 8 <= t.length; k++) g.add(t.slice(k, k + 8).join(" "));
+    return g;
+  };
+  const quotes = scenes.map((s, i) => ({ i, g: s?.type === "quote" ? grams(s) : null })).filter((x) => x.g?.size);
+  const drop = new Set();
+  for (const a of quotes) {
+    const group = quotes.filter((b) => b === a || [...b.g].some((x) => a.g.has(x)));
+    if (group.length >= 3) group.slice(1, -1).forEach((b) => drop.add(b.i));
+  }
+  return removeScenes(scenes, drop);
+}
+
+/*
+ * YAZI KARTI ≤ %15 (kurgu karnesi hedefi; Ebola %20 çıktı, elle 9 açıklama kartı fotoğrafa çevrildi): fazlası varsa
+ * KENDİ görseli olan, sayı taşımayan, vurgu yönlendirmesi ([slowly, with weight], [firmly]…) ve ifşa duygusu olmayan
+ * words sahneleri — en uzun metinliden başlayarak — fotoğraf olur. Açılış ve son üç sahne, slam ve kendi resmi
+ * olmayan (bg "prev") kartlar kalır.
+ */
+export const TEXT_CARD_MAX = 0.15;
+const isTextCardScene = (s) => s?.type === "slam" || (s?.type === "words" && s.textMode !== "none");
+const NUMBER_WORDS = /\b(?:hundred|thousand|million|billion|trillion|percent|half|third|quarter|twice|\w+teenth|\w+tieth|one in \w+)\b/i;
+const EMPHASIS_TAG = /\[(?:slowly|firmly|whispers?|quiet|dramatic|with weight)[^\]]*\]/i;
+export function capTextCards(scenes, max = TEXT_CARD_MAX) {
+  const story = scenes.filter((s) => !(s?.type === "title" && s.chapterCard));
+  let over = story.filter(isTextCardScene).length - Math.floor(story.length * max);
+  if (over <= 0) return 0;
+  const n = scenes.length;
+  const cands = scenes
+    .map((s, i) => ({ s, i }))
+    .filter(({ s, i }) => s.type === "words" && s.textMode !== "none" && i > 0 && i < n - 3 && s.bg !== "prev" && s.imagePrompt && !s.cta
+      && !/\d/.test(`${s.text || ""} ${s.keyword || ""}`) && !NUMBER_WORDS.test(String(s.text || "")) && !EMPHASIS_TAG.test(String(s.say || "")) && s.mood !== "reveal")
+    .sort((a, b) => String(b.s.text || "").length - String(a.s.text || "").length);
+  let moved = 0;
+  for (const { s } of cands) {
+    if (over <= 0) break;
+    s.type = "photo";
+    delete s.text;
+    delete s.keyword;
+    over--;
+    moved++;
+  }
+  return moved;
 }
 
 /**
@@ -1259,7 +1713,8 @@ export function rehookGaps(scenes, { lang = "tr", maxGap = 100 } = {}) {
   return out;
 }
 
-const clock = (sec) => `${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, "0")}`;
+// Önce tam saniyeye yuvarlanır: 539,6 sn "9:00"dır, "8:60" değil (Fransa borcu, 24 Ekim 2026: kancasız aralık uyarısı).
+export const clock = (sec) => { const t = Math.round(sec); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`; };
 
 /**
  * İlk 30 saniye sözleşmesi (tahmini zamanlarla): kanca ~8 sn, başlık ~20 sn,
@@ -1295,6 +1750,10 @@ export function researchForWriters(research) {
   const text = String(research || "");
   const k = text.search(/\n#{1,3}\s*Kaynak kayıtları\s*\n/);
   let head = (k < 0 ? text : text.slice(0, k)).trim();
+  // Araştırmacının kendi "Yapım notları / Prodüksiyon notları / Süre planı" bölümü yazara gitmez (22 Ekim 2026 denetimi:
+  // Fransa araştırmasının "Açılış 0:45; tetikleyici ve önceki haftalar 2:00" süre planı bible'a aynen 2. bölüm oldu ve
+  // izleyicinin üçte biri orada gitti). Yapıyı plan ve kurallar kurar; araştırma yalnızca olgu taşır.
+  head = stripProductionNotes(head);
   if (k >= 0) {
     try {
       const list = JSON.parse(text.slice(k).replace(/^\s*#{1,3}\s*Kaynak kayıtları\s*\n/, ""));
@@ -1304,6 +1763,21 @@ export function researchForWriters(research) {
   }
   // Emniyet tavanı (~25k token); 32k token'lık araştırma bile altında kalır.
   return head.length > 90000 ? head.slice(0, 90000) : head;
+}
+// (no \b after Turkish letters: "notları" ends in ı, which JS regex treats as a non-word character)
+const PRODUCTION_NOTES = /^#{1,3}\s*(?:\d+[a-z]?\.\s*)?(?:yap[ıi]m notlar[ıi]|prod[üu]ksiyon notlar[ıi]|s[üu]re plan[ıi]|production notes|video notes)(?=\s|$|[(:])/i;
+/** Drops the researcher's own production-notes sections (until the next heading of the same or higher level). */
+export function stripProductionNotes(md) {
+  const lines = String(md || "").split("\n");
+  const out = [];
+  let skip = 0;
+  for (const l of lines) {
+    const h = l.match(/^(#{1,3})\s/);
+    if (h && skip && h[1].length <= skip) skip = 0;
+    if (!skip && PRODUCTION_NOTES.test(l)) { skip = h ? h[1].length : 2; continue; }
+    if (!skip) out.push(l);
+  }
+  return out.join("\n").trim();
 }
 
 const sha1 = (v) => crypto.createHash("sha1").update(typeof v === "string" ? v : JSON.stringify(v)).digest("hex");
@@ -1384,19 +1858,74 @@ export function newsBibleRules() {
   return [
     "GÜNDEM AÇIKLAYICI (breaking-news explainer): son 1-3 günün büyük ve kafa karıştıran olayı. Video, manşetlerin vermediği NET resmi verir.",
     "- centralQuestion: milyonların kafasındaki tek soru (\"Kara Ölüm geri mi döndü?\" gibi); son bölüm onu dürüstçe cevaplar: ne biliniyor, ne bilinmiyor, ne olursa tehlikeli olur.",
-    "- Yapı: 1) soğuk açılış — çelişkiyi tek cümlede ver (iki versiyon, iki iddia: 'Bir tüp kırıldı. Ya da Rusya'ya göre kırılmadı.'); 2) ne oldu, saat saat; 3) iki (ya da daha çok) versiyon, her biri KAYNAĞIYLA; 4) arka plan: bu neden önemli, ne kadar tehlikeli, gerçek bilim/olgu; 5) tarih: neden kimse resmî açıklamaya güvenmiyor (emsaller); 6) dürüst cevap ve sıradaki işaret.",
-    "- DOĞRULUK: doğrulanmamış hiçbir şeyi olgu gibi söyleme. Her iddia atfedilir ('yetkililere göre', 'yerel bir site isimsiz kaynaklara dayanarak'). Sayılar araştırmadaki kaynakla birebir. Panik ya da 'salgın başladı' gibi doğrulanmamış hüküm YOK; korkuyu değil bilgiyi büyüt.",
+    // Fransa videosu (22 Ekim 2026): "sırayla" okunup hikâye Eylül'deki kök nedenden başlatıldı; kancadan hemen sonra
+    // 1:47'lik arka plan bölümünde izleyicinin üçte biri gitti. Haber BU HAFTADAN anlatılır.
+    "- Yapı: 1) soğuk açılış — çelişkiyi tek cümlede ver (iki versiyon, iki iddia: 'Bir tüp kırıldı. Ya da Rusya'ya göre kırılmadı.'); 2) ne oldu — BU HAFTANIN olayları, neden-sonuçla; kancadan sonraki bölüm asla haftalar öncesine dönmez, kök neden (haftalar önce olan) ayrı ve kısa bir bölümde, en çok ~60-75 sn ve bugünkü bir olayın NEDENİ olarak bağlanır ('That anger had been building for a month. It started in a classroom.'); en eskiden başlayıp takvim yaprağı çevirme; 3) iki (ya da daha çok) versiyon, her biri KAYNAĞIYLA; 4) arka plan: bu neden önemli, ne kadar tehlikeli, gerçek bilim/olgu; 5) tarih: en çok BİR emsal, 60-90 sn, hemen bugüne dönülür (veba videosu 2. dakikada 1338'e gitti ve izleyici orada çıktı); 6) dürüst cevap ve sıradaki işaret.",
+    "- DOĞRULUK: doğrulanmamış hiçbir şeyi olgu gibi söyleme — doğrulanamayanı hiç söyleme. Kaynak yalnızca hikâyenin merkezindeki tartışmalı ya da çarpıcı iddiada söylenir (bölümde en çok 2 kez: 'Saudi Arabia says… The Houthis deny it.'); her cümleyi atfetme, kaynak çekişmesi ve tarih farkı anlatma. Sayılar araştırmadaki kaynakla birebir. Panik ya da 'salgın başladı' gibi doğrulanmamış hüküm YOK; korkuyu değil bilgiyi büyüt.",
     "- Özel kişiler (kurban, şüpheli) isimle anılmaz; ölüm ve acı saygıyla.",
     "- title: merak boşluklu ve dürüst (\"The Black Death Never Disappeared\", \"What Really Happened at …\"); konu adı + 'explained' tek başına değil.",
     "- GÖRSEL: yayıncı kuruluşların haber görüntüsü ASLA (telif). Gerçek ve serbest kaynaklar önce (resmî kurum fotoğrafları, kamu malı arşiv, Commons, tarihî tablolar), sonra gerçek stok video; AI yalnızca kameranın görmediği an için, gerçek kişinin yüzü asla.",
   ];
 }
 
+/**
+ * What the chapter writer has to see of the chapters before it: the whole narration so far, the opening's own question
+ * and promise lines (so a callback quotes them, not an invented one), and where in the video this chapter starts.
+ */
+export function soFarBlock(chapters = [], wpm = 150) {
+  if (!chapters.length) return "";
+  const lines = chapters.map((sc, k) => `— Bölüm ${k + 1}: ${sc.map((s) => stripTags(s.say)).filter(Boolean).join(" ")}`);
+  const opening = (chapters[0] || []).map((s) => stripTags(s.say)).filter((t) => /\?|by the end|you'll know|you will know/i.test(t));
+  const words = chapters.flat().reduce((n, s) => n + (stripTags(s.say).match(/[\p{L}\p{N}'’]+/gu) || []).length, 0);
+  const at = (words / wpm) * 60;
+  return [
+    `BU BÖLÜM videonun ~${Math.floor(at / 60)}:${String(Math.floor(at % 60)).padStart(2, "0")}'ında başlıyor.`,
+    ...(opening.length ? [`AÇILIŞTAKİ SORU/VAAT (geri çağırırken bunları AYNEN an): ${opening.map((t) => `"${t}"`).join(" ")}`] : []),
+    "ŞİMDİYE KADAR YAZILAN ANLATIM (hiçbir olguyu, benzetmeyi ya da cümleyi tekrarlama; kaldığı yerden devam et):",
+    ...lines,
+  ].join("\n");
+}
+
+/** Lint kinds the editor gets a focused second look at when they survive the first read. */
+export const SECOND_ROUND_KINDS = new Set(["leak", "unit", "count", "meta", "template", "unsupported", "quote", "absolute", "relative-time", "vague-source", "abstract", "hook-number", "hook-modern"]);
+
+/** News plan: at most one background chapter, never the 2nd (the minute after the hook), never the last. */
+export function newsBackgroundErrors(chapters = []) {
+  const bg = chapters.map((c, i) => (c?.background ? i : -1)).filter((i) => i >= 0);
+  const e = [];
+  if (bg.includes(1)) e.push("chapters[1].background: kancadan sonraki bölüm arka plan olamaz — bu haftanın olaylarıyla devam et, kök nedeni sonra ve kısa anlat");
+  if (bg.length > 1) e.push(`en çok BİR arka plan bölümü (gelen ${bg.length})`);
+  if (chapters.length > 2 && bg.includes(chapters.length - 1)) e.push("son bölüm arka plan olamaz");
+  return e;
+}
+/** The background chapter gets ~60-75 s; its words go to the news-week chapters (total kept). → words moved */
+export function budgetBackground(plan, chapters = []) {
+  if (!Array.isArray(plan?.chapterWords)) return 0;
+  const bg = chapters.map((c, i) => (c?.background ? i : -1)).filter((i) => i >= 0 && plan.chapterWords[i] > BACKGROUND_WORDS);
+  if (!bg.length) return 0;
+  const rest = plan.chapterWords.map((_, i) => i).filter((i) => !bg.includes(i));
+  if (!rest.length) return 0;
+  let moved = 0;
+  for (const i of bg) {
+    const ratio = BACKGROUND_WORDS / plan.chapterWords[i];
+    moved += plan.chapterWords[i] - BACKGROUND_WORDS;
+    plan.chapterWords[i] = BACKGROUND_WORDS;
+    // Fewer words, fewer scenes (a short chapter of many tiny lines reads like a list).
+    if (Array.isArray(plan.chapterScenes?.[i])) plan.chapterScenes[i] = [Math.max(3, Math.round(plan.chapterScenes[i][0] * ratio)), Math.max(4, Math.round(plan.chapterScenes[i][1] * ratio))];
+  }
+  const each = Math.floor(moved / rest.length);
+  rest.forEach((i, k) => { plan.chapterWords[i] += each + (k < moved - each * rest.length ? 1 : 0); });
+  return moved;
+}
+
 /** The news explainer's per-chapter rules. */
+/** Döngü defteri: en az bir açık döngü videonun ikinci yarısında (bölüm ≥ %55) cevaplanır. */
+export const lateLoopPayoff = (loops = [], n = 0) => (loops || []).some((l) => Number.isInteger(l?.payoffChapter) && l.payoffChapter >= Math.ceil(n * 0.55));
+
 export function newsChapterRules({ i, n }) {
   if (i === 0) return ["SOĞUK AÇILIŞ (GÜNDEM): ilk cümle çelişkinin kendisi; ilk 8 sn içinde olayın ne olduğu ve neden herkesin konuştuğu belli olsun. Abartma: ilk cümle doğru olmalı."];
   if (i === n - 1) return ["SON BÖLÜM (GÜNDEM): dürüst cevap — kesin olan, belirsiz olan, neyin değişmesi gerektiği (izlenecek işaret). Korkutma da yatıştırma da: kanıt ne diyorsa o."];
-  return ["Bu bölümdeki her iddia kaynağıyla; versiyonlar karışmasın. Bir tarih ya da sayı söylendiğinde araştırmadaki değerle birebir."];
+  return ["Versiyonlar karışmasın: tartışmalı iddiada kim ne diyor açık olsun (bölümde en çok 2 kaynak adı), gerisi düz anlatım. Bir tarih ya da sayı söylendiğinde araştırmadaki değerle birebir; kaynakların birbirini doğrulamaması anlatılmaz."];
 }
 
 /** The countdown's per-chapter rules (intro, an item, number one). */
@@ -1481,7 +2010,7 @@ function storyBlock({ job, bible, research }) {
   ].filter((x) => x !== "").join("\n");
 }
 
-function chapterPrompt({ i, bible, plan, written, lang, catalog = null }) {
+function chapterPrompt({ i, bible, plan, written, lang, catalog = null, aiCap = null }) {
   const n = bible.chapters.length;
   const ch = bible.chapters[i];
   const first = i === 0, last = i === n - 1;
@@ -1504,6 +2033,9 @@ function chapterPrompt({ i, bible, plan, written, lang, catalog = null }) {
   ]).filter(Boolean);
   const opener = written[0]?.[0];
   return [
+    ...(first ? hookGrowthLines({ news: !!plan.news }) : []),
+    ...editGrowthLines({ maps: !!plan.maps }),
+    ...voiceGrowthLines({ style: voiceStyleOf(plan) }), ...honestyLines({ news: !!plan.news }),
     `ŞİMDİ SADECE BÖLÜM ${i + 1}/${n}: "${ch.title}"`,
     `Hedef: ${ch.goal}`,
     `İşlenecek olgular: ${ch.covers.join("; ")}`,
@@ -1512,29 +2044,118 @@ function chapterPrompt({ i, bible, plan, written, lang, catalog = null }) {
     last ? `Kapanış fikri: ${ch.cliffhanger}` : `Bölüm sonu (son sahne bunu bırakır, bir sonraki bölüme merak): ${ch.cliffhanger}`,
     `Yoğunluk: ${ch.intensity}/5${ch.midpoint ? " — ORTA NOKTA: hikâyenin yönünü değiştiren büyük ifşa bu bölümde" : ""}.`,
     setup.length ? `Bu bölümde KUR (cevaplama): ${setup.join(" · ")}` : "",
-    payoff.length ? `Bu bölümde CEVAPLA: ${payoff.join(" · ")}` : "",
+    payoff.length ? `Bu bölümde CEVAPLA: ${payoff.join(" · ")} — cevabı ADIYLA geri çağırarak ver ('Remember the question we started with?', 'This is where we came in.').` : "",
     open.length ? `Açık kalan sorular (hatırlat, cevaplama — yeniden kanca): ${open.join(" · ")}` : "",
     "",
+    // Macar Devrimi (Ekim 2026): tavan yalnızca doğrulamadaydı — bölümler 10, 6, 4 AI sahnesiyle gelip her biri ayrı bir
+    // ücretli onarım turu yedi. Tavan yazara baştan söylenir.
+    aiCap != null ? `GÖRSEL KAYNAĞI (ZORUNLU): bu bölümde EN FAZLA ${aiCap} sahne source "ai" olabilir (videoda toplam ~${AI_PER_VIDEO}). Gerisi gerçek arşiv (archive: dönemin fotoğrafı, belge, eser, yerin kendisi), stok (stock: dönemle çelişmeyen doğa/doku) ya da words/slam için bg "prev". Atmosfer satırları da önce stok/arşivle çözülür.` : "",
     `UZUNLUK (ZORUNLU): toplam ${target} kelime anlatım (etiketler hariç, en az ${min}); ${lo}-${hi} sahne. Kelime hedefi sahne sayısından önemlidir: sahneler az kalırsa satırları uzat.`,
     first
-      ? `AÇILIŞ (ilk 30 sn): ${openingRule(bible, g)} KONU NETLİĞİ (zorunlu): izleyici konuyu ilk 10 saniyede anlar — konunun adı (başlıktaki/aramadaki anahtar ifade) ilk 1-2 cümlede söylenir; kanca bu konunun KENDİ en çarpıcı, doğrulanmış olgusudur, başka bir hikâye gibi açılmaz. Bir sahneyle/insanla açılıyorsa o sahne bu konunun içinden olur ve en geç ~15 sn'de konunun adına bağlanır. Bilinen/çok aranan bir konuda ilk dakika: şu an ne oluyor + izleyiciye neden dokunuyor + bu video neyi cevaplıyor. Kanca ("${bible.hookWord}") ilk ~8 sn içinde düşsün. KANCA ÇARPICI KALIR (MagnatesMedia, LEMMiNO, ColdFusion, Moon, Ekim 2026 incelemesi): ilk satır bu hikâyenin gerçek bir ANI, SÖZÜ ya da RAKAMI — düz bir tanım cümlesi değil; vaatten sonra videoda geleceklerin 2-3 kısa, giderek büyüyen fragmanı (cevaplamadan) gelir; ilk bölümde hikâye bir İNSANLA ve onu tanıtan tek tuhaf/insani ayrıntıyla başlar. İlk 4 sahneden biri title: videonun adı "${bible.title}" (~20 sn içinde). Vaadi ("${bible.promise}") ilk ~30 sn içinde, yani anlatımın ilk ~55 kelimesinde söyle; merkez soruyu sezdir: "${bible.centralQuestion}".`
+      ? `AÇILIŞ (ilk 30 sn): ${openingRule(bible, g)} KONU NETLİĞİ (zorunlu): izleyici konuyu ilk 10 saniyede anlar — konunun adı (başlıktaki/aramadaki anahtar ifade) ilk 1-2 cümlede söylenir; kanca bu konunun KENDİ en çarpıcı, doğrulanmış olgusudur, başka bir hikâye gibi açılmaz. Bir sahneyle/insanla açılıyorsa o sahne bu konunun içinden olur ve en geç ~15 sn'de konunun adına bağlanır. Bilinen/çok aranan bir konuda ilk dakika: şu an ne oluyor + izleyiciye neden dokunuyor + bu video neyi cevaplıyor. Kanca ("${bible.hookWord}") ilk ~8 sn içinde düşsün. KANCA ÇARPICI KALIR (MagnatesMedia, LEMMiNO, ColdFusion, Moon, Ekim 2026 incelemesi): ilk satır bu hikâyenin gerçek bir ANI, SÖZÜ ya da RAKAMI — düz bir tanım cümlesi değil; vaat TEK cümledir ve hemen ardından henüz söylenmemiş en güçlü olgu gelir (fragman listesi, ikinci vaat, özet yok — 22 Ekim 2026: Fransa açılışı vaat + meta + 'basics' ile 90 sn'ye uzadı, izleyicinin dörtte biri gitti); ilk bölümde hikâye bir İNSANLA ve onu tanıtan tek tuhaf/insani ayrıntıyla başlar. İlk 4 sahneden biri title: videonun adı "${bible.title}" (~20 sn içinde). Vaadi ("${bible.promise}") ilk ~30 sn içinde, yani anlatımın ilk ~55 kelimesinde söyle; merkez soruyu sezdir: "${bible.centralQuestion}". İZLENME VERİSİ (kanalın kendi YouTube grafikleri, Ekim 2026): uzun videolar izleyicinin %70-85'ini ilk 20-40 sn'de kaybediyor, sonrası düz gidiyor; en kötüsü yavaş/fısıltılı atmosfer açılışı (Napolyon "[slowly] Midsummer, 1812. A river in Lithuania..." → ~40 sn'de %85 gitti). Bu yüzden giriş mantığı ne olursa olsun: İLK SAHNE (ilk 3 sn) videonun EN çarpıcı GERÇEK görseli (arşiv fotoğrafı/klibi) + videonun en sert satırı; ilk 10 sn'de [slowly]/[whispers]/[softly] etiketi yok; ilk ~30 sn'deki her sahne tek kısa cümle (≤ ~12 kelime, 2-4 sn) — resim sık değişsin; kapakta kullanılacak görsel ya da sözcük ilk 5 sn'de görünsün.`
       : plan.ranking
         ? `MADDE #${ch.rank}: ${ch.item}${ch.place ? ` — ${ch.place}` : ""}${ch.year ? `, ${ch.year < 0 ? `MÖ ${-ch.year}` : ch.year}` : ""}. Sıra kartını (dev #${ch.rank}, maddenin adı, yer ve yıl) motor koyar: anlatıcı sıra numarasını ve maddenin başlığını SÖYLEMEZ, title sahnesi yazma. İlk satır doğrudan maddenin en çarpıcı olgusu.`
         : `Bölüm kartını ("BÖLÜM ${i + 1} — ${ch.title}") motor koyar: anlatıcı bölüm başlığını söylemez, title sahnesi yazma. İlk satır giriş kancasını yapar.`,
     ...(plan.ranking ? rankingChapterRules({ i, n, ch, bible }) : []),
     ...(plan.news ? newsChapterRules({ i, n }) : []),
+    ...(plan.news && ch.background ? [`ARKA PLAN BÖLÜMÜ (haber haftasından önce): EN ÇOK ~${BACKGROUND_WORDS} kelime (~60-75 sn). İlk cümle bugünkü bir olayı geçmişe bağlar ('That anger did not start on Saturday. It started in a classroom in September.'); her geçmiş olay bugünkü sonucuyla söylenir; tarih sayımı ve liste yok; son cümle hikâyeyi bu haftaya geri getirir.`] : []),
+    ...(plan.ranking ? [] : spineLines({ news: !!plan.news, story: voiceStyleOf(plan) === "story", first, last })),
+    ...(!first && !last && ch.midpoint ? middleGrowthLines() : []),
+    ...(last && !plan.ranking ? endGrowthLines({ news: !!plan.news, finance: !!plan.finance, series: plan.series || "" }) : []),
     last
       ? `SON BÖLÜM: merkez soruyu ("${bible.centralQuestion}") açıkça cevapla, açık döngüleri kapat ve soğuk açılışa geri dön (kanca: "${bible.hookWord}"${opener ? `; açılış satırı: "${stripTags(opener.say)}"` : ""}). Son sahne sakin bir kapanış: photo veya words, dur 12-15, 3-8 kelimelik kısa bir satır; müzik onun altında çözülür. silence en fazla 1 kez, en ağır duygu anında.`
       : "Bu bölümde silence YOK; slam en fazla 1.",
     before.length ? `ÖNCEKİ BÖLÜMLERDE ANLATILDI (tekrar etme, gerekirse tek kelimeyle an): ${before.join("; ")}` : "",
     used.length ? `Kullanılmış vuruşlar (tekrarlama): ${used.join("; ")}` : "",
     after.length ? `SONRAKİ BÖLÜMLERİN OLGULARI (şimdiden verme): ${after.join("; ")}` : "",
+    // 22 Ekim 2026 denetimi: yazar önceki bölümlerden yalnızca son 3 satırı görüyordu — bölümler arası tekrarlar ("…a
+    // miracle" üç kez) ve açılıştaki gerçek soruyu bilmeden yazılan geri çağırmalar buradan çıktı. Artık bütün metin.
+    !first ? soFarBlock(written.slice(0, i)) : "",
     prev?.length ? `ÖNCEKİ BÖLÜMÜN SON SATIRLARI (kaldığı yerden, aynı cümleyi tekrarlamadan devam et):\n${prev.slice(-3).map((s) => `- ${stripTags(s.say)}`).join("\n")}` : "",
     !first && opener ? `Soğuk açılış (bölüm 1) böyleydi: "${stripTags(opener.say)}"${opener.text ? ` · ekrandaki kanca: "${opener.text}"` : ""}` : "",
     ...rhetoricLines(bible.rhetoric, i, n),
     catalog?.length ? catalogPromptBlock(catalog, ch) : "",
     lang === "en" ? "Write every on-screen text and narration in English." : "",
   ].filter(Boolean).join("\n");
+}
+
+/*
+ * GERÇEK KİŞİLER LİSTESİ (realCast) — Madoff (20261026-27b4d8) ve Lula (20261026-29db03), 26 Ekim 2026. Motor
+ * (docu-engine/lib/produce.mjs hideRealFace) gerçek bir kişinin AI karesinde yüzü gizler, ama realCast'ı hiçbir adım
+ * yazmıyordu: yalnızca arşiv sahnesine cast'lanan kişi "gerçek" sayılıyordu. "[quietly] On December 10, 2008, Madoff told
+ * his sons, Mark and Andrew, the truth." satırının ardındaki "Mark Madoff Andrew Madoff 2008" araması AI'a düştü ve iki
+ * oğul uydurma yüzle çizildi (gorsel-kutusu #6); Lula'da cast boştu, Lula ve Bolsonaro'lara benzemeyen adamlar çizildi.
+ * Senaryo bitince kod realCast'ı yazar: gerçek cast anahtarları (arşive cast'lanan ya da aramada/isim kartında adıyla
+ * geçen) ve anlatımda adı geçen gerçek kişiler — isim kartı, alıntı sahibi, unvan ("Senator Flávio Bolsonaro"),
+ * akrabalık ("his sons, Mark and Andrew", "Jair Bolsonaro's eldest son"), portre araması ("Harry Markopolos 2009
+ * portrait"). Kurallar produce.mjs realPeople ile AYNI tutulur (motor eski senaryolarda kendisi de çıkarır); motor
+ * uygulamanın dışında kurulu (resources/docu-engine), buradan içe aktarılamaz — docu-edit-director.js'teki dünya
+ * haritası notu. Kurum ("World Health Organization") ve yer ("King Fahd Airport") kişi sayılmaz.
+ */
+const foldName = (s) => String(s ?? "").normalize("NFD").replace(/\p{M}+/gu, "");
+const reEsc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const NAME_WORD = String.raw`\p{Lu}(?:['’]\p{Lu})?[\p{L}-]*\p{Ll}[\p{L}-]*`;
+const NAME_PARTICLE = String.raw`(?:da|de|do|dos|das|del|della|di|du|van|von|der|den|ter|le|la|bin|ibn|al|el)`;
+const NAME_RUN = String.raw`${NAME_WORD}(?:\s+(?:${NAME_PARTICLE}\s+)?${NAME_WORD}){0,3}`;
+const L_EDGE = String.raw`(?<![\p{L}\p{N}])`;
+const R_EDGE = String.raw`(?![\p{L}\p{N}])`;
+const TITLES_UPPER = ["Vice President", "Prime Minister", "Senator", "Sen", "President", "Minister", "Governor", "Mayor", "Judge", "Justice", "Chancellor", "King", "Queen", "Prince", "Princess", "Emperor", "Empress", "Tsar", "Czar", "Pope", "Cardinal", "Archbishop", "Bishop", "General", "Admiral", "Colonel", "Col", "Captain", "Capt", "Lieutenant", "Lt", "Sergeant", "Sgt", "Commander", "Marshal", "Sheriff", "Detective", "Dr", "Doctor", "Professor", "Prof", "Rev", "Reverend", "Mr", "Mrs", "Ms", "Sir", "Dame", "Lord", "Lady", "Ayatollah", "Sheikh", "Sultan", "Rabbi", "Imam"];
+const TITLES_LOWER = ["vice president", "prime minister", "senator", "president", "minister", "governor", "mayor", "judge", "chancellor"];
+// Yalnızca kısaltma noktayla biter: "Dr. Legasov" — "Justice. Words the conquerors brought" (Hastings) ad değildir.
+const TITLE_ABBRS = new Set(["Sen", "Col", "Capt", "Lt", "Sgt", "Dr", "Prof", "Rev", "Mr", "Mrs", "Ms"]);
+const PERSON_TITLE = String.raw`(?:${[...TITLES_UPPER, ...TITLES_LOWER].map((t) => `${reEsc(t)}${TITLE_ABBRS.has(t) ? String.raw`\.?` : ""}`).join("|")})`;
+// Ülke adı kişi adının parçası değildir (inceleme, 27 Ekim 2026; sıradaki İsrail 2026 seçim videosu): "Defense Minister Israel
+// Katz" "Israel"i ad sözcüğü yapıyordu, "Israel's sons and daughters" / "Gaza's children" yeri kişi. produce.mjs PLACE_NAMES
+// ile AYNI (docu-archive.js YER_ADI da).
+const PLACE_WORDS = "israel israeli israelis gaza palestine palestinian palestinians iran iranian iranians iraq iraqi syria syrian lebanon lebanese egypt egyptian yemen yemeni saudi saudis arabia arab arabs qatar qatari oman turkey turkiye turkish russia russian russians ukraine ukrainian ukrainians belarus china chinese taiwan japan japanese korea korean india pakistan pakistani afghanistan afghan america american americans britain british england scotland ireland irish france germany italy italian spain spanish portugal europe european africa african asia brazil brazilian argentina mexico mexican canada canadian venezuela venezuelan cuba cuban hungary hungarian poland polish soviet jewish muslim houthi houthis idf jerusalem tel aviv moscow beijing tehran kyiv kiev hamas hezbollah kremlin".split(" ");
+const PLACE_SET = new Set(PLACE_WORDS);
+const NAME_STOPS = new Set([
+  ...PLACE_WORDS,
+  ...TITLES_UPPER.flatMap((t) => t.toLowerCase().split(" ")),
+  ..."the a an and or but so then now yet still in on at of for from by with to into after before when while during since until as his her their its our my your this that these those there here what who whom why how where which it he she they we you mr mrs ms sir dame lord lady saint st jr sr ii iii iv remember meanwhile however today tonight yesterday tomorrow later earlier".split(" "),
+  ..."january february march april may june july august september october november december monday tuesday wednesday thursday friday saturday sunday".split(" "),
+  ..."court house senate congress parliament assembly building tower palace square street avenue road bridge river lake mountain station airport hospital university college school church cathedral museum bank exchange market office department ministry committee council commission agency bureau police army navy force party group company corporation inc ltd llc fund foundation institute center centre hall plant reactor unit prison jail federal national supreme state city county republic kingdom union united states new old north south east west central great royal international world global times post journal news daily magazine tribune herald press gazette globe portrait motors electric staff will hope grace faith joy bill".split(" "),
+]);
+const KIN_WORDS = String.raw`(?:sons?|daughters?|wife|husband|widow|brothers?|sisters?|father|mother|parents|children|nephew|niece|grandson|granddaughter|cousin|lawyer|attorney|deputy|aide|assistant|partner|accountant|secretary)`;
+// İyelik ("X's …") yalnızca AİLE sözcüğüyle (inceleme, 27 Ekim 2026; sıradaki İsrail 2026 seçim videosu): "Israel's attorney
+// general", "Brazil's deputy foreign minister", "Apple's lawyer" ülkeyi/şirketi "gerçek kişi" yapıyordu. "Madoff's sons"
+// (20261026-27b4d8) yine Madoff. "his lawyer, Ira Sorkin" (üçüncü kalıp) iş sözcüklerini korur. produce.mjs FAMILY ile AYNI.
+const FAMILY_WORDS = String.raw`(?:sons?|daughters?|wife|wives|husband|widow|widower|brothers?|sisters?|father|mother|parents|children|nephews?|nieces?|grandsons?|granddaughters?|grandchildren|cousins?|stepsons?|stepdaughters?)`;
+const NAME_CUES = [
+  new RegExp(String.raw`${L_EDGE}${PERSON_TITLE}\s+(?:Sir\s+)?(${NAME_RUN})`, "gu"),
+  new RegExp(String.raw`${L_EDGE}(${NAME_RUN})['’]s\s+(?:\p{Ll}+\s+){0,2}${FAMILY_WORDS}${R_EDGE}`, "gu"),
+  new RegExp(String.raw`${L_EDGE}(?:[Hh]is|[Hh]er|[Tt]heir)\s+(?:\p{Ll}+\s+){0,2}${KIN_WORDS},?\s+(${NAME_RUN})(?:\s*(?:,|and|&)\s*(${NAME_RUN}))?`, "gu"),
+];
+const SITTER = new RegExp(String.raw`^\s*(?:${PERSON_TITLE}\s+)?(${NAME_WORD}\s+(?:${NAME_PARTICLE}\s+)?${NAME_WORD})${R_EDGE}(?=.*\bportrait\b)`, "u");
+const READS_AS_PERSON = new RegExp(String.raw`^(?:${PERSON_TITLE}\s+)?(?:${NAME_WORD}|\p{Lu}\.|${NAME_PARTICLE})(?:\s+(?:${NAME_WORD}|\p{Lu}\.|${NAME_PARTICLE})){0,5}$`, "u");
+const NOT_A_PERSON = /\b(?:agency|organi[sz]ation|association|institute|committee|council|commission|ministry|department|office|bureau|service|authority|administration|court|bank|fund|group|company|corporation|foundation|university|airport|party|police|army|navy|union|network|news|times|post|journal|press|international|national|federal|world)\b/i;
+const CAST_ROLE_WORD = /^(?:young|younger|old|older|elder|early|late|jr|sr|senior|junior|child|children|teen|adult|middle|aged?|man|men|woman|women|boy|girl|\d+s?|student|officer|crs|police|policeman|guard|soldier|worker|firefighter|fireman|nurse|doctor|farmer|priest|monk|knight|ceo|lawyer|judge|investor|trader|banker|clerk|driver|pilot|diver|engineer|miner|sailor|survivor|witness|victim|mother|father|son|daughter|wife|husband|protester|rioter|villager|peasant|merchant|agent|detective|reporter|journalist|official|minister|president|general|admiral|captain|narrator|host|crowd|operator|scientist|analyst|examiner|regulator|executive)$/;
+const personWords = (n) => (foldName(n).match(new RegExp(NAME_WORD, "gu")) ?? []).filter((w) => w.length >= 3 && !NAME_STOPS.has(w.toLowerCase()));
+const isPersonName = (n) => personWords(n).length > 0 && !NOT_A_PERSON.test(foldName(n));
+
+/** Real people of a finished script: real cast keys first, then the real people the narration names (realCast). */
+export function realCastOf(script) {
+  const cast = script?.cast ?? {};
+  const scenes = script?.scenes ?? [];
+  const names = new Set();
+  for (const s of scenes) {
+    for (const v of [s.name, s.who]) {
+      const n = String(v ?? "").split(/[,(]/)[0].trim();
+      if (n && READS_AS_PERSON.test(n) && isPersonName(n)) names.add(n);
+    }
+    for (const t of [stripTags(s.say), s.text, s.caption]) {
+      for (const re of NAME_CUES) for (const m of String(t ?? "").matchAll(re)) for (const n of m.slice(1)) if (n && isPersonName(n)) names.add(n);
+    }
+    const sitter = typeof s.search === "string" ? s.search.match(SITTER)?.[1] : null;
+    if (sitter && isPersonName(sitter) && personWords(sitter).length === 2) names.add(sitter);
+  }
+  // A cast member is real when cast on an archive scene, or searched/carded by name ("Harry Markopolos 2009 portrait").
+  const evidence = foldName([...scenes.flatMap((s) => [s.search, s.commons]), ...names].filter((x) => typeof x === "string").join(" \n "));
+  // Yer ya da halk adı anahtarda ad değildir ("israeli_voter", "tel_aviv_protester", "idf_soldier"; produce.mjs ile AYNI).
+  const keyWords = (k) => k.split("_").filter((w) => w.length >= 3 && !CAST_ROLE_WORD.test(w) && !PLACE_SET.has(w));
+  const asWritten = (w) => new RegExp(`${L_EDGE}${w[0].toUpperCase()}${[...w.slice(1)].map((c) => (/[a-z]/.test(c) ? `[${c}${c.toUpperCase()}]` : reEsc(c))).join("")}${R_EDGE}`, "u");
+  const keys = Object.keys(cast).filter((k) => scenes.some((s) => (s.archived || s.source === "archive") && (s.cast || []).includes(k)) || keyWords(k).some((w) => asWritten(w).test(evidence)));
+  return [...keys, ...[...names].filter((n) => !cast[n])];
 }
 
 /**
@@ -1544,10 +2165,15 @@ function chapterPrompt({ i, bible, plan, written, lang, catalog = null }) {
  * @param opts.eleven       {musicSource, libraryReady} — kredi tahmini için
  * @returns docu-engine Script (id = job.id). `stats` uzunluk karnesini taşır.
  */
+/** How many AI pictures an archive documentary may carry in all (the writer prompt says ~15; the engine caps the rest). */
+export const AI_PER_VIDEO = 15;
+
 export async function runDocuScript(job, research, usage, logFn, opts = {}) {
   // chapterModel: bölümleri yazan model (Sonnet 5.5). Hikâye planı (bible) ayarlardaki modelle (Opus 5.5) — ruh planda.
   // bibleModel: hikâye planını yazan model (Senarist ayarı; boşsa ayarlardaki ana model).
-  const { dir = null, isCancelled = () => false, llm = callJSON, eleven = {}, chapterModel = null, bibleModel = null, commonsCatalog = true } = opts;
+  // voiceSpeed: ayarların docuVoiceSpeed'i — süre tavanı ölçülen film temposunu bu hızla ölçekler (yoksa ölçülen 1.1).
+  // styleVoices: ayarların docuStyleVoices'u — tavan işin kanal sesinin temposuyla; iş başka sesle okunuyorsa en yavaşıyla.
+  const { dir = null, isCancelled = () => false, llm = callJSON, eleven = {}, chapterModel = null, bibleModel = null, commonsCatalog = true, voiceSpeed, styleVoices = null } = opts;
   const plan = docuPlan(job);
   /** This chapter's word target (the ranking's intro is short and its number one long). */
   const cw = (i) => plan.chapterWords?.[i] ?? plan.wordsPerChapter;
@@ -1558,10 +2184,32 @@ export async function runDocuScript(job, research, usage, logFn, opts = {}) {
   const warnings = [];
   logFn(`Sinematik senaryo planı: ${plan.chapters} bölüm, ${plan.scenesRange[0] * plan.chapters}-${plan.scenesRange[1] * plan.chapters} sahne, ${plan.words} kelime (hedef ${plan.minutes} dk + %${Math.round((DOCU_HEADROOM - 1) * 100)} pay)`);
 
-  const key = sha1([DOCU_PROMPT_VERSION, job.topic, job.guidance || "", job.durationPreset, job.docuGenre || "", job.docuSource || "archive", job.docuFormat || "", lang, job.tone || "", sha1(fullResearch)]);
+  const key = sha1([DOCU_PROMPT_VERSION, job.topic, job.guidance || "", job.durationPreset, job.docuGenre || "", job.docuSource || "archive", job.docuFormat || "", lang, job.tone || "", sha1(fullResearch), job.docuMapMode || "", ...(job.docuSeries ? [job.docuSeries] : [])]);
   const store = scriptStore(dir, key);
 
   // 1) KUTSAL KİTAP
+  // The plan's own rules (chapter count, genre, loops, news background) — the writer's plan and the plan editor's
+  // corrected plan both pass through them.
+  const bibleErrors = (b) => {
+    const n = plan.chapters;
+    const errors = [];
+    if (b.chapters?.length !== n) errors.push(`tam ${n} bölüm gerekli, ${b.chapters?.length} geldi`);
+    if (job.docuGenre && b.genre !== job.docuGenre) errors.push(`genre "${job.docuGenre}" olmalı`);
+    // Karanlık görsel dil kodla düzelir, plan yeniden yazdırılmaz (Gimli 20261028-9ff721 / Kartal Yuvası 950730, 29 Ekim 2026).
+    const darkLook = darkLookWords(b.visualStyle);
+    if (darkLook.length) {
+      b.visualStyle = brightLook(b.visualStyle);
+      logFn(`Görsel dil denetimi: karanlık ifadeler atıldı (${darkLook.join(", ")}) → "${String(b.visualStyle).slice(0, 160)}"`);
+    }
+    if (!errors.length) {
+      fixRanking(b, plan);
+      fixBible(b, n);
+      if (n >= 3 && b.openLoops.length < 2) errors.push("openLoops: en az 2 geçerli açık döngü gerekli (1 ≤ setupChapter < payoffChapter ≤ bölüm sayısı)");
+      else if (n >= 4 && !lateLoopPayoff(b.openLoops, n)) errors.push(`openLoops: en az bir döngü videonun ikinci yarısında cevaplanmalı (payoffChapter ≥ ${Math.ceil(n * 0.55)})`);
+      if (plan.news) errors.push(...newsBackgroundErrors(b.chapters));
+    }
+    return errors;
+  };
   let bible = store.bible();
   if (bible) logFn("Senaryo planı (kutsal kitap) kayıttan alındı");
   else {
@@ -1584,15 +2232,26 @@ export async function runDocuScript(job, research, usage, logFn, opts = {}) {
         ...(plan.news ? newsBibleRules() : []),
         plan.ranking ? "Aşağıdaki uzun form kuralları her MADDENİN içinde de geçerli:" : "",
         ...hookPromptLines(hookCands),
+        ...bibleGrowthLines(nicheOf({ genre: job.docuGenre, format: plan.news ? "news" : "", topic: job.topic })),
+        ...hookGrowthLines({ news: !!plan.news }),
+        ...(job.docuSeries ? [`SERİ: bu video "${job.docuSeries}" serisinin bir bölümü — başlık bu şablonun kalıbında, açılış serinin vaadini ilk 15 saniyede verir.`] : []),
+        ...editGrowthLines({ maps: !!plan.maps }),
+        ...voiceGrowthLines({ style: voiceStyleOf(plan) }), ...honestyLines({ news: !!plan.news }),
         "UZUN FORM YAPISI (MagnatesMedia / Netflix belgesel kurgusu):",
         "- centralQuestion: videonun taşıdığı tek büyük soru; izleyici cevabı için sonuna kadar kalır, SON bölüm cevaplar.",
         "- stakes: ne kaybedilebilirdi, neden önemli. promise: ilk 30 sn içinde söylenecek vaat. hookWord: soğuk açılışın kancası; son bölüm ona geri döner.",
-        `- openLoops: ${n >= 3 ? "3-5" : "0-2"} açık döngü — erken bir bölümde kurulan, SONRAKİ bir bölümde cevaplanan merak soruları (bölüm numaraları 1'den başlar). Videonun "yeniden kanca" omurgası bunlar: izleyici her 60-90 sn'de bir soruya ya da cevaba çarpmalı.`,
-        "- Her bölüm: hookIn (ilk cümlenin kancası), turn (bölüm içindeki dönüm; müzik/duygu yalnızca burada değişir), cliffhanger (bölüm sonunda bırakılan merak; son bölümde akılda kalan kapanış fikri), intensity 1-5 (gerilim eğrisi yükselir, zirve son üçte birde), midpoint (yalnızca ortadaki BİR bölüm true: %45-60 civarında hikâyenin yönünü değiştiren büyük ifşa).",
+        `- openLoops: ${n >= 3 ? "3-5" : "0-2"} açık döngü — erken bir bölümde kurulan, SONRAKİ bir bölümde cevaplanan merak soruları (bölüm numaraları 1'den başlar). Videonun "yeniden kanca" omurgası bunlar: izleyici her 60-90 sn'de bir soruya ya da cevaba çarpmalı — çoğunlukla bir OLAY olarak ('And within minutes of take-off, the first link broke.'), soru cümlesi olarak değil (tutmuşlar dakikada ~0,3 soru soruyor; videoda en çok 4-6 soru cümlesi).`,
+        // 20 Ekim 2026 derin inceleme: Hidden History kancada açtığı 3 vaadi videonun ikinci yarısında adıyla geri çağırarak
+        // ödüyor ("Remember the promise…"); ilk bölümlerde harcanan vaat izleyiciyi tutmuyor.
+        n >= 4 ? `- DÖNGÜ DEFTERİ: kancada açılan vaat ve döngülerden EN AZ BİRİ videonun ikinci yarısında cevaplanır (payoffChapter ≥ ${Math.ceil(n * 0.55)}); cevap bölümü onu adıyla geri çağırır.` : "",
+        "- Bölüm başlığı (title) bir MERAK KARTI olabilir: bölümün cevapladığı soru ya da cesur iddia ('The Numbers Don't Match', 'Who Was Really in Charge?'). Kart anlatıcıdan önce ekrana gelir; bu bilerek konulmuş bir merak kartıdır (Weird History'nin 3 zirvesinden 2'si anlatıcıdan önce gelen iddia kartı).",
+        "- Her bölüm: hookIn (ilk cümlenin kancası), turn (bölüm içindeki dönüm; müzik/duygu yalnızca burada değişir), cliffhanger (bölüm sonunda bırakılan merak — bir olay ya da yeni bir olgu, her bölümde aynı teaser cümlesi değil: 'Whether it mattered was another question' gibi kalıp videoda en çok bir kez; son bölümde akılda kalan kapanış fikri), intensity 1-5 (gerilim eğrisi yükselir, zirve son üçte birde), midpoint (yalnızca ortadaki BİR bölüm true: %45-60 civarında hikâyenin yönünü değiştiren büyük ifşa).",
         "- Tırmanış: her bölüm bir öncekinden daha büyük bir bedel ya da soru açar; son bölüm hepsini öder ve açılışa geri döner.",
         "- covers çakışmasın: her somut olgu tek bir bölüme ait.",
         job.docuGenre ? `genre MUTLAKA "${job.docuGenre}" olacak (kanal sahibi seçti); görsel dili de bu stile göre kur.` : "Önce hikâyenin ruhuna göre genre seç (yalnızca konu türüne göre değil: bir tarih hikâyesi aslında bir suç dosyası ya da bir insanın yükselişi olabilir).",
-        "Görsel dil hem döneme hem stile uysun: 1600ler için yağlı boya tablo, 1970ler için grenli film fotoğrafı, suç için soğuk flaşlı delil fotoğrafı, uzay için NASA arşivi ve teleskop görüntüsü, biyografi için sıcak aile fotoğrafı.",
+        "Görsel dil hem döneme hem stile uysun: 1600ler için yağlı boya tablo, 1970ler için grenli renkli film fotoğrafı, suç için net ve iyi aydınlatılmış delil fotoğrafı, uzay için NASA arşivi ve teleskop görüntüsü, biyografi için sıcak aile fotoğrafı.",
+        // Gimli 20261028-9ff721 / Kartal Yuvası 950730, 29 Ekim 2026: 7 videonun 7'si karanlık ve neredeyse renksizdi.
+        "Görsel dil KARANLIK DEĞİL: parlak, iyi pozlanmış, doğal renkli fotoğraf (renkli filmden önceki dönem — 1940 öncesi — siyah-beyaz/sepya olabilir). Türün renk vurgusu (soğuk, altın, kırmızı) grafik ve kartlarda motorun işi; visualStyle'a palet ya da ruh hâli ('moody', 'noir', 'low-key', 'deep shadows', 'green-black') yazma.",
       ].join("\n"),
       schema: withOpeningLogic(bibleSchema(plan), hookCands),
       maxTokens: 16000,
@@ -1602,25 +2261,39 @@ export async function runDocuScript(job, research, usage, logFn, opts = {}) {
       usage,
       logFn,
       isCancelled,
-      validate: (b) => {
-        const errors = [];
-        if (b.chapters?.length !== n) errors.push(`tam ${n} bölüm gerekli, ${b.chapters?.length} geldi`);
-        if (job.docuGenre && b.genre !== job.docuGenre) errors.push(`genre "${job.docuGenre}" olmalı`);
-        if (!errors.length) {
-          fixRanking(b, plan);
-          fixBible(b, n);
-          if (n >= 3 && b.openLoops.length < 2) errors.push("openLoops: en az 2 geçerli açık döngü gerekli (1 ≤ setupChapter < payoffChapter ≤ bölüm sayısı)");
-        }
-        return errors;
-      },
+      validate: (b) => bibleErrors(b),
     });
+    // PLAN EDİTÖRÜ (docu-plan-editor.js, 22 Ekim 2026): bölümler yazılmadan önce plan izleyici koltuğundan okunur —
+    // açılış tek vaatle ~55 sn mi, 2. bölüm bu haftadan mı, zirveden sonra olay mı geliyor, plandaki olgular araştırmada
+    // var mı. Düzeltilmiş plan bütün plan kurallarından geçmezse özgünü kalır. Çökerse plan olduğu gibi devam eder.
+    if (opts.planEditor !== false) {
+      try {
+        guard();
+        const reviewFile = dir ? path.join(dir, "docu-plan-review.json") : null;
+        const pr = await reviewPlan({
+          bible, plan, research: fullResearch, llm, model: bibleModel || chapterModel, usage, logFn, isCancelled, lang,
+          check: (b) => bibleErrors(b),
+          cache: reviewFile ? { get: (k) => { const c = readJson(reviewFile, null); return c?.key === k ? c.res : null; }, put: (k, res) => writeJson(reviewFile, { key: k, res, savedAt: new Date().toISOString() }) } : null,
+        });
+        bible = pr.bible;
+        logFn(`Plan editörü${pr.cached ? " (kayıttan)" : ""}: ${pr.applied.length} düzeltme${pr.rejected.length ? `, ${pr.rejected.length} reddedildi` : ""}${pr.verdict ? ` — ${pr.verdict.slice(0, 200)}` : ""}`);
+        for (const p of pr.applied.slice(0, 8)) logFn(`  · bölüm ${p.chapter} ${p.field}: ${String(p.reason || "").slice(0, 110)}`);
+      } catch (e) {
+        if (e?.message === "cancelled" || isCancelled()) throw e;
+        logFn(`Plan editörü yapılamadı (${String(e?.message || e).slice(0, 140)}); plan olduğu gibi devam ediyor`);
+      }
+    }
     if (!hookById(bible.openingLogic)) bible.openingLogic = hookCands[0]?.id;
     recordHook(opts.hookDir ?? DATA_DIR, { id: bible.openingLogic, topic: job.topic, tone: hookTone });
     // Vuruculuk + tek izleyici çağrısı (docu-rhetoric.js). Yalnızca YENİ planda: kayıtlı bir plana alan eklemek
     // bölümlerin önbellek anahtarını değiştirir ve devam eden işi baştan yazdırırdı.
-    bible.rhetoric = rhetoricPlan({ topic: job.topic, chapters: bible.chapters.length, history: readRhetoricHistory(opts.hookDir ?? DATA_DIR) });
+    bible.rhetoric = rhetoricPlan({ topic: job.topic, chapters: bible.chapters.length, history: readRhetoricHistory(opts.hookDir ?? DATA_DIR), sensitive: sensitiveTopic(job.topic, job.guidance) });
     recordRhetoric(opts.hookDir ?? DATA_DIR, { topic: job.topic, punches: bible.rhetoric.perChapter.flat(), cta: bible.rhetoric.cta, ctaPlace: bible.rhetoric.ctaPlace });
     store.putBible(bible);
+  }
+  if (plan.news) {
+    const moved = budgetBackground(plan, bible.chapters);
+    if (moved) logFn(`Arka plan bölümü kısaltıldı: ${moved} kelime bu haftanın bölümlerine verildi (arka plan ≤ ~${BACKGROUND_WORDS} kelime)`);
   }
   const bibleKey = sha1(bible);
   // Commons katalogu (docu-commons-catalog.js): gerçek hikâyede senarist sahnelere Commons'ta GERÇEKTEN var olan
@@ -1645,25 +2318,38 @@ export async function runDocuScript(job, research, usage, logFn, opts = {}) {
     { type: "text", text: [editorBrief(job), SCENE_GRAMMAR, genreBrief(genre), sourceRule(job)].join("\n\n") },
     { type: "text", text: storyBlock({ job, bible, research: fullResearch }), cache_control: { type: "ephemeral" } },
   ];
-  const ctxOf = (i) => ({ castKeys, archive, first: i === 0, last: i === n - 1, genre, lang, index: i, videoTitle: bible.title });
+  // Arşiv modunda bölüm başına AI tavanı: videoda ~15 AI görseli bölümlere paylaştırılır (en az 2).
+  const aiCap = archive ? Math.max(2, Math.ceil(AI_PER_VIDEO / n) + 1) : null;
+  const ctxOf = (i) => ({ castKeys, archive, first: i === 0, last: i === n - 1, genre, lang, index: i, videoTitle: bible.title, aiCap });
 
   /** Bölüm çağrısı: düzeltip doğrular; yalnızca kelime eksiği kalırsa en iyi deneme kabul edilir, uzatma adımı tamamlar. */
   const callChapter = async ({ i, user, target, min, label }) => {
     let best = null;
     const validate = (p) => {
       const scenes = Array.isArray(p?.scenes) ? p.scenes : [];
-      const errors = validateScenes({ scenes }, ctxOf(i));
+      // 1.16.16 okunuş: kısaltılmış birim ve kuruşlu para yazıyla (yalnızca yeni bölüm; sayaç/grafik rakamına dokunulmaz).
+      for (const s of scenes) if (s?.say && !["counter", "stat", "bars", "chart", "scale"].includes(s.type)) { s.say = spokenFix(s.say); roundAboutScene(s); }
+      const errors = [...sceneEnds(scenes), ...validateScenes({ scenes }, ctxOf(i))];
+      // 1.16.16 kamera arkası yok: araştırma sürecini anlatan satır bölümü geçirmez (El Niño: "not in our original research file").
+      const backstage = backstageLines(scenes);
+      // 1.16.16 hassas konu: salgın/felaket/toplu ölümde beğeni-abone ricası bölümü geçirmez (Ebola: "…a like helps").
+      const asks = bible.rhetoric?.sensitive ? likeAskLines(scenes) : [];
+      if (asks.length) errors.push(`hassas konu (ölüm/hastalık/felaket): beğeni/abone isteme, bu satırı çıkar: "${asks[0].slice(0, 90)}"`);
+      if (backstage.length) errors.push(`anlatım kamera arkasını anlatıyor (araştırma dosyası/brief/kaynaklarımız/doğrulama süreci izleyiciye okunmaz; doğrulanamayan bilgiyi hiç yazma): ${backstage.slice(0, 3).map((t) => `"${t.slice(0, 90)}"`).join("; ")}`);
       if (errors.length) return errors;
       const words = sceneWords(scenes);
       if (!best || words > best.words) best = { scenes: structuredClone(scenes), words };
-      return words < min ? [`bölüm ${i + 1}: ${words}/${target} kelime — ${target - words} kelime daha ekle`] : [];
+      // Işık denetimi en iyi denemeden SONRA: üç turda da karanlık kalırsa bölüm yine geçer (iş durmaz), uyarı yazılır.
+      // Gimli 20261028-9ff721 / Kartal Yuvası 950730, 29 Ekim 2026: karelerin %21-39'u neredeyse siyahtı.
+      const dark = promptLightErrors(scenes, { chapter: i });
+      return [...(words < min ? [`bölüm ${i + 1}: ${words}/${target} kelime — ${target - words} kelime daha ekle`] : []), ...dark];
     };
     try {
       const res = await llm({ system, user, schema: SCENES_SCHEMA, maxTokens: 24000, effort: "high", usage, logFn, isCancelled, validate, ...(chapterModel ? { model: chapterModel } : {}) });
       return { scenes: res.scenes, words: sceneWords(res.scenes) };
     } catch (e) {
       if (e?.message === "cancelled" || isCancelled() || !best) throw e;
-      logFn(`${label}: kelime hedefi tutmadı (${best.words}/${target}); uzatma adımına bırakıldı`);
+      logFn(`${label}: kelime hedefi tutmadı (${best.words}/${target}); uzatma adımına bırakıldı${promptLightErrors(best.scenes, { chapter: i }).length ? " (görsel istemler hâlâ karanlık; video sonunda uyarı)" : ""}`);
       return best;
     }
   };
@@ -1677,7 +2363,7 @@ export async function runDocuScript(job, research, usage, logFn, opts = {}) {
     else {
       logFn(`Bölüm ${i + 1}/${n} kurgulanıyor: ${bible.chapters[i].title}`);
       ch = await callChapter({
-        i, user: chapterPrompt({ i, bible, plan, written, lang, catalog }),
+        i, user: chapterPrompt({ i, bible, plan, written, lang, catalog, aiCap }),
         target: cw(i), min: Math.round(cw(i) * MIN_CHAPTER_RATIO), label: `Bölüm ${i + 1}`,
       });
       store.putChapter(i, bibleKey, ch);
@@ -1686,22 +2372,33 @@ export async function runDocuScript(job, research, usage, logFn, opts = {}) {
   }
 
   // 3) UZATMA — toplam hedefin altındaysa en kısa bölümler mevcut JSON'larıyla uzatılır.
+  // Hedef süre tavanını geçmez (25 Ekim 2026 gözden geçirme): kılavuzlu 12 dk'lık işte plan (1798) tavanın (1742) üstünde;
+  // 1700 kelimelik, zaten 12,7 dk'lık senaryo 1798'e doğru ücretli uzatma alıp sonra son okumada kırpılıyordu. Tavan
+  // planın altındaysa uzatma tabanda (uzun video, ücretli adım kapısı) durur; istenen ekler toplamı tavanı aşmaz.
   for (let round = 1; round <= 2; round++) {
     const words = written.map(sceneWords);
     const total = words.reduce((a, b) => a + b, 0);
-    if (total >= plan.words * EXTEND_BELOW) break;
-    let deficit = plan.words - total;
+    const lim = lengthLimits(job, plan, { scenes: written.flatMap((sc, c) => sc.map((s) => ({ ...s, chapter: c }))), voiceSpeed, styleVoices });
+    const goal = Math.min(plan.words, lim.maxWords);
+    const stop = goal < plan.words ? Math.max(goal * EXTEND_BELOW, lim.minWords) : plan.words * EXTEND_BELOW;
+    if (total >= stop) break;
+    let deficit = goal - total;
+    let room = lim.maxWords - total;
     const order = words.map((w, i) => i).sort((a, b) => words[a] - words[b]);
     const jobs = [];
     for (const i of order) {
-      if (deficit <= 0) break;
+      if (deficit <= 0 || room <= 0) break;
       // En kısa bölüm önce; bir bölüme en fazla yarım bölüm eklenir (şişirme değil, tamamlama).
       const want = Math.max(cw(i) - words[i], Math.ceil(cw(i) * 0.12), Math.ceil(deficit / Math.max(1, order.length - jobs.length)));
-      const add = Math.min(want, Math.ceil(cw(i) * 0.6));
+      const add = Math.min(want, Math.ceil(cw(i) * 0.6), room);
+      // Tavanın kıstığı kırıntı ek (bölümün en az ekinden kısa) için bütün bölüm ücretle yeniden yazdırılmaz: önceki ekler
+      // toplamı eşiğe zaten taşıyorsa durulur (gözden geçirme: "en az 8 kelime daha ekle" diye bir bölüm çağrısı gidiyordu).
+      if (add < Math.ceil(cw(i) * 0.12) && goal - deficit >= stop) break;
       jobs.push({ i, add });
       deficit -= add;
+      room -= add;
     }
-    logFn(`Senaryo kısa: ${total}/${plan.words} kelime — ${jobs.length} bölüm uzatılıyor (tur ${round})`);
+    logFn(`Senaryo kısa: ${total}/${goal} kelime${goal < plan.words ? ` (plan ${plan.words}; süre tavanı ${lim.maxMinutes} dk)` : ""} — ${jobs.length} bölüm uzatılıyor (tur ${round})`);
     await runPool(jobs, 3, async ({ i, add }) => {
       const target = words[i] + add;
       const res = await callChapter({
@@ -1710,7 +2407,7 @@ export async function runDocuScript(job, research, usage, logFn, opts = {}) {
         min: Math.round(words[i] + add * 0.85),
         label: `Bölüm ${i + 1} uzatma`,
         user: [
-          chapterPrompt({ i, bible, plan, written, lang, catalog }),
+          chapterPrompt({ i, bible, plan, written, lang, catalog, aiCap }),
           "",
           `BU BÖLÜM YAZILDI AMA KISA: ${words[i]} kelime. UZAT: en az ${add} kelime daha ekle (toplam ~${target} kelime).`,
           "Var olan sahneleri ve sırasını koru; araştırmadaki bu bölüme ait somut ayrıntılarla yeni sahneler ekle ya da satırları genişlet. Aynı kurallar geçerli. Tüm bölümü (bütün sahneleriyle) döndür.",
@@ -1731,8 +2428,88 @@ export async function runDocuScript(job, research, usage, logFn, opts = {}) {
   const scenes = written.flatMap((sc, c) => sc.map((s, k) => globalizeRefs(cleanScene(s, c, { maxDur: c === n - 1 && k === sc.length - 1 ? 20 : 12 }), offsets[c], k)));
   const notes = finalizeScenes(scenes, { job, plan, castKeys, intensity: bible.chapters.map((c) => c.intensity) });
   if (notes.length) logFn(`Son düzenleme: ${notes.join("; ")}`);
+  // SON OKUMA (docu-editor-pass.js): bütün videoyu bir editör okur — mantık, adil kıyas, art arda tekrar, riskli isim,
+  // yanlış kesinlik, boşta kalan bağ, ton. Çökerse senaryo olduğu gibi devam eder.
+  // Uzun senaryoda (lengthLimits) aynı okuma en düşük değerli satırları çıkarıp birleştirerek maxWords'e indirir.
+  const spoken = sceneWords(scenes);
+  const limits = lengthLimits(job, plan, { scenes, voiceSpeed, styleVoices });
+  const maxWords = spoken > limits.maxWords ? limits.maxWords : null;
+  // Uzun video tabanı editöre yalnızca kırpılan senaryoda gider: normal senaryoda tabanı eskisi gibi planın %90'ı (10 dk'lık
+  // istekte taban planın kendisidir; her yerde uygulanınca planındaki senaryonun hiçbir çıkarması geçmiyordu).
+  const floor = maxWords ? limits.minWords : 0;
+  // Editörün çıkarmak isteyip çıkarma sayısına/tabana takılan satırları: kodun kırpması önce bunlara bakar.
+  const spare = new Set();
+  if (maxWords) logFn(`Senaryo uzun: ${spoken}/${plan.words} kelime — son okuma ~${maxWords} kelimeye kırpıyor (tavan ${limits.maxMinutes} dk, ${limits.from}; film temposu ${limits.wpm} kelime/dk, ${limits.pace})`);
+  try {
+    guard();
+    const edKey = sha1(["son-okuma-2", JSON.stringify(scenes.map((s) => [s.type, s.say ?? "", s.text ?? ""])), ...(maxWords ? [maxWords] : [])]);
+    const edFile = dir ? path.join(dir, "docu-son-okuma-cache.json") : null;
+    const edCache = edFile ? readJson(edFile, null) : null;
+    const ed = await editorialPass({
+      scenes, research: fullResearch, job, llm, usage, logFn, isCancelled, model: bibleModel || chapterModel,
+      minWords: Math.max(Math.round(plan.words * 0.9), floor), ...(maxWords ? { maxWords } : {}), sensitive: !!bible.rhetoric?.sensitive,
+      writeLog: (out) => { if (dir) writeJson(path.join(dir, "son-okuma.json"), out); },
+      cachedEdits: edCache?.key === edKey ? edCache.edits : null,
+      onEdits: (edits) => { if (edFile) writeJson(edFile, { key: edKey, edits }); },
+    });
+    for (const s of ed.spare || []) spare.add(s);
+    if (ed.applied.length || ed.rejected.length) {
+      logFn(`Son okuma: ${ed.applied.length} düzeltme${ed.rejected.length ? `, ${ed.rejected.length} öneri reddedildi` : ""} — ${ed.applied.slice(0, 5).map((e) => `#${e.scene} ${e.action === "drop" ? "çıkarıldı" : e.kind}: ${String(e.reason || "").slice(0, 70)}`).join("; ")}`);
+    }
+  } catch (e) {
+    if (e?.message === "cancelled" || isCancelled()) throw e;
+    logFn(`Son okuma yapılamadı (${String(e?.message || e).slice(0, 140)}); senaryo olduğu gibi devam ediyor`);
+  }
+  // SON OKUMA 2. TUR (22 Ekim 2026 denetimi: kod bulguları yalnızca uyarıya düşüyor, ses parası yine ödeniyordu). Ağır
+  // bulgular (araştırmada olmayan saat/sayı/alıntı, kesin iddia, göreli zaman, kopya köprü, meta, olgusuz blok…)
+  // birinci turdan sonra da duruyorsa editör YALNIZCA onlara bakar. Kalanlar uyarıya yazılır.
+  try {
+    guard();
+    const left = scriptLint(scenes, { research: fullResearch, hook: hookContext({ job, title: bible?.title || "" }) }).filter((x) => SECOND_ROUND_KINDS.has(x.kind));
+    if (left.length) {
+      const key2 = sha1(["son-okuma-tur2-1", JSON.stringify(scenes.map((s) => [s.type, s.say ?? "", s.text ?? ""]))]);
+      const f2 = dir ? path.join(dir, "docu-son-okuma-2-cache.json") : null;
+      const c2 = f2 ? readJson(f2, null) : null;
+      const ed2 = await editorialPass({
+        scenes, research: fullResearch, job, llm, usage, logFn, isCancelled, model: bibleModel || chapterModel, focus: true,
+        minWords: Math.max(Math.round(plan.words * 0.88), floor), sensitive: !!bible.rhetoric?.sensitive,
+        writeLog: (out) => { if (dir) writeJson(path.join(dir, "son-okuma-2.json"), out); },
+        cachedEdits: c2?.key === key2 ? c2.edits : null,
+        onEdits: (edits) => { if (f2) writeJson(f2, { key: key2, edits }); },
+      });
+      for (const s of ed2.spare || []) spare.add(s);
+      logFn(`Son okuma 2. tur: ${left.length} kalan bulgu → ${ed2.applied.length} düzeltme${ed2.rejected.length ? `, ${ed2.rejected.length} reddedildi` : ""}`);
+    }
+  } catch (e) {
+    if (e?.message === "cancelled" || isCancelled()) throw e;
+    logFn(`Son okuma 2. tur yapılamadı (${String(e?.message || e).slice(0, 140)})`);
+  }
+  // UZUNLUK KURALI (25 Ekim 2026 denetimi): okumalardan sonra hâlâ tavanın %5'inden uzunsa kod en zayıf satırları çıkarır
+  // — kanca, izleyici çağrısı, kapanış ve bölümün tek satırı kalır; uzun video tabanının (limits.minWords) altına inmez.
+  // Önce editörün çıkarmak istediği satırlar (spare); vuruş ve tema cümlesi kodun kendi seçimiyle kesilmez.
+  const long = sceneWords(scenes);
+  if (long > limits.maxWords * TRIM_SLACK) {
+    const cut = trimToWords(scenes, limits.maxWords, { minWords: limits.minWords, prefer: spare });
+    const marked = cut.dropped.filter((d) => d.marked).length;
+    logFn(`Senaryo hâlâ uzun: ${long}/${limits.maxWords} kelime — kod en zayıf ${cut.dropped.length} satırı çıkardı → ${sceneWords(scenes)} kelime${cut.dropped.length ? ` (${cut.dropped.slice(0, 4).map((d) => `#${d.scene} "${d.say.slice(0, 50)}"`).join("; ")}${cut.dropped.length > 4 ? "; …" : ""})` : ""}${marked ? `; ${marked} satırı editör çıkarmak istemişti` : ""}`);
+    // Kodun kesimi yeniden yazmaz: akış yayından önce bir kez okunsun.
+    if (cut.dropped.length) warnings.push(`Uzunluk kuralı: kod ${cut.dropped.length} satırı çıkardı (${long} → ${sceneWords(scenes)} kelime, tavan ${limits.maxWords}) — geçişleri oku: ${cut.dropped.slice(0, 6).map((d) => `"${d.say.slice(0, 60)}"`).join("; ")}`);
+  }
+  // Kodun bulduğu kusurlar (docu-lint.js) son okumadan sonra da duruyorsa: yapım notu cümlesi kesilir (yalnızca nottan
+  // ibaret satır çıkar); kalanlar (birim, sayım, kapanış) yayından önce görülsün diye uyarıya yazılır.
+  const leaked = stripLeakSentences(scenes);
+  // 27 Ekim 2026 izlenme eğrileri: ilk 30 sn'deki önsöz ve ilk dakikadaki süreç cümlesi editörden sonra da kaldıysa kod keser.
+  const preamble = stripHookPreamble(scenes);
+  if (preamble) logFn(`Açılış denetimi: ${preamble} satırdan önsöz/süreç cümlesi çıkarıldı`);
+  if (leaked || preamble) {
+    const empty = new Set(scenes.map((s, k) => (!stripTags(s.say) && ["photo", "words", "quote", "slam"].includes(s.type) ? k : -1)).filter((k) => k >= 0));
+    removeScenes(scenes, empty);
+    logFn(`Senaryo denetimi: ${leaked} satırdan yapım notu çıkarıldı${empty.size ? ` (${empty.size} satır tamamen nottu, çıkarıldı)` : ""}`);
+  }
+  for (const f of scriptLint(scenes, { research: fullResearch, hook: hookContext({ job, title: bible?.title || "" }) }).filter((x) => x.kind !== "leak")) warnings.push(`Senaryo denetimi #${f.scene + 1} [${f.kind}]: ${f.detail}`);
   const short = written.map((sc, i) => [i, sceneWords(sc)]).filter(([i, w]) => w < cw(i) * 0.75);
   for (const [i, w] of short) warnings.push(`Bölüm ${i + 1} kısa kaldı (${w}/${cw(i)} kelime)`);
+  if (sceneWords(scenes) > limits.maxWords * TRIM_SLACK) warnings.push(`Senaryo uzun kaldı: ${sceneWords(scenes)}/${plan.words} kelime (kırpma hedefi ${limits.maxWords}; kurgu karnesi en çok ${SCORECARD_MAX_MIN} dk)`);
   const repeats = crossChapterRepeats(scenes);
   if (repeats.length) warnings.push(`Bölümler arası tekrar eden ifadeler: ${repeats.slice(0, 4).map((g) => `"${g}"`).join(", ")}`);
   const unverified = unverifiedNumbers(scenes, fullResearch);
@@ -1740,17 +2517,23 @@ export async function runDocuScript(job, research, usage, logFn, opts = {}) {
   warnings.push(...hookWarnings(scenes, bible, lang));
   const gaps = rehookGaps(scenes, { lang });
   if (gaps.length) warnings.push(`Uzun kancasız aralık (yeni kanca her 60-90 sn): ${gaps.slice(0, 3).map((g) => `~${Math.round(g.gap)} sn, ${clock(g.at)} sonrası`).join("; ")}`);
+  // Görsel ışık (Gimli 20261028-9ff721 / Kartal Yuvası 950730, 29 Ekim 2026): ölçüm her zaman yazılır, hedef dışı uyarı olur.
+  const light = promptLight(scenes);
+  logFn(`Görsel ışık denetimi: ${light.dark.length}/${light.total} istem karanlık (%${Math.round(light.share * 100)}, hedef ≤%${Math.round(DARK_PROMPT_SHARE * 100)}), ${light.silhouettes} silüet (en çok ${SILHOUETTE_CAP})`);
+  if (light.share > DARK_PROMPT_SHARE) warnings.push(`Görsel istemlerin %${Math.round(light.share * 100)}'i karanlık (anlatım geceyi söylemiyor): ${light.dark.slice(0, 4).map((d) => `#${d.scene + 1} "${d.prompt.slice(0, 60)}"`).join("; ")}`);
+  if (light.silhouettes > SILHOUETTE_CAP) warnings.push(`${light.silhouettes} silüet istemi (videoda en çok ${SILHOUETTE_CAP})`);
 
   const script = {
     id: job.id,
     title: bible.title,
     genre,
     locale: lang === "en" ? "en-US" : "tr-TR",
-    visualStyle: bible.visualStyle,
+    visualStyle: lookOnly(bible.visualStyle),
     cast: Object.fromEntries(bible.cast.map((c) => [c.key, c.description])),
     // A countdown's chapters read "#7 The Dyatlov Pass" in YouTube's chapter list; the rank card draws them from `ranking`.
     chapters: bible.chapters.map((c) => (plan.ranking && c.rank ? `#${c.rank} ${c.item || c.title}` : c.title)),
     story: { centralQuestion: bible.centralQuestion, stakes: bible.stakes, promise: bible.promise, hookWord: bible.hookWord, openLoops: bible.openLoops },
+    ...(bible.rhetoric?.sensitive ? { sensitive: true } : {}),
     ...(plan.ranking
       ? {
           format: "ranking",
@@ -1763,6 +2546,13 @@ export async function runDocuScript(job, research, usage, logFn, opts = {}) {
       : {}),
     scenes,
   };
+  // Gerçek kişiler (realCastOf): motor onların AI karesinde yüzü gizler. Arşiv adımı fotoğrafı çıkmayan sahnenin isim
+  // kartını siler ("Harry Markopolos" için gerçek fotoğraf yok); liste burada, kartlar dururken yazılır.
+  const realCast = realCastOf(script);
+  if (realCast.length) {
+    script.realCast = realCast;
+    logFn(`Gerçek kişiler (AI karelerinde yüzleri gizlenecek): ${realCast.join(", ")}`);
+  }
   const st = docuScriptStats(script, job);
   const need = docuElevenNeed(script, eleven);
   script.stats = {

@@ -16,14 +16,14 @@
   "tension": {
     "music": ["driving ticking pulse", "staccato strings swelling", "rising synth tension", "tight percussion building"],
     "voice": { "stability": 0.36, "style": 0.5 },
-    "grade": { "saturate": 0.95, "brightness": 0.96, "hue": 0 },
+    "grade": { "saturate": 0.97, "brightness": 0.99, "hue": 0 },
     "push": 1.6,
     "unease": 0.35
   },
   "dread": {
     "music": ["low ominous drone", "dissonant string clusters", "slow heartbeat pulse", "distant metallic textures"],
     "voice": { "stability": 0.5, "style": 0.4 },
-    "grade": { "saturate": 0.7, "brightness": 0.9, "hue": -8 },
+    "grade": { "saturate": 0.9, "brightness": 0.97, "hue": -4 },
     "push": 0.6,
     "unease": 0.6
   },
@@ -37,7 +37,7 @@
   "sad": {
     "music": ["stark solo piano melody", "mournful cello sustain", "slow reverb-drenched decay", "sparse and fragile"],
     "voice": { "stability": 0.6, "style": 0.25 },
-    "grade": { "saturate": 0.6, "brightness": 0.94, "hue": -12 },
+    "grade": { "saturate": 0.85, "brightness": 0.97, "hue": -5 },
     "push": 0.5,
     "unease": 0
   },

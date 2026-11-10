@@ -135,7 +135,17 @@ export function slowedClip(src: SceneLook['blurSrc'], durFrames: number, fps: nu
  * push, depth-blurred and pulled down so the type owns the frame. Rendered at
  * half size and scaled up (a full-HD blur every frame is the costliest thing
  * Chrome does). tone 'light' washes it into the look's paper instead.
+ *
+ * Gimli 20261028-9ff721 / Kartal Yuvası 950730, 29 Ekim 2026: this ground was
+ * brightness 0.58 x a 0.28 multiply x a 0.38-0.62 black radial — every big-text
+ * beat a near-black frame, and the light tone printed it grayscale(1). Now the
+ * picture stays in colour and only gently held down (RELATED_DIM); the type
+ * keeps its own shadow and scrim for legibility.
  */
+export const RELATED_DIM = { brightness: 0.8, saturate: 1, multiply: 0.15, centre: 0.22, mid: 0.16, edge: 0.42 } as const;
+/** The light tone's print: in colour, softened (no grayscale). */
+export const RELATED_LIGHT_FILTER = 'url(#duo) saturate(0.6) contrast(1.05) brightness(1.02) blur(0.8px)';
+
 const RelatedGround: React.FC<{ backdrop: Backdrop; genre: Genre; src: SceneLook['blurSrc']; durFrames: number; seed: string }> = ({ backdrop, genre, src, durFrames, seed }) => {
   const f = useCurrentFrame();
   const { fps } = useVideoConfig();
@@ -164,7 +174,7 @@ const RelatedGround: React.FC<{ backdrop: Backdrop; genre: Genre; src: SceneLook
       <AbsoluteFill style={{ background: color }}>
         {url ? <AbsoluteFill style={{ backgroundImage: `url(${url})`, backgroundSize: `${W}px ${H}px` }} /> : null}
         {/* The picture printed faintly into the paper (multiply: its darks become ink, its lights vanish). */}
-        {layer('url(#duo) grayscale(1) contrast(1.05) brightness(1.02) blur(0.8px)', { opacity: 0.46, mixBlendMode: 'multiply' })}
+        {layer(RELATED_LIGHT_FILTER, { opacity: 0.46, mixBlendMode: 'multiply' })}
         {/* A clean field where the type sits, the print showing round it. */}
         <AbsoluteFill style={{ background: `radial-gradient(ellipse 54% 48% at 50% 50%, ${alpha(color, 0.55)} 0%, ${alpha(color, 0.22)} 55%, ${alpha(color, 0)} 85%)` }} />
         <AbsoluteFill style={{ background: 'radial-gradient(ellipse 95% 90% at 50% 50%, rgba(0,0,0,0) 60%, rgba(0,0,0,0.14) 100%)' }} />
@@ -173,11 +183,11 @@ const RelatedGround: React.FC<{ backdrop: Backdrop; genre: Genre; src: SceneLook
   }
   return (
     <AbsoluteFill style={{ background: '#050505' }}>
-      {layer('url(#duo) blur(1.4px) brightness(0.58) saturate(0.85) contrast(1.05)')}
-      {/* The look's ground colour, multiplied in: the picture sits inside the palette. */}
-      <AbsoluteFill style={{ background: color, opacity: 0.28, mixBlendMode: 'multiply' }} />
-      {/* Depth: the centre (where the type lands) falls back further, the edges to black. */}
-      <AbsoluteFill style={{ background: 'radial-gradient(ellipse 62% 56% at 50% 50%, rgba(0,0,0,0.38) 0%, rgba(0,0,0,0.22) 60%, rgba(0,0,0,0.62) 100%)' }} />
+      {layer(`url(#duo) blur(1.4px) brightness(${RELATED_DIM.brightness}) saturate(${RELATED_DIM.saturate}) contrast(1.05)`)}
+      {/* The look's ground colour, multiplied in lightly: the picture sits inside the palette and keeps its colour. */}
+      <AbsoluteFill style={{ background: color, opacity: RELATED_DIM.multiply, mixBlendMode: 'multiply' }} />
+      {/* Depth: the centre (where the type lands) falls back a little, the edges a little more — never to black. */}
+      <AbsoluteFill style={{ background: `radial-gradient(ellipse 62% 56% at 50% 50%, rgba(0,0,0,${RELATED_DIM.centre}) 0%, rgba(0,0,0,${RELATED_DIM.mid}) 60%, rgba(0,0,0,${RELATED_DIM.edge}) 100%)` }} />
     </AbsoluteFill>
   );
 };
@@ -377,11 +387,12 @@ export const GroundFill: React.FC<{ backdrop: Backdrop; genre: Genre; blurSrc?: 
       <AbsoluteFill style={{ background: genre.bg, overflow: 'hidden', justifyContent: 'center', alignItems: 'center' }}>
         {src || clip ? (
           <div style={{ width: W / K, height: H / K, flexShrink: 0, transform: `translate(${Math.sin(f / 90) * 30}px, 0) scale(${K * z})` }}>
-            <Media src={src} clip={clip} durFrames={18000} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'blur(9px) saturate(1.35) brightness(0.62)' }} />
+            <Media src={src} clip={clip} durFrames={18000} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'blur(9px) saturate(1.2) brightness(0.78)' }} />
           </div>
         ) : null}
-        {b.color ? <AbsoluteFill style={{ background: b.color, opacity: 0.35, mixBlendMode: 'multiply' }} /> : null}
-        <AbsoluteFill style={{ background: 'radial-gradient(ellipse 80% 80% at 50% 50%, rgba(0,0,0,0) 40%, rgba(0,0,0,0.5) 100%)' }} />
+        {/* Kartal Yuvası 950730, 29 Ekim 2026: brightness 0.62 + a 0.35 multiply + a 0.5 ring read as black; held down gently now. */}
+        {b.color ? <AbsoluteFill style={{ background: b.color, opacity: 0.2, mixBlendMode: 'multiply' }} /> : null}
+        <AbsoluteFill style={{ background: 'radial-gradient(ellipse 80% 80% at 50% 50%, rgba(0,0,0,0) 40%, rgba(0,0,0,0.36) 100%)' }} />
       </AbsoluteFill>
     );
   }

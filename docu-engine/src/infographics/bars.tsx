@@ -136,7 +136,8 @@ export const Bars: React.FC<DevProps & { scene: BarsScene }> = ({ scene, genre, 
     const g = prog(f, said != null ? Math.max(plan.grow, said) : plan.grow + k * 2, plan.growDur, EXPO);
     const frac = r.value / L.max;
     const dim = anyHi && !isHi ? 1 - 0.4 * hiP : 1;
-    const lp = prog(f, plan.lead + k * 3, 12, SOFT);
+    // The label comes with its own spoken cue (Oct 2026: never on screen before it is said); an unnamed row with the first bar.
+    const lp = prog(f, said != null ? Math.max(plan.lead, said - 4) : Math.max(plan.lead + k * 3, plan.grow - 4), 12, SOFT);
     const shown = numParts(r.value * g, scene.unit, locale, { decimals: L.decimals, compact: L.compact, scaleFrom: r.value });
     const lit = isHi && hiP > 0;
     const valueColor = lit ? th.hi : th.ink;

@@ -1,8 +1,9 @@
-import { commonsMetadata, permissionUsable, selectedProvenance } from "./provenance.js";
+import { commonsAuthor, commonsMetadata, permissionUsable, selectedProvenance } from "./provenance.js";
 import { aiAllowance } from '../../public/production-modes.js';
 export { permissionUsable } from "./provenance.js";
 import path from "node:path";
 import fs from "node:fs";
+import { spawnSync } from "node:child_process";
 import { fetchJson, downloadFile, fetchVideoClip, mapLimit, ffprobeDuration, ASSETS_DIR } from "../util.js";
 import { getSettings, getJobSettings } from "../config.js";
 import { generateAiClips } from "./aivideo.js";
@@ -89,6 +90,20 @@ export function kucukAmaDogru(w, h) {
  *     (bazı arşivler görseli ?id= ile tanıtıyor, o parametre kimliktir)
  */
 const BOYUT_PARAM = /^(utm_\w+|w|h|width|height|size|q|quality|fm|format|fit|crop|auto|cs|dpr|ixid|ixlib|rb|dl|download|resize|scale|s|profile_id)$/i;
+/**
+ * One Flickr photo under its other addresses. Gimli Glider (28 Ekim 2026): scene 0 took the Commons file
+ * "C-GAUN 604 … Toronto, July 14 1984. (5530418110) (cropped).jpg" by name; scene 3's search picked the same photo from
+ * Flickr (live.staticflickr.com/5052/5530418110_….jpg) — a different address, so the opening showed it twice in 15 s.
+ * A Commons import keeps the Flickr id in its title; the static and photo-page URLs carry it too.
+ */
+export function photoTwinKey(...texts) {
+  for (const t of texts) {
+    const s = String(t || "");
+    const m = s.match(/staticflickr\.com\/\d+\/(\d{8,12})_/) || s.match(/flickr\.com\/photos\/[^/]+\/(\d{8,12})(?:\/|$)/) || s.match(/\((\d{8,12})\)(?:\s*\((?:cropped|crop|edited|edit)[^)]*\))?(?:\.[a-z]{3,4})?\s*$/i);
+    if (m) return `flickr:${m[1]}`;
+  }
+  return null;
+}
 export function photoKey(url) {
   const ham = String(url || "").trim();
   let u;
@@ -97,7 +112,9 @@ export function photoKey(url) {
   const host = u.hostname.toLowerCase().replace(/^www\./, "");
   const coz = (s) => { try { return decodeURIComponent(s); } catch { return s; } };
   const parca = u.pathname.split("/").filter(Boolean);
-  if (host === "upload.wikimedia.org") {
+  // Commons imageinfo'nun küçük resmi artık thumb.wikimedia.org'dan da geliyor (Kartal Yuvası, 24 Ekim 2026: adıyla
+  // alınan "Kehlsteinhaus zepředu.jpg" bu adresle kaydedildi, aramadaki upload adresli kopyası tanınmadı, iki sahnede çıktı).
+  if (host === "upload.wikimedia.org" || host === "thumb.wikimedia.org") {
     const t = parca.indexOf("thumb");
     // /wikipedia/commons/thumb/a/ab/Dosya.jpg/2560px-Dosya.jpg → "Dosya.jpg"
     let ad = t >= 0 && parca[t + 3] ? parca[t + 3] : parca.at(-1) || "";
@@ -117,6 +134,22 @@ export function photoKey(url) {
   const kalan = [...u.searchParams.entries()].filter(([k]) => !BOYUT_PARAM.test(k)).sort(([a], [b]) => a.localeCompare(b));
   const sorgu = kalan.length ? "?" + kalan.map(([k, v]) => `${k}=${v}`).join("&") : "";
   return `${host}${coz(u.pathname)}${sorgu}`;
+}
+
+/** Stok siteleri: her sayfada tek fotoğraf var, sayfa adresi fotoğrafın kalıcı kimliğidir. */
+const TEK_FOTO_SAYFA = /(^|\.)(pixabay|pexels|unsplash)\.com$/i;
+export const tekFotoSayfasi = (c) => {
+  try { return !!c?.sayfa && TEK_FOTO_SAYFA.test(new URL(c.sayfa).hostname); } catch { return false; }
+};
+/**
+ * Bir kaynağın reddedilirken kaydedilecek kalıcı adresleri: dosya adresi ve, tek fotoğraflık stok sayfasında, sayfası.
+ * Pixabay dosya adresi imzalıdır (pixabay.com/get/<jeton>_1280.jpg) ve her aramada değişir (18 Ekim 2026, Hürmüz
+ * mayınları: "gemi adı açıklanmadı" sahnesindeki EUROCHAMPION adlı tanker ön izlemede ve render sonrası iki kez
+ * reddedildi, iki ret de başka jetona yazıldığı için üçüncü jetonla yeniden seçildi ve ikinci bir render gerekti).
+ * Müze/arşiv sayfası birden çok görünüş taşıyabildiği için orada yalnızca dosya adresi.
+ */
+export function stablePhotoRefs(c) {
+  return [c?.url, tekFotoSayfasi(c) ? c.sayfa : null].filter(Boolean);
 }
 
 function duzMetin(s, max = 90) {
@@ -179,7 +212,7 @@ async function searchWikimedia(query) {
         height: ii.height || 0,
         ...commonsMetadata(ii, ii._baslik || ""),
         lisans: duzMetin(em.LicenseShortName?.value || em.License?.value, 120),
-        sahip: duzMetin(em.Artist?.value, 2000),
+        sahip: duzMetin(commonsAuthor(em), 2000),
         eser: duzMetin(String(ii._baslik || "").replace(/^File:/, "").replace(/\.\w+$/, ""), 70),
         sayfa: ii.descriptionurl || "",
       };
@@ -2041,4 +2074,78 @@ function ozelAdKokleriTopic(metin) {
     out.add(kok);
   });
   return out;
+}
+
+/*
+ * SİYAH-BEYAZ KAYNAK (scene.monoSource). Gimli 9ff721 önce/sonra, 29 Ekim 2026: renk notu artık temel, ama motor
+ * (looks/resolve.ts sceneGrade) bir arşiv fotoğrafına bölümün soluk notunu (mono/sepia/duotone) ancak kaynağın KENDİSİ
+ * renksizse verir — ve hattın hiçbir adımı scene.monoSource yazmıyordu. Burada ölçülür: diskteki dosyanın küçük bir
+ * kopyasında (96 px) ffmpeg signalstats SATAVG (ortalama doygunluk), SATHIGH (doygun %10'un eşiği) ve SATMAX. Gerçekten
+ * gri bir fotoğraf SATAVG ≈ 0-2; taranmış s/b baskının hafif sıcak kayması < 4; sepya ≈ 20 ve renkli fotoğraf ≫ 4
+ * (ikisi de kendi rengiyle kalır). SATHIGH/SATMAX tavanları, gri bir pistte küçük kırmızı uçak gibi "çoğu gri ama
+ * renkli" kareyi renkli tutar (ölçüm: gri zemin + küçük kırmızı kutu SATAVG 1,4 ama SATMAX 135). Yanlış "mono" renkli
+ * fotoğrafı griye boyar; yanlış "renkli" s/b fotoğrafa zarar vermez — eşikler bu yüzden dar. Ölçülemeyen dosya
+ * bayraksız kalır (renkli sayılır). Hiçbir şey indirilmez, ücretli adım yok. Eşikler docu-engine/lib/produce.mjs
+ * MONO_SAT_*'ın aynası (motor uygulamanın dışında, içe aktarılamaz; test ikisini karşılaştırır). sharp kurulu değil:
+ * ffmpeg ölçer (kodun her yerde kullandığı araç).
+ */
+export const MONO_SAT_MAX = 4;
+export const MONO_SAT_HIGH_MAX = 10;
+export const MONO_SAT_PEAK_MAX = 48;
+const MONO_PROBE_MS = 15000;
+
+/** signalstats metadata çıktısından { satavg, sathigh?, satmax? } (SATAVG yoksa null). */
+export function parseSatStats(text) {
+  const t = String(text || "");
+  const num = (k) => {
+    const m = t.match(new RegExp("lavfi\\.signalstats\\." + k + "=([0-9.]+)"));
+    return m ? Number(m[1]) : NaN;
+  };
+  const satavg = num("SATAVG");
+  if (!Number.isFinite(satavg)) return null;
+  const out = { satavg };
+  const sathigh = num("SATHIGH");
+  const satmax = num("SATMAX");
+  if (Number.isFinite(sathigh)) out.sathigh = sathigh;
+  if (Number.isFinite(satmax)) out.satmax = satmax;
+  return out;
+}
+
+/** Saf: ölçüm siyah-beyaz bir kaynak mı? (null/bozuk ölçüm → false: renkli sayılır). */
+export function isMonochrome(stats) {
+  if (!stats || typeof stats !== "object") return false;
+  const satavg = Number(stats.satavg);
+  if (stats.satavg === null || stats.satavg === undefined || !Number.isFinite(satavg) || satavg < 0) return false;
+  if (satavg >= MONO_SAT_MAX) return false;
+  const under = (v, max) => v === undefined || v === null || (Number.isFinite(Number(v)) && Number(v) < max);
+  return under(stats.sathigh, MONO_SAT_HIGH_MAX) && under(stats.satmax, MONO_SAT_PEAK_MAX);
+}
+
+/** Diskteki bir fotoğrafın/klip afişinin (ya da klibin ilk karesinin) doygunluğu, 96 px genişlikte; ölçülemezse null. */
+export function measureSaturation(file, { ffmpeg = "ffmpeg" } = {}) {
+  try {
+    if (!file || !fs.existsSync(file)) return null;
+    const r = spawnSync(ffmpeg, ["-nostdin", "-hide_banner", "-i", file, "-frames:v", "1", "-an", "-vf", "scale=96:-2,signalstats,metadata=mode=print", "-f", "null", "-"], { encoding: "utf8", windowsHide: true, timeout: MONO_PROBE_MS, killSignal: "SIGKILL", maxBuffer: 1 << 20 });
+    if (r.error || r.status !== 0) return null;
+    return parseSatStats(`${r.stderr || ""}${r.stdout || ""}`);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Sahnenin gerçek fotoğrafı/klip afişi siyah-beyazsa scene.monoSource = true; renkliyse ya da ölçülemezse bayrak
+ * silinir (önceki bir çalıştırmanın başka resmi için kalan bayrak yeni resme geçmesin). `measure` testler için.
+ * Döner: true (mono), false (renkli), null (ölçülemedi).
+ */
+export function markMonoSource(scene, file, { ffmpeg = "ffmpeg", measure = measureSaturation } = {}) {
+  if (!scene || typeof scene !== "object") return null;
+  let stats = null;
+  try { stats = file ? measure(file, { ffmpeg }) : null; } catch { stats = null; }
+  if (stats && isMonochrome(stats)) {
+    scene.monoSource = true;
+    return true;
+  }
+  delete scene.monoSource;
+  return stats ? false : null;
 }

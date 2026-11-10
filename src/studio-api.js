@@ -42,6 +42,7 @@ studioRouter.get('/preview/:name', (req,res,next) => {
 });
 studioRouter.post('/resume', action(req => ({job:pipeline.resumeJob(req.params.id)})));
 studioRouter.post('/rerender', action(req => ({job:pipeline.rerenderJob(req.params.id)})));
+studioRouter.post('/patch', action(req => ({job:pipeline.patchJob(req.params.id, req.body?.scenes)})));
 studioRouter.get('/review', action(req => publicationReview(req.params.id)));
 studioRouter.get('/editor-review', action(req => readReviewRecord(req.params.id)));
 studioRouter.post('/editor-review', action(req => saveReviewRecord(req.params.id,req.body)));

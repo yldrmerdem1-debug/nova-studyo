@@ -67,18 +67,19 @@ function fakeRender(calls) {
   };
 }
 
+// Kapak sözleri konunun adını ya da yılını taşır (27 Ekim 2026 kapak kuralı): her kapakta 1971 rozeti.
 const PLAN = {
   titles: [
-    { text: 'D.B. Cooper: The Night He Vanished Into the Rain', angle: 'mystery' },
-    { text: 'WHAT THE FBI FOUND IN THE SAND', angle: 'detail' },
-    { text: 'The $200,000 Question Nobody Answered', angle: 'number' },
-    { text: 'D.B. Cooper: Did He Survive the Jump?', angle: 'question' },
-    { text: 'He Asked for Four Parachutes. Why?', angle: 'detail' },
+    { text: 'D.B. Cooper 1971: The Night He Vanished Into the Rain', angle: 'mystery' },
+    { text: 'D.B. COOPER 1971: WHAT THE FBI FOUND IN THE SAND', angle: 'detail' },
+    { text: 'D.B. Cooper 1971: The $200,000 Nobody Spent', angle: 'number' },
+    { text: 'D.B. Cooper 1971: Did He Survive the Jump?', angle: 'question' },
+    { text: 'D.B. Cooper 1971: Why Four Parachutes?', angle: 'detail' },
   ],
   thumbnails: [
     { hero: 'c1', layout: 'hero', text: 'He Never Landed', highlight: 1, tag: '1971', number: '', second: '', labels: [], accent: 'accent', grade: 'warm', side: 'left', zoom: 1.1, emotion: 'mystery', titleIndex: 0, why: 'face' },
-    { hero: 'c2', layout: 'circle', text: 'Why Here?', highlight: 1, tag: '', number: '', second: '', labels: [], accent: 'red', grade: 'natural', side: 'left', zoom: 1, emotion: 'curiosity', titleIndex: 1, why: 'detail' },
-    { hero: 'c2', layout: 'number', text: 'Never Spent', highlight: 1, tag: '', number: '$200,000', second: '', labels: [], accent: 'accent', grade: 'natural', side: 'right', zoom: 1, emotion: 'awe', titleIndex: 2, why: 'number' },
+    { hero: 'c2', layout: 'circle', text: 'Why Here?', highlight: 1, tag: '1971', number: '', second: '', labels: [], accent: 'red', grade: 'natural', side: 'left', zoom: 1, emotion: 'curiosity', titleIndex: 1, why: 'detail' },
+    { hero: 'c2', layout: 'number', text: 'Never Spent', highlight: 1, tag: '1971', number: '$200,000', second: '', labels: [], accent: 'accent', grade: 'natural', side: 'right', zoom: 1, emotion: 'awe', titleIndex: 2, why: 'number' },
   ],
   recommended: 0,
 };
@@ -214,7 +215,7 @@ test('full package with mocked models: 3 thumbnails, 5 titles, a failed 320x180 
   }
   const tj = JSON.parse(fs.readFileSync(path.join(dir, 'titles.json'), 'utf8'));
   assert.equal(tj.titles.length, 5);
-  assert.equal(tj.titles[1].text, 'What The FBI Found In The Sand', 'ALL CAPS title repaired');
+  assert.equal(tj.titles[1].text, 'D.B. Cooper 1971: What The FBI Found In The Sand', 'ALL CAPS title repaired');
   assert.equal(tj.thumbnails.length, 3);
   assert.equal(tj.thumbnails[1].legibility.pass, false);
   assert.equal(tj.thumbnails[1].legibility.fixed, true);
@@ -264,6 +265,22 @@ test('no Anthropic credit: deterministic fallback — best real photo, title fro
   assert.ok(logs.some((m) => /belirleyici yedek/.test(m)));
 });
 
+test('fallback never sells someone else\'s face: the named portrait of the title subject wins (Bakker, Oct 2026)', () => {
+  assert.deepEqual(P.subjectWords("Jim Bakker: The Preacher Who Sold Heaven Twice"), ['jim', 'bakker']);
+  assert.deepEqual(P.subjectWords("Panama's 7.7 Earthquake: Why Wasn't It Worse?"), ['panama', 'earthquake']);
+  const c = (id, extra) => ({ id, kind: 'archive', prescore: 6, w: 1200, h: 1500, source: '', ctx: '', ...extra });
+  const cands = [
+    c('falwell', { person: 'Jerry Falwell', prescore: 12, ctx: 'Jerry Falwell took over PTL from Bakker · portrait' }),
+    c('bakker', { person: 'Jim Bakker', prescore: 8, ctx: 'Jim Bakker on the PTL Club set' }),
+    c('park', { prescore: 9, ctx: 'Heritage USA water park' }),
+  ];
+  const plan = P.fallbackPlan(cands, { seo: { titles: [] }, docu: { title: 'Jim Bakker: The Preacher Who Sold Heaven Twice' } });
+  assert.equal(plan.thumbnails[0].hero, 'bakker');
+  // No named portrait of the subject: a picture of the subject's place beats another person's face.
+  const plan2 = P.fallbackPlan([cands[0], cands[2]], { seo: { titles: [] }, docu: { title: 'Heritage USA: The Park That Sank' } });
+  assert.equal(plan2.thumbnails[0].hero, 'park');
+});
+
 test('a renderer failure never breaks the package: titles and package.md are still written', async () => {
   const { dir, id } = makeJob();
   const res = await P.runDocuPackage({
@@ -274,4 +291,53 @@ test('a renderer failure never breaks the package: titles and package.md are sti
   assert.deepEqual(res.outputs.thumbs, []);
   assert.ok(fs.existsSync(path.join(dir, 'package.md')));
   assert.ok(res.notes.some((n) => /çizilemedi/.test(n)));
+});
+
+test('GPT kapağı (Hürmüz, 20 Ekim 2026): plan sahne yazınca 3 tam ChatGPT tarifi kutuya yazılır; kutudaki 01-03 kapağın kendisi olur, motor çizmez', async () => {
+  const { dir, id } = makeJob();
+  const plan = { ...structuredClone(PLAN), titles: PLAN.titles.map((t) => ({ ...t, text: t.text === 'D.B. COOPER 1971: WHAT THE FBI FOUND IN THE SAND' ? 'D.B. Cooper 1971: What the FBI Found in the Sand' : t.text })), scenes: ['A Boeing 727 at night over dark forest, the rear stairs open, rain', 'A bundle of rotting twenty-dollar bills half buried in river sand', 'An FBI evidence table with a black clip-on tie under a lamp'] };
+  const llm = async () => structuredClone(plan);
+  const calls = [];
+  const logs = [];
+  // 1) OpenAI anahtarı yok: tarifler kutuya, kapaklar motorla (yedek)
+  const r1 = await P.runDocuPackage({ jobDir: dir, job: { id, language: 'en' }, settings: {}, logFn: (m) => logs.push(m), llm, visionLlm: fakeVision([], { failSecond: false }), render: fakeRender(calls), ffmpeg: FFMPEG });
+  const kutu = path.join(dir, 'kapak-kutusu');
+  const liste = fs.readFileSync(path.join(kutu, 'LISTE.txt'), 'utf8');
+  assert.match(liste, /===== 01 =====/);
+  assert.match(liste, /Create a YouTube thumbnail image, 16:9 landscape/);
+  assert.match(liste, /"HE NEVER"|"He Never"/i);
+  assert.match(liste, /in bright yellow/);
+  assert.match(liste, /Small red label above the text: "1971"/);
+  assert.ok(JSON.parse(fs.readFileSync(path.join(kutu, 'prompts.json'), 'utf8')).full);
+  assert.equal(calls.length, 1, 'kutu boşken kapaklar motorla çizildi');
+  assert.ok(logs.some((l) => /GPT kapak tarifleri hazır/.test(l)));
+  assert.equal(r1.thumbs.length, 3);
+  // 2) ChatGPT kapakları kutuya kondu → "Kapakları yenile"
+  for (const n of ['01', '02', '03']) execFileSync(FFMPEG, ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'color=blue:s=1672x941', '-frames:v', '1', path.join(kutu, `${n}.png`)]);
+  const calls2 = [];
+  const vlog2 = [];
+  const r2 = await P.runDocuPackage({ jobDir: dir, job: { id, language: 'en' }, settings: {}, logFn: () => {}, llm, visionLlm: fakeVision(vlog2, { failSecond: false }), render: fakeRender(calls2), ffmpeg: FFMPEG, force: true });
+  assert.equal(calls2.length, 0, 'GPT kapakları motorda çizilmez');
+  assert.ok(!vlog2.some((x) => x.kind === 'verify'), 'GPT kapakları okunurluk için yeniden çizilmez');
+  assert.equal(r2.thumbs.length, 3);
+  assert.ok(r2.thumbs.every((t) => t.layout === 'gpt'));
+  assert.deepEqual(P.imageSize(path.join(dir, 'thumbnails', 'thumb-1.jpg')), { w: 1280, h: 720 });
+  assert.match(r2.outputs.thumbLabels['thumb_a.jpg'], /GPT kapağı/);
+});
+
+test('Husi-Suudi (28 Ekim 2026): "Kapakları yenile" planı yazamazsa önceki planı korur — tek kapaklı yedeğe düşmez, 3 ChatGPT kapağı 3 kapak olur', async () => {
+  const { dir, id } = makeJob();
+  const plan = { ...structuredClone(PLAN), titles: PLAN.titles.map((t) => ({ ...t, text: t.text === 'D.B. COOPER 1971: WHAT THE FBI FOUND IN THE SAND' ? 'D.B. Cooper 1971: What the FBI Found in the Sand' : t.text })), scenes: ['A Boeing 727 at night over dark forest', 'Rotting twenty-dollar bills in river sand', 'An FBI evidence table under a lamp'] };
+  const r1 = await P.runDocuPackage({ jobDir: dir, job: { id, language: 'en' }, settings: {}, logFn: () => {}, llm: async () => structuredClone(plan), visionLlm: fakeVision([], { failSecond: false }), render: fakeRender([]), ffmpeg: FFMPEG });
+  assert.equal(r1.thumbs.length, 3);
+  const kutu = path.join(dir, 'kapak-kutusu');
+  for (const n of ['01', '02', '03']) execFileSync(FFMPEG, ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'color=red:s=1672x941', '-frames:v', '1', path.join(kutu, `${n}.png`)]);
+  const logs = [];
+  const r2 = await P.runDocuPackage({ jobDir: dir, job: { id, language: 'en' }, settings: {}, logFn: (m) => logs.push(m), llm: async () => { throw new Error('529 overloaded_error'); }, visionLlm: fakeVision([], { failSecond: false }), render: fakeRender([]), ffmpeg: FFMPEG, force: true });
+  assert.equal(r2.thumbs.length, 3, 'three covers, not the one-cover fallback');
+  assert.ok(r2.thumbs.every((t) => t.layout === 'gpt'));
+  assert.ok(logs.some((l) => /önceki başlık ve kapak planı korunuyor/.test(l)), logs.join('\n'));
+  const md = fs.readFileSync(path.join(dir, 'package.md'), 'utf8');
+  assert.doesNotMatch(md, /Model kullanılamadı/);
+  assert.match(md, /D\.B\. Cooper 1971: What the FBI Found in the Sand/);
 });

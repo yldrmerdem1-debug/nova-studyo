@@ -88,8 +88,25 @@ export const PUNCHES = [
 
 const C = (id, place, how, example) => ({ id, place, how, example });
 
-/** Tek izleyici çağrısı. place: early = ilk büyük bilgiden hemen sonra (60-150 sn), end = kapanışta. */
+/**
+ * Tek izleyici çağrısı. place: hook = kanca ve vaatten hemen sonra, ÜÇLÜ (beğen + abone + yorum, 19 Ekim 2026 kanal
+ * sahibi: "ilk saniyelerde kanca girişinden sonra… like abone yorum 3'lü, animasyonla"); early = ilk büyük bilgiden
+ * hemen sonra (60-150 sn), end = kapanışta. Üçlü örneklerin hepsi üç kelimeyi de söyler (like, subscribe, comments):
+ * ekrandaki üç düğme (docu-engine src/cta.tsx) o kelimelerde sırayla çıkar.
+ *
+ * 20 Ekim 2026 derin inceleme (39 tutmuş video satır satır, kanal sahibi: "hepsini ekle önerdiğin gibi yap"): kancadan
+ * hemen sonra soran tek kanal Weird History; o slot izleyicinin atladığı yer (536'da çağrı 0:33, zirve 1:03; büyük
+ * kanallarda sponsorun bittiği saniye zirve). Üçlü kalır ama kısa (≤20 kelime, ~8 sn), GEREKÇELİ ("If you want…") ve
+ * hemen ardından videonun en güçlü vuruşu gelir — atlayan izleyici tam oraya iner.
+ */
+export const HOOK_CTA_MAX_WORDS = 20;
 export const CTAS = [
+  C("trio-follow-up", "hook", "Gerekçe: hikâye sürüyor, gelişmeyi takip etmek; yorumda izleyicinin sorusu.", "If you want the follow-up when this changes, like, subscribe, and tell me in the comments what you'd ask."),
+  C("trio-guess", "hook", "Gerekçe: cevabı görmek; yorumda tahmin.", "Like and subscribe if you want the answer, and leave your guess in the comments."),
+  C("trio-small-channel", "hook", "Gerekçe: küçük kanal, üç küçük şey.", "We're a small channel, so a like, a subscribe and a word in the comments really help."),
+  C("trio-where", "hook", "Gerekçe: yeni gelene bu tür videolar; yorumda nereden izlediği.", "If you're new, like and subscribe for more of these, and tell me in the comments where you're watching."),
+  C("trio-what-you-know", "hook", "Gerekçe: konu yeniyse; yorumda ne duyduğu.", "If this is new to you, like and subscribe, and tell me in the comments what you'd heard."),
+  C("trio-next-topic", "hook", "Gerekçe: daha fazla açıklayıcı; yorumda sıradaki konu.", "If you want more explainers like this, like, subscribe, and tell me in the comments what to cover next."),
   C("useful-so-far", "early", "Faydalıysa beğeni iste; kısa, yalvarmadan.", "If this is already useful, a like helps more people find it."),
   C("free-and-helps", "early", "Abonelik ücretsiz ve kanala gerçekten yardım ediyor.", "Subscribing is free, and for a small channel it genuinely helps."),
   C("what-we-do", "early", "Kanalın ne yaptığını tek cümleyle söyle, sonra abonelik.", "If you're new: we explain the news behind the prices you pay. Subscribe if that's your kind of thing."),
@@ -157,6 +174,9 @@ export function recordRhetoric(dataDir, entry) {
   fs.writeFileSync(path.join(dataDir, HISTORY), JSON.stringify(h.slice(-80), null, 2));
 }
 
+/** Yorum isteyen çağrılar: ortadaki beğeni/abone ricasında değil, kapanış sorusunda yaşar. */
+const COMMENT_CTAS = new Set(["comment-question", "where-watching", "if-confusing"]);
+
 const seedOf = (s) => [...String(s || "")].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);
 const shuffled = (list, seed) => list.map((x, i) => ({ x, k: ((seedOf(x.id) ^ seed) + i * 7919) % 100003 })).sort((a, b) => a.k - b.k).map((o) => o.x);
 
@@ -164,22 +184,63 @@ const shuffled = (list, seed) => list.map((x, i) => ({ x, k: ((seedOf(x.id) ^ se
  * Bu videonun retorik planı: bölüm başına 2 vuruculuk (kanalda son kullanılmamışlardan, hepsi farklı) ve
  * TEK izleyici çağrısı (yeri: erken ya da son; son videonunkinden farklı yer tercih edilir).
  */
-export function rhetoricPlan({ topic = "", chapters = 5, history = [] } = {}) {
+/*
+ * HASSAS KONU (16 Ekim 2026, Ebola gündem videosu): yerinden edilmiş insanları anlattıktan hemen sonra "If that cup
+ * comparison made contact tracing click for you, a like helps" geldi — ölüm ve hastalık konusunda ricası saygısız
+ * duruyor, son okumada elle çıkarıldı. Salgın, felaket, toplu ölüm konularında beğeni/abone istenmez; kapanıştaki
+ * yorum sorusu kalır. Savaş tarihi (1066, 1812) bu kapsamda değil.
+ *
+ * 21 Ekim 2026 (kanal sahibi: "isyan, savaş, siyasi kriz haberlerinde üçlü çağrı konsun"): Fransa isyan videosu
+ * yönlendirmesindeki "death toll" yüzünden hassas sayılıp çağrısız çıktı. Haber kanalında savaş/isyan/kriz sık geldiği
+ * için liste yalnızca gerçek trajedilerle sınırlı: salgın, doğal afet, kıtlık, katliam, soykırım, toplu silahlı saldırı,
+ * terör saldırısı. "death toll", "victims", "refugees", tek başına "shooting" artık çağrıyı silmez.
+ */
+const SENSITIVE = /\b(ebola|outbreak|epidemic|pandemic|cholera|plague|measles|mpox|disease|virus|earthquake|tsunami|flood(?:s|ing)?|hurricane|cyclone|typhoon|wildfire|famine|massacre|genocide|mass shooting|terror(?:ist)? attack|salgın|deprem|sel(?:de|i)?|kıtlık|katliam|soykırım|terör saldırısı)\b/i;
+export const sensitiveTopic = (...texts) => SENSITIVE.test(texts.filter(Boolean).join(" "));
+
+export function rhetoricPlan({ topic = "", chapters = 5, history = [], sensitive = false } = {}) {
   const seed = seedOf(topic);
   const recentPunches = new Set(history.slice(-Math.ceil(PUNCH_MEMORY / 10)).flatMap((x) => x.punches || []));
-  const need = Math.max(4, chapters * 2);
+  const need = Math.max(4, chapters);
   let pool = shuffled(PUNCHES.filter((p) => !recentPunches.has(p.id)), seed);
   if (pool.length < need) pool = [...pool, ...shuffled(PUNCHES.filter((p) => recentPunches.has(p.id)), seed)];
   const picks = pool.slice(0, need);
-  const perChapter = Array.from({ length: chapters }, (_, i) => picks.slice(i * 2, i * 2 + 2).map((p) => p.id));
+  // One device per chapter (Oct 2026: less pounding — "heryere vuruculuğu kesip uyumlu editler").
+  const perChapter = Array.from({ length: chapters }, (_, i) => picks.slice(i, i + 1).map((p) => p.id));
   const recentCtas = new Set(history.slice(-CTA_MEMORY).map((x) => x.cta).filter(Boolean));
-  const lastPlace = history.at(-1)?.ctaPlace;
-  const place = lastPlace === "early" ? "end" : lastPlace === "end" ? "early" : seed % 2 ? "early" : "end";
-  let ctas = CTAS.filter((c) => c.place === place && !recentCtas.has(c.id));
-  if (!ctas.length) ctas = CTAS.filter((c) => c.place === place);
+  /*
+   * İZLENME VERİSİ (kanalın YouTube grafikleri, Ekim 2026): izleyicinin çoğu ilk 30-40 sn'de karar veriyor; ilk dakikadaki
+   * rica çıkışı hızlandırır, sondaki ricayı izleyicilerin ~%20'si görür. Beğeni/abone ricası artık hep ~1/3'te, bir
+   * açığa çıkışın hemen ardından ("mid"); kapanış bölümü onun yerine tartışılabilir tek bir YORUM sorusu sorar.
+   * Yorum biçimindeki çağrılar ortadaki ricada kullanılmaz (sondaki soruyla iki kez yorum istenmesin).
+   *
+   * 19 Ekim 2026, kanal sahibinin kararı: çağrı artık KANCADAN HEMEN SONRA ("hook") ve üçlü — beğen, abone ol, yorum —
+   * tek cümlede, ekranda üç düğme animasyonla. Bölüm 1'de, kanca ve vaat cümlesi biter bitmez (~15-45 sn). Kapanıştaki
+   * konuya özgü yorum sorusu yerinde kalır. Hassas konularda (aşağıda) yine hiç rica yok.
+   */
+  const place = "hook";
+  const callPool = CTAS.filter((c) => c.place === "hook");
+  let ctas = callPool.filter((c) => !recentCtas.has(c.id));
+  if (!ctas.length) ctas = callPool;
   const cta = shuffled(ctas, seed)[0];
-  return { perChapter, cta: cta.id, ctaPlace: place, ctaChapter: place === "early" ? Math.min(1, chapters - 1) : chapters - 1 };
+  if (sensitive) return { perChapter, cta: null, ctaPlace: "none", ctaChapter: -1, closingQuestion: chapters > 1, sensitive: true };
+  return { perChapter, cta: cta.id, ctaPlace: place, ctaChapter: 0, closingQuestion: chapters > 1, hypeChapter: hypeChapterOf(chapters), hype: seed % HYPE_ASKS.length };
 }
+
+/*
+ * HYPE (kanal sahibi, 22 Ekim 2026: "hype da istenebilir… arada söylemeli ve animasyonu da gözükmeli"). YouTube'un Hype
+ * düğmesi yalnızca videonun İLK HAFTASINDA basılabilir; anlatım ise haftalarca izlenir — bu yüzden cümle şartlıdır ve
+ * her zaman doğru kalır ("If you're watching in its first week…"). Videoda tek kez, ~%40'ta, ilk büyük ifşadan hemen
+ * sonra; ekranda Hype düğmesi "Hype" kelimesinde basılır (docu-engine src/cta.tsx). Hassas konuda yok.
+ */
+export const HYPE_MAX_WORDS = 16;
+export const HYPE_ASKS = [
+  "If you're watching this in its first week, tap Hype. It helps small channels get seen.",
+  "Watching in the first week? A Hype from you pushes this to new people.",
+  "One quick thing: in a video's first week, Hype is how small channels get found.",
+];
+/** The chapter (0-based) that carries the Hype line: about a third of the way in, never the hook chapter. */
+export const hypeChapterOf = (chapters) => (chapters >= 4 ? Math.max(1, Math.round(chapters * 0.45) - 1) : -1);
 
 export const punchById = (id) => PUNCHES.find((p) => p.id === id) || null;
 export const ctaById = (id) => CTAS.find((c) => c.id === id) || null;
@@ -189,16 +250,59 @@ export function rhetoricLines(plan, i, chapters) {
   if (!plan?.perChapter) return [];
   const mine = (plan.perChapter[i] || []).map(punchById).filter(Boolean);
   const lines = [
-    "VURUCULUK (her video başka türlü vurur): bu bölümde aşağıdaki kalıplardan EN AZ BİRİNİ doğal biçimde kullan; aynı kalıp videoda en fazla 2 kez, üçlü ritim ('One X. One Y. One Z.') videoda en fazla 1 kez. Kalıbı yalnızca olgu taşıyorsa kullan, süs için değil:",
+    "VURUCULUK (her video başka türlü vurur): bu bölümde aşağıdaki kalıbı YALNIZCA hikâyenin gerçek bir dönüm noktası varsa, EN FAZLA BİR KEZ ve doğal biçimde kullan; yoksa hiç kullanma — anlatım akıcı ve sakin kalsın, her cümle vurmaya çalışmasın; aynı kalıp videoda en fazla 2 kez, üçlü ritim ('One X. One Y. One Z.') videoda en fazla 1 kez. Kalıbı yalnızca olgu taşıyorsa kullan, süs için değil:",
     ...mine.map((p) => `- ${p.ad}: ${p.how} Örnek (konuya uyarla, kopyalama): "${p.example}"`),
   ];
   const cta = ctaById(plan.cta);
-  if (cta && i === plan.ctaChapter) {
+  const closing = plan.closingQuestion && i === chapters - 1 && i !== plan.ctaChapter;
+  if (cta && i === plan.ctaChapter && plan.ctaPlace === "hook") {
+    lines.push(`İZLEYİCİ ÇAĞRISI — ÜÇLÜ (videoda TEK KEZ, burada): kanca ve vaat cümlesi ("By the end of this video…") biter bitmez, videonun ~15-45. saniyesinde TEK cümle, EN ÇOK ${HOOK_CTA_MAX_WORDS} kelime (~8 sn) ve GEREKÇELİ: neden abone olsun, konuya ya da kanala bağlı ("If you want the follow-up when this changes…", "We're a small channel, so…"). Üçü de açıkça söylenir: like, subscribe ve comments — ekranda üç düğme bu kelimelerde sırayla animasyonla çıkar. ${cta.how} Örnek (konuya uyarla): "${cta.example}". Kendi photo sahnesinde, sakin mood'da; yalvarma, "smash" deme, abartma. HEMEN ARDINDAN GELEN CÜMLE videonun açılışındaki EN GÜÇLÜ vuruştur — henüz söylenmemiş en çarpıcı olgu, sayı ya da ters köşe (derin inceleme, Ekim 2026: izleyici çağrıyı atlar ve tam sonrasına iner; orada arka plan ya da "First, a quick orientation" olursa gider). Oryantasyon bu vuruştan SONRA gelir. Kanca ve vaat çağrıdan ÖNCE gelir; başka hiçbir yerde beğeni/abone isteme (kapanışta yalnızca konuya özgü yorum sorusu).`);
+  } else if (cta && i === plan.ctaChapter && plan.ctaPlace === "mid") {
+    lines.push(`İZLEYİCİ ÇAĞRISI (videoda TEK KEZ, burada — videonun ~1/3'ü): bu bölümün ilk büyük açığa çıkışından (reveal / en çarpıcı olgu) HEMEN SONRA tek, kısa (≤25 kelime), konuya bağlı bir cümle: ${cta.how} Örnek (konuya uyarla): "${cta.example}". ASLA videonun ilk 60 sn'sinde değil. Bu cümle kendi photo sahnesinde, sakin mood'da; yalvarma, "smash" deme, abartma. Başka hiçbir yerde beğeni/abone isteme.`);
+  } else if (cta && i === plan.ctaChapter) {
     lines.push(plan.ctaPlace === "early"
       ? `İZLEYİCİ ÇAĞRISI (videoda TEK KEZ, burada): bu bölümün ilk büyük bilgisini verdikten hemen sonra (videonun ~60-150. saniyesi, ASLA ilk 30 sn'de değil) tek, kısa (≤25 kelime), konuya bağlı bir cümle: ${cta.how} Örnek (konuya uyarla): "${cta.example}". Bu cümle kendi photo sahnesinde, sakin mood'da; yalvarma, "smash" deme, abartma. Başka hiçbir yerde beğeni/abone isteme.`
       : `İZLEYİCİ ÇAĞRISI (videoda TEK KEZ, burada): son sahneden hemen önce tek, kısa (≤25 kelime), konuya bağlı bir cümle: ${cta.how} Örnek (konuya uyarla): "${cta.example}". Kapanış satırı yine en sonda kalır. Yalvarma, "smash" deme. Başka hiçbir yerde beğeni/abone isteme.`);
+  } else if (closing) {
+    lines.push("Bu bölümde beğeni/abone isteme (rica videoda tek kez, başka bölümde).");
+    lines.push("KAPANIŞ SORUSU (yorumlar için, beğeni değil): son 2-3 sahne içinde izleyiciye bu konuya ÖZGÜ, iki tarafı da savunulabilir TEK bir soru sor (ör. 'Sence bu şans mıydı, yoksa hazırlık mı? Yorumlarda yaz.'); genel 'ne düşünüyorsunuz' değil. Kendi photo sahnesinde, sakin mood'da; kapanış satırı yine en sonda kalır.");
   } else if (cta) {
     lines.push("Bu bölümde beğeni/abone/yorum isteme (izleyici çağrısı videoda tek kez, başka bölümde).");
   }
+  if (!plan.sensitive && Number.isInteger(plan.hypeChapter) && plan.hypeChapter >= 0 && i === plan.hypeChapter) {
+    lines.push(`HYPE ÇAĞRISI (videoda TEK KEZ, bu bölümde): bölümün ilk büyük ifşasından HEMEN SONRA tek, kısa (en çok ${HYPE_MAX_WORDS} kelime) bir cümle ve 'Hype' kelimesini AÇIKÇA söyler — ekranda Hype düğmesi o kelimede animasyonla basılır. Hype yalnızca videonun ilk haftasında basılabildiği için cümle şartlıdır ve her zaman doğru kalır. Örnek (konuya uyarla): "${HYPE_ASKS[(plan.hype ?? 0) % HYPE_ASKS.length]}". Kendi photo sahnesinde, sakin mood'da; yalvarma, beğeni/abone burada isteme; hemen ardından hikâye kaldığı yerden, bir OLAYLA devam eder.`);
+  }
+  if (plan.sensitive && !closing) lines.push("HASSAS KONU (ölüm, hastalık, felaket): bu videoda HİÇBİR yerde beğeni/abone isteme; yorum sorusu yalnızca kapanışta.");
+  else if (plan.sensitive) lines.push("HASSAS KONU (ölüm, hastalık, felaket): beğeni/abone isteme; yalnızca kapanış sorusu.");
   return lines;
+}
+
+/*
+ * The viewer call on screen (docu-engine src/cta.tsx): the first line that asks for a like/subscribe gets
+ * cta:'like', the first that asks for comments gets cta:'comment'; the engine pops the button exactly on the
+ * spoken word and lets it go ~2.4 s later. "looked like a talk show" is not an ask: only "a like", "like button",
+ * "like and subscribe", "subscribe"… (owner, Oct 2026: "tam istediği anda çıkmalı, uzun sürmesin").
+ */
+const LIKE_ASK = /\b(a like|leave a like|hit like|smash like|give (?:this|it) a like|like button|like and subscribe|subscrib\w*)\b|\b(beğen(?:i|in|meyi)\b|abone ol\w*)/i;
+const HYPE_ASK = /\bhype\b|\bhype'?la/i;
+const COMMENT_ASK = /\b(in the comments|comment below|in a comment|leave a comment|tell (?:us|me)\b[^.?!]{0,60}\bbelow)\b|\b(yorumlarda|yorum(?:a|lara)? yaz\w*)/i;
+const say = (s) => String(s?.say || "").replace(/\[[^\]]*\]/g, " ");
+/** İzleyiciden bir şey isteyen satır (beğen/abone, Hype, yorum) — kanal sahibinin kararı, editör geçişleri dokunamaz. */
+export const isAudienceAsk = (text) => {
+  const t = String(text || "").replace(/\[[^\]]*\]/g, " ");
+  return LIKE_ASK.test(t) || HYPE_ASK.test(t) || COMMENT_ASK.test(t);
+};
+/** Lines that ask for a like or a subscription (a sensitive video's chapter is sent back for them). */
+export const likeAskLines = (scenes = []) => scenes.filter((s) => LIKE_ASK.test(say(s))).map((s) => say(s).replace(/\s+/g, " ").trim());
+/** Marks the one like-ask and the one comment-ask in a script's scenes (in place). → how many were marked. */
+export function markCtaScenes(scenes = []) {
+  let like = false, comment = false, hype = false, n = 0;
+  for (const s of scenes) {
+    if (!s || s.cta) { if (s?.cta === "like") like = true; if (s?.cta === "comment") comment = true; if (s?.cta === "hype") hype = true; continue; }
+    const t = say(s);
+    if (!like && LIKE_ASK.test(t)) { s.cta = "like"; like = true; n++; }
+    else if (!hype && HYPE_ASK.test(t)) { s.cta = "hype"; hype = true; n++; }
+    else if (!comment && COMMENT_ASK.test(t)) { s.cta = "comment"; comment = true; n++; }
+  }
+  return n;
 }

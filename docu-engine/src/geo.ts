@@ -12,7 +12,7 @@
  *
  * Pure data + two small functions, no React: Node scripts can import it too.
  */
-import type { MapRegion } from './types';
+import type { MapRegion, MapScene } from './types';
 
 /** [lon, lat] for geographic regions, [x, y] 0..1 for the city and space maps. */
 export type Pt = [number, number];
@@ -70,6 +70,10 @@ export interface RegionDef {
   rivers?: RiverDef[];
   /** Dashed political borders. */
   borders?: Pt[][];
+  /** Highlighted countries (world map), tinted in the focus colour. */
+  fills?: Pt[][];
+  /** Highlighted countries drawn with their own flag (modern stories, lib/world-map.mjs flagsFit). */
+  flagFills?: { flag: string; rings: Pt[][] }[];
   /** Fortification lines, drawn with square towers. */
   walls?: Pt[][];
   /** Walled towns: a hatched, tinted area (their wall goes in `walls`). */
@@ -462,6 +466,17 @@ export const regionName = (r: RegionDef, locale?: string) => (isEn(locale) && r.
 /** A map label in the script's language. */
 export const labelText = (l: LabelDef, locale?: string) => (isEn(locale) && l.en ? l.en : l.text);
 
+/** The world map with nothing filled yet (scene.geo missing): sea, pins and route only. */
+const WORLD: RegionDef = {
+  id: 'world',
+  name: '',
+  kind: 'geo',
+  box: [-180, -60, 180, 80],
+  land: [],
+  labels: [],
+  focusZoom: 2.0,
+};
+
 export const REGIONS: Record<MapRegion, RegionDef> = {
   'pacific-northwest': PNW,
   bosphorus: BOSPHORUS,
@@ -469,7 +484,35 @@ export const REGIONS: Record<MapRegion, RegionDef> = {
   urals: URALS,
   'wall-street': WALL_STREET,
   'solar-system': SOLAR,
+  world: WORLD,
 };
+
+/**
+ * The region a map scene draws: a hand-drawn one, or for 'world' the scene's
+ * own box with the coast, borders and tinted countries lib/world-map.mjs
+ * clipped into `scene.geo` (Natural Earth).
+ */
+export function regionOf(scene: MapScene): RegionDef {
+  if (scene.region !== 'world') return REGIONS[scene.region] ?? REGIONS['north-atlantic'];
+  const box = Array.isArray(scene.box) && scene.box.length === 4 && scene.box.every(Number.isFinite) && scene.box[2] > scene.box[0] && scene.box[3] > scene.box[1] ? scene.box : WORLD.box;
+  const g = scene.geo;
+  const wide = box[2] - box[0];
+  return {
+    ...WORLD,
+    name: String(g?.name ?? scene.mapName ?? '').toUpperCase(),
+    box,
+    land: (g?.land ?? []) as Pt[][],
+    borders: (g?.borders ?? []) as Pt[][],
+    fills: (g?.fills ?? []) as Pt[][],
+    ...(g?.flagFills?.length ? { flagFills: g.flagFills as { flag: string; rings: Pt[][] }[] } : {}),
+    labels: (g?.labels ?? []).map((l) => ({ text: l.text, p: [l.lon, l.lat] as Pt, size: l.size, kind: 'land' as const })),
+    graticule: g?.graticule,
+    // A scale bar only where kilometres mean something (not on a hemisphere).
+    scaleKm: wide <= 60 ? 1 : undefined,
+    // A tinted country is the point of the map: the camera keeps it whole with its neighbours (Poland filled the frame at 2x).
+    focusZoom: g?.fills?.length ? 1.3 : wide < 12 ? 1.6 : 2.0,
+  };
+}
 
 /** A region point (lon/lat for geo maps, already normalized otherwise) -> normalized 0..1 of the frame. */
 export function project(r: RegionDef, p: Pt): Pt {

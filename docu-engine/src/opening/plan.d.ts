@@ -1,5 +1,5 @@
 /* Types for plan.js (plain JS, shared with Node and Nova's art director). */
-import type { MapRegion, Scene, Script } from '../types';
+import type { MapRegion, Scene, Script, WorldGeo } from '../types';
 
 export type OpeningKind = 'headlines' | 'timestamps' | 'cold-open' | 'evidence' | 'map-dive' | 'quote' | 'montage';
 export declare const OPENING_KINDS: readonly OpeningKind[];
@@ -26,7 +26,7 @@ export interface OpeningFacts {
   /** Per beat (aligned with span.beats): its own stamp or null. */
   stamps: (Stamp | null)[];
   quote: { beat: number; scene: number; text: string } | null;
-  map: { region: MapRegion; point: { label: string; x: number; y: number } } | null;
+  map: { region: MapRegion; point: { label: string; x: number; y: number }; box?: [number, number, number, number]; geo?: WorldGeo; mapName?: string } | null;
   /** The scene after the title that rewinds the story, and its caption ("JAN 1959", "86 YEARS EARLIER"). */
   rewind: { scene: number; text: string } | null;
   pictures: number;

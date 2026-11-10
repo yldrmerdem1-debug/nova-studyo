@@ -49,7 +49,10 @@ export async function olc(src, { ffmpegPath, video = false, killer } = {}) {
     const args = video
       ? ["-ss", "1.0", "-i", src, "-frames:v", "1", "-vf", "signalstats,metadata=print", "-f", "null", "-"]
       : ["-i", src, "-frames:v", "1", "-vf", "signalstats,metadata=print", "-f", "null", "-"];
-    const r = spawnSync(ffmpegPath, args, { encoding: "utf8" });
+    // Ana süreçte eşzamanlı (25 Ekim 2026): takılan ffmpeg bütün uygulamayı dondururdu. Tek kare ölçümü 60 sn'de
+    // SIGKILL ile kesilir; zaman aşımında yarım çıktı ölçüm sayılmaz → sabit temel derecelendirme.
+    const r = spawnSync(ffmpegPath, ["-nostdin", ...args], { encoding: "utf8", windowsHide: true, timeout: 60000, killSignal: "SIGKILL" });
+    if (r.error) return null;
     const t = (r.stderr || "") + (r.stdout || "");
     const al = (k) => {
       const m = t.match(new RegExp(`lavfi\\.signalstats\\.${k}=([\\d.]+)`));

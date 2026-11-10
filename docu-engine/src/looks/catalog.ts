@@ -18,6 +18,12 @@ export interface CatalogEntry<T extends string> {
   accent?: boolean;
   /** Use at most this many times per video. */
   maxPerVideo?: number;
+  /**
+   * Grades only: 'colour' = a chapter base grade, 'accent' = desaturating (one accent chapter, <= 15% of
+   * picture scenes), 'period' = era-bound colour (vhs). Gimli 20261028-9ff721 / Kartal Yuvası 950730, 29 Ekim 2026:
+   * luma 52-56, doygunluk 2,5-6 — the art director picks bases from 'colour' only.
+   */
+  family?: 'colour' | 'accent' | 'period';
 }
 
 const ALL = 'all' as const;
@@ -71,18 +77,20 @@ export const BACKDROPS: CatalogEntry<BackdropKind>[] = [
 ];
 
 export const GRADES: CatalogEntry<Grade>[] = [
-  { id: 'duotone', description: "The look's two-colour duotone (shadow -> highlight): every picture inside the palette.", genres: ALL, scenes: ['photo', 'montage', 'words', 'slam', 'title', 'quote', 'split', 'board', 'document'] },
-  { id: 'mono', description: 'Contrasty black and white.', genres: ALL },
-  { id: 'color', description: 'Natural colour, lightly punched (contrast + saturation).', genres: ALL },
-  { id: 'warm', description: 'Golden, warm highlights; nostalgic and hopeful.', genres: ['inspire', 'documentary', 'epic', 'finance'] },
-  { id: 'cool', description: 'Cold steel-blue cast, lowered saturation.', genres: ['crime', 'horror', 'science', 'finance'] },
-  { id: 'teal-orange', description: 'Blockbuster split-tone: teal shadows, orange skin and highlights.', genres: ['crime', 'epic', 'documentary', 'science'] },
-  { id: 'sepia', description: 'Brown-toned antique print.', genres: ['epic', 'inspire', 'horror', 'documentary', 'crime'] },
-  { id: 'cyanotype', description: 'Prussian-blue photographic print.', genres: ['science', 'horror', 'epic'] },
-  { id: 'bleach', description: 'Bleach bypass: desaturated, hard contrast, silvery — war-film grit.', genres: ['epic', 'crime', 'horror'] },
-  { id: 'kodachrome', description: 'Saturated vintage slide film: rich reds, deep blues.', genres: ['inspire', 'science', 'epic', 'documentary'] },
-  { id: 'vhs', description: 'Washed-out tape colour with lifted blacks and a slight red smear.', genres: ['horror', 'crime', 'finance'] },
-  { id: 'selective', description: 'Black and white with ONE hue kept in colour (script.topic.keepHue): the topic bible accent object. Set by the topic bible only, never chosen freely.', genres: ALL },
+  // Colour first (Gimli 20261028-9ff721 / Kartal Yuvası 950730, 29 Ekim 2026: luma 52-56, doygunluk 2,5-6): the colour
+  // family is open to every genre (kodachrome keeps its era gate in the art director); crime/horror/finance take colour too.
+  { id: 'duotone', description: "The look's two-colour duotone (shadow -> highlight): every picture inside the palette.", genres: ALL, scenes: ['photo', 'montage', 'words', 'slam', 'title', 'quote', 'split', 'board', 'document'], family: 'accent' },
+  { id: 'mono', description: 'Contrasty black and white.', genres: ALL, family: 'accent' },
+  { id: 'color', description: 'Natural colour, lightly punched (contrast + saturation).', genres: ALL, family: 'colour' },
+  { id: 'warm', description: 'Golden, warm highlights; nostalgic and hopeful.', genres: ALL, family: 'colour' },
+  { id: 'cool', description: 'Cool blue cast with natural saturation (crime, science, cold stories) — a colour base grade.', genres: ALL, family: 'colour' },
+  { id: 'teal-orange', description: 'Blockbuster split-tone: teal shadows, orange skin and highlights.', genres: ALL, family: 'colour' },
+  { id: 'sepia', description: 'Brown-toned antique print.', genres: ['epic', 'inspire', 'horror', 'documentary', 'crime'], family: 'accent' },
+  { id: 'cyanotype', description: 'Prussian-blue photographic print.', genres: ['science', 'horror', 'epic'], family: 'accent' },
+  { id: 'bleach', description: 'Bleach bypass: desaturated, hard contrast, silvery — war-film grit.', genres: ['epic', 'crime', 'horror'], family: 'accent' },
+  { id: 'kodachrome', description: 'Saturated vintage slide film: rich reds, deep blues.', genres: ALL, family: 'colour' },
+  { id: 'vhs', description: 'Washed-out tape colour with lifted blacks and a slight red smear.', genres: ['horror', 'crime', 'finance'], family: 'period' },
+  { id: 'selective', description: 'Black and white with ONE hue kept in colour (script.topic.keepHue): the topic bible accent object. ACCENT only (topic.accentGrade): at most one chapter, never the hook chapter, never chosen freely.', genres: ALL, family: 'accent' },
 ];
 
 export interface CounterEntry extends CatalogEntry<CounterStyle> {

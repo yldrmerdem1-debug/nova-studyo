@@ -198,6 +198,21 @@ test('parallel workers never put the same photo in two scenes, whatever address 
   assert.equal(keys.filter((k) => k === media.photoKey(U.kranzWiki) || k === media.photoKey(U.kranzFlickr)).length, 1, 'Kranz appears exactly once');
 });
 
+// Houthi–Saudi news, 28 Oct 2026 (20261028-59b606): "Mohammed Ali al-Houthi Sanaa" found nothing, the simplified query
+// lost the surname ("Mohammed Ali Sanaa") and the name card fell to AI; Commons has his photo under the name alone.
+test('a name card searches the person alone, and "al-" surnames survive the simplified query', async () => {
+  assert.equal(arch.simplerQuery('Mohammed Ali al-Houthi Sanaa'), 'Mohammed Ali al-Houthi');
+  assert.equal(arch.simplerQuery('Abdel Fattah el-Sisi portrait'), 'Abdel Fattah el-Sisi');
+  assert.equal(arch.simplerQuery('Gene Kranz flight director Apollo 13'), 'Gene Kranz Apollo', 'unchanged without a particle');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nova-arsiv-'));
+  const s = photo('Tommy Pigott State Department spokesperson', 'Its spokesman, Tommy Pigott, explained the order.', { name: 'Tommy Pigott', role: 'US State Department spokesperson' });
+  const r = await runArchive(dir, [s], (q) => (q === 'Tommy Pigott' ? [cand('wikimedia', U.portre)] : []));
+  assert.deepEqual(r.calls.search.filter((q) => !/video/i.test(q)), ['Tommy Pigott State Department spokesperson', 'Tommy Pigott State', 'Tommy Pigott']);
+  assert.equal(r.script.scenes[0].archived, true);
+  assert.equal(r.script.scenes[0].name, 'Tommy Pigott', 'the name card stays on his real photo');
+  assert.ok(!r.logs.some((l) => /isim kartı gösterilmeyecek/.test(l)));
+});
+
 test('a scene that loses the race for a photo looks at the same list again before the simplified query', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nova-arsiv-'));
   const q = 'Gene Kranz mission control';
@@ -834,4 +849,55 @@ test('climax motion: up to two tense AI shots that can move, one per chapter, ne
   assert.deepEqual(marked, [1, 4]);
   assert.equal(script.scenes[1].aiMotion, 'climax');
   assert.equal(arch.climaxMotionTargets({ scenes: [sc(1, 'tension', 'fire')] }, { max: 0 }), 0, 'max 0 turns it off');
+});
+
+// ---------- seçim kutusu: seçicinin kredisi bitince seçim elle (Hastings, Ekim 2026) ----------
+
+test('picker out of credit: the sets go to the pick box as contact sheets, the pass waits, and the answers finish it', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nova-arsiv-'));
+  const q1 = 'Bayeux Tapestry Harold oath';
+  const q2 = 'Bayeux Tapestry Norman fleet';
+  const scenes = [photo(q1, 'Harold swears on holy relics.'), photo(q2, 'The fleet crossed the Channel.')];
+  const photos = { [q1]: [cand('wikimedia', U.e), cand('wikimedia', U.f)], [q2]: [cand('wikimedia', U.g), cand('wikimedia', U.kontrol)] };
+  let paid = 0;
+  const run = () => arch.resolveArchive({ id: 't', scenes: structuredClone(scenes) }, {
+    dir, publicDir: path.join(dir, 'public'), buildPrefix: 'build/t',
+    settings: { ffmpegPath: FFMPEG, docuManualPick: true }, usage: {}, logFn: () => {},
+    deps: {
+      search: async (s) => structuredClone(photos[s] || []),
+      pick: async () => { paid++; throw new Error('OpenAI görme: kota/kredi bitti (429)'); },
+      download,
+    },
+  });
+  // 1) no credit: the job stops asking for 2 picks, not "load credit"
+  await assert.rejects(run(), (e) => e.manualPicks === 2 && /2 arşiv seçimi bekleniyor/.test(e.message));
+  assert.equal(paid, 1, 'the paid picker is tried once, then every set goes straight to the box');
+  const box = path.join(dir, 'secim-kutusu');
+  const answers = fs.readFileSync(path.join(box, 'SECIMLER.txt'), 'utf8');
+  const keys = [...answers.matchAll(/^([0-9a-f]{12}) = $/gm)].map((m) => m[1]);
+  assert.equal(keys.length, 2);
+  for (const k of keys) assert.ok(fs.existsSync(path.join(box, 'kumeler', `${k}.jpg`)), 'a contact sheet per set');
+  assert.match(fs.readFileSync(path.join(box, 'LISTE.txt'), 'utf8'), /Harold swears on holy relics/);
+  assert.equal(fs.existsSync(path.join(dir, 'docu-archive-done.json')), false);
+  // 2) answers written: candidate 2 for the oath, none for the fleet
+  const pend = JSON.parse(fs.readFileSync(path.join(box, 'bekleyen.json'), 'utf8'));
+  const oath = keys.find((k) => pend[k].search === q1);
+  const fleet = keys.find((k) => pend[k].search === q2);
+  fs.writeFileSync(path.join(box, 'SECIMLER.txt'), answers.replace(`${oath} = `, `${oath} = 2`).replace(`${fleet} = `, `${fleet} = 0`));
+  paid = 0;
+  const out = await run();
+  assert.equal(paid, 0, 'answered sets never reach the paid picker');
+  assert.ok(out.script.scenes[0].archived, 'the oath scene got its picture');
+  assert.equal(out.credits['scene-0']?.url, U.f, 'candidate 2 as answered');
+  assert.ok(!out.script.scenes[1].archived, '0 = no suitable picture: the scene stays AI');
+});
+
+test('the pick box answers file is read loosely and keeps what was already written', async () => {
+  const { parseAnswers, pickKey } = await import('../src/pipeline/docu-pick-inbox.js');
+  assert.deepEqual(parseAnswers('# yorum\nabcdef012345 = 3\n0123456789ab =0\nfedcba987654 = 2/4\nbozuk satır\n111111111111 = '), {
+    abcdef012345: { choice: 3, segment: 1 }, '0123456789ab': { choice: 0, segment: 1 }, fedcba987654: { choice: 2, segment: 4 },
+  });
+  const s = { search: 'x', say: 'y' };
+  assert.equal(pickKey(s, { titles: ['a'], sizes: [[1, 2]] }), pickKey({ ...s }, { titles: ['a'], sizes: [[1, 2]] }));
+  assert.notEqual(pickKey(s, { titles: ['a'] }), pickKey(s, { titles: ['a'], video: {} }));
 });

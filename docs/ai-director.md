@@ -4,6 +4,10 @@ Stüdyo ekranındaki **AI Yönetmen** üretim kartı, editoryal kurgu, otomatik 
 
 ## Kalıcı davranış
 
+### Microsoft Shorts kapağı — 16 Ekim 2026 (politika v20)
+
+Dikey kapakta karartma yalnızca alt yazı alanına uygulanır; alfa değeri üst yarıda sıfırdır ve altta yumuşakça artar. Üstteki konu veya şirket tabelası siyah bir katmanla örtülemez. Konuyu tanıtan kaynak ayrıntısı kırpma içinde, tam değer ve birim de güvenli yazı alanında tutulur. Microsoft kapağında eski gradyan üst yarıyı karartıyordu; `test/shorts-kapak.test.mjs` gerçek render piksellerinde üst ve orta alanın görünür, alt yazı alanının koyu kaldığını doğrular.
+
 - Konu, anlatılan an, dönem, yer ve eylemle eşleşen gerçek çekim önceliklidir. Ortak bir kelime geçmesi yeterli değildir.
 - Gerçek çekimin yetmediği canlandırma/açıklama sahnesi, tutarlı sinematik AI görseli veya anlamlı fiziksel hareket gösteren AI video ile tamamlanır. Belgeler ve kanıtlar uydurulmaz; AI sahnelerinin illüstrasyon kaydı korunur.
 - Önemli veri, fiziksel sahnenin üzerine temiz yazıyla eklenir. AI görüntüsünün içine yazı ürettirilmez. Değer, işaret, ondalık ve birim anlatımla karşılaştırılır; veri uydurulmaz veya kesilmez. Miktar/birim/bağlam ayrı tipografik boyutlarda gösterilir.

@@ -581,7 +581,8 @@ export const DialPlate: React.FC<{ genre: Genre; uid: string }> = ({ genre, uid 
 
 /** Bars of a 2.35:1 frame (a little deeper than the genre's own letterbox). */
 export const COLD_BAR = Math.round(H * 0.122);
-export const COLD_GRADE = 'contrast(1.16) saturate(0.55) brightness(0.97)';
+// Kartal Yuvası 950730, 29 Ekim 2026: saturate(0.55) greyed every cold open's first seconds; the cold cast below still reads.
+export const COLD_GRADE = 'contrast(1.1) saturate(0.9) brightness(1)';
 
 export const ColdOpenLayer: React.FC<{ beat: number; durFrames: number }> = ({ beat }) => {
   const f = useCurrentFrame();
@@ -994,7 +995,7 @@ export function diveFrames(durFrames: number, fps: number): number {
 export const MapDive: React.FC<{ map: NonNullable<Opening['map']>; genre: Genre; locale: string; until: number }> = ({ map, genre, locale, until }) => {
   const f = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const scene = useMemo<MapScene>(() => ({ type: 'map', region: map.region, points: [map.point], focus: 0, dur: until / fps, say: '' }), [map, until, fps]);
+  const scene = useMemo<MapScene>(() => ({ type: 'map', region: map.region, box: map.box, geo: map.geo, mapName: map.mapName, points: [map.point], focus: 0, dur: until / fps, say: '' }), [map, until, fps]);
   const edgeY = genre.letterbox ? Math.round(H * LETTERBOX) : 0;
   const plan = useMemo(() => mapPlan(scene, until, fps, edgeY), [scene, until, fps, edgeY]);
   if (f >= until) return null;

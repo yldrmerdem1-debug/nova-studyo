@@ -64,8 +64,22 @@ export const REGULAR_TEXT = TEXT_STYLES.filter((s) => !ACCENT_TEXT.has(s) && s !
  */
 export const IMPACT_TEXT = ["kinetic", "stamp", "box", "outline", "stack", "glitch", "neon", "cutout"];
 export const SLAM_FORBIDDEN = new Set(["serif", "typewriter", "lower-third", "underline", "marker", "lyric"]);
-/** Slam'in vuruşa oturan efekti (tercih sırası; aynı efekt art arda gelmesin diye dönüşümlü). */
-export const HIT_FX = ["flash-frame", "shake", "flare", "vignette-pulse", "chroma"];
+/**
+ * Slam'in vuruşa oturan efekti (tercih sırası; aynı efekt art arda gelmesin diye dönüşümlü).
+ * Gimli 20261028-9ff721 / Kartal Yuvası 950730, 29 Ekim 2026 (sahibi: "anlık efektler doğal değil"): vignette-pulse
+ * artık vuruş efekti DEĞİL (her slam'de ekranı karartıyordu); slam vuruş efekti yerine kamera vuruşu (push-in) ya da
+ * hiç efekt almayabilir — vuruş yalnızca anlatımın gerçek darbesinde.
+ */
+export const HIT_FX = ["flash-frame", "shake", "flare", "chroma"];
+/** Slam'in vuruş efekti yerine alabileceği kamera vuruşu (resmi olan slam'de). */
+export const SLAM_PUNCH_FX = "push-in";
+/** İki slam vuruş efekti arasında en az bu kadar sn (ifşa ve kanca hariç). */
+export const SLAM_HIT_GAP_SEC = 40;
+/** Yüksek sesli efektler: yalnızca vuruş (slam/montaj) ya da zirve (enerji >= 4) anında. */
+export const LOUD_FX = new Set(["flash-frame", "shake", "zoom-blur", "speed-ramp", "dolly-zoom"]);
+/** vignette-pulse: videoda en çok bu kadar, yalnızca dread/tension duygulu vuruş sahnesinde (aynı ders). */
+export const VIGNETTE_PULSE_MAX = 2;
+export const VIGNETTE_MOODS = new Set(["dread", "tension"]);
 /** Slam'e giriş: keskin geçişler (ağır olanlar ve match hariç). */
 export const SHARP_TRANSITIONS = new Set(["flash", "zoom", "whip", "glitch", "spin-blur", "split-wipe", "pixel", "slide", "film-burn"]);
 export const isImpactScene = (s) => !!s && (s.type === "slam" || (s.type === "montage" && !!s.text));
@@ -75,12 +89,46 @@ export const RELATED_BACKDROPS = new Set(["related", "era"]);
 /** Düz zeminler: yalnızca sessizlik anında (enerji 1), videoda en çok SILENCE_BEATS_MAX. */
 export const SILENCE_BACKDROPS = new Set(["solid", "gradient"]);
 export const SILENCE_BEATS_MAX = 2;
+// 20 Ekim 2026 derin inceleme: Crayon'un siyah dönüş kartları ve Weird History'nin parşömen iddia kartları zirve topluyor —
+// büyük yazı TASARLANMIŞ bir yüzeyde (kâğıt, doku) durabilir; düz boş zemin yasağı kalır. Videoda en çok 4.
+export const DESIGNED_BACKDROPS = new Set(["paper", "texture"]);
+export const DESIGNED_TEXT_MAX = 4;
 /** Yazısı/rakamı BÜYÜK sahneler (resimsizse zemini 'related'): words, slam, title, counter, quote. */
 export const BIG_TEXT_TYPES = new Set(["words", "slam", "title", "counter", "quote"]);
+/**
+ * Sayı kartının sayısı söylendiği anda iner: uzun satırda (≥ 4,5 sn) o ana kadar zemin görünür. Zemin açık kâğıda
+ * yıkanırsa ekran bomboş kalır; koyu tonda ilgili resim/klip arkada durur.
+ */
+export const longNumberLine = (s) => s?.type === "counter" && String(s?.say || "").replace(/\[[^\]]*\]/g, " ").trim().split(/\s+/).filter(Boolean).length / 2.6 >= 4.5;
 export const ERA_TEXTURES = ["newsprint", "film", "ledger"];
 export const GRADES = ["duotone", "mono", "color", "warm", "cool", "teal-orange", "sepia", "cyanotype", "bleach", "kodachrome", "vhs", "selective"];
-/** 'selective' (siyah-beyaz + konunun TEK rengi) yalnızca konu kimliği isterse: serbest seçimde yok. */
+/** 'selective' (siyah-beyaz + konunun TEK rengi) yalnızca konu kimliği isterse (vurgu bölümü): serbest seçimde yok. */
 export const TOPIC_ONLY_GRADES = new Set(["selective"]);
+/*
+ * RENK POLİTİKASI — Gimli 20261028-9ff721 / Kartal Yuvası 950730 ve son 7 video, 29 Ekim 2026 (ffmpeg signalstats):
+ * ortalama parlaklık 52-75, doygunluk 2,5-7,5, karelerin %21-39'u luma < 40 ("her video siyah, karanlık, aynı").
+ * En iyi video Panama ('color') 88 / 10,2 ölçtü. Kural:
+ *   - bölümlerin TABAN derecelendirmesi renk ailesinden (COLOUR_GRADES); renk fotoğrafı öncesi hikâyede
+ *     (eraStart < 1940) arşiv zaten tek renk olduğundan 'sepia' da taban olabilir;
+ *   - soldurucu derecelendirmeler (DESAT_GRADES) yalnızca VURGU: videoda en çok BİR bölümde (tercihen doruk/en
+ *     karanlık bölüm, asla kanca bölümü 0) ve resimli sahnelerin en çok %15'inde.
+ */
+export const COLOUR_GRADES = ["color", "warm", "cool", "teal-orange", "kodachrome"];
+export const DESAT_GRADES = new Set(["selective", "mono", "duotone", "sepia", "cyanotype", "bleach"]);
+export const PRE_COLOUR_YEAR = 1940;
+export const ACCENT_GRADE_SHARE = 0.15;
+/** Bu derecelendirme bu dönemde bölüm tabanı olabilir mi? */
+export const baseGradeOk = (g, eraStart = null) => COLOUR_GRADES.includes(g) || (g === "sepia" && Number.isFinite(eraStart) && eraStart < PRE_COLOUR_YEAR);
+/** Bu derecelendirme bir vurgu (soldurucu) mu? Renk öncesi hikâyede sepya taban sayılır, vurgu değil. */
+export const accentGradeOf = (g, eraStart = null) => DESAT_GRADES.has(g) && !baseGradeOk(g, eraStart);
+/** Vurgu (soldurucu) sahne tavanı: resimli sahnelerin %15'i. */
+export const accentGradeCap = (nPics) => Math.floor(ACCENT_GRADE_SHARE * nPics);
+/**
+ * Açık zemin payı (lightBackdropsMin 3 yerine): açık varyantta (katalog light: true) büyük yazı/sayaç zeminlerinin
+ * %40-60'ı açık, koyu varyantta ~%20 (aynı ders: zeminlerin hepsi kararmış resim ya da siyahtı).
+ */
+export const LIGHT_SHARE = { light: [0.4, 0.6], dark: [0.2, 0.35] };
+export const lightShareTarget = (isLight) => (isLight ? 0.5 : 0.22);
 export const FX_KINDS = ["light-leak", "film-burn", "flare", "chroma", "glitch", "zoom-blur", "parallax", "speed-ramp", "halftone", "vhs", "dust", "flash-frame", "rack-focus", "shake", "vignette-pulse", "scan-lines", "bokeh", "push-in", "dolly-zoom", "tilt-reveal"];
 export const TRANSITIONS = ["cut", "flash", "zoom", "glitch", "blackout", "whip", "leak", "film-burn", "ink", "paper-tear", "slide", "iris", "match", "pixel", "light-sweep", "dip-color", "spin-blur", "split-wipe"];
 /** Resimli sahnenin (foto/klip) kamera hareketi ve kadraja oturtma biçimi. */
@@ -115,7 +163,8 @@ export const RULES = {
   fxShare: 0.35,
   strongFxGapSec: 45,
   gradesPerChapter: 2,
-  lightBackdropsMin: 3,
+  /** Soldurucu vurgu derecelendirmesi en çok bu kadar bölümde (renk politikası, 29 Ekim 2026). */
+  accentGradeChapters: 1,
   historyWindow: 3,
   /** lyric/kinetic toplam tavanı ve "kanca" süresi (sn). */
   accentTextMax: 3,
@@ -128,7 +177,11 @@ export const RULES = {
   stillMax: 0.33,
   /** Alt sınırlar (model bir kategoriyi boş bırakırsa yedek planlayıcı doldurur). */
   minStyledShare: 0.25,
-  minPictureFxShare: 0.22,
+  // Gimli 20261028-9ff721 / Kartal Yuvası 950730, 29 Ekim 2026: %22 taban efekti sessiz bilgi çekimlerine serpiyordu
+  // ("anlık efektler doğal değil"). Efekt anlatımın vuruşuna bağlı; taban %12, sakin bilgi çekimi temiz kalır.
+  minPictureFxShare: 0.12,
+  /** Efekt yerleşiminde rastgele pay yalnızca eşitlik bozucu (eskiden 0,6). */
+  fxTieBreak: 0.1,
   /** Aynı kamera en çok bu kadar ardışık resimli sahnede. */
   cameraRun: 2,
   /** detail-punch / parallax vurguları arası en kısa aralık (sn). */
@@ -148,6 +201,14 @@ export const RULES = {
   captionFullMaxWords: 6,
   /** Önceki yazı kartından bu kadar sn içinde gelen düz (bilgisiz) satır anahtar kelimeye iner. */
   captionGapSec: 5,
+  /**
+   * 1.16.16 — bilgi taşımayan YANKI yazısı (tek büyük kelime "CROWN", "CHARTS" ya da kısa düz satır) yalnızca
+   * zirvede (enerji >= echoEnergy) ve bir öncekinden en az echoGapSec sonra. Tutmuş kanallarda (Ekim 2026, 21 video
+   * kare kare) ekran yazısı BİLGİDİR: sayı etiketi, isim+unvan, yer, tarih, liste, bölüm başlığı; bizim videolarda
+   * sahnelerin %24-30'u yazı kartıydı.
+   */
+  echoEnergy: 4,
+  echoGapSec: 30,
 };
 /** Yazı sahnesinin kelime sayısı (lower-third kuralı). */
 const wordsIn = (t) => String(t || "").trim().split(/\s+/).filter(Boolean).length;
@@ -220,13 +281,34 @@ export function captionDecision(s, { energy, gapSec = Infinity, pictured = true,
   if (f.quote) return { mode: "full", why: "alıntı" };
   if (hook) return { mode: "full", why: "kanca" };
   if (f.keyStrong) {
-    if (energy >= 4) return { mode: "full", why: "vurgu" };
-    if (gapSec < RULES.captionGapSec) return { mode: "key", why: "art arda yazı" };
-    return f.words <= RULES.captionFullMaxWords ? { mode: "full", why: "kısa vurgu" } : { mode: "key", why: "yankı satırı" };
+    // Bilgisiz vurgu yalnızca zirvede ve seyrek (RULES.echoEnergy / echoGapSec); kalanı temiz görüntü.
+    if (!(energy >= RULES.echoEnergy)) return { mode: "none", why: "yankı (bilgi değil)" };
+    if (gapSec < RULES.echoGapSec) return { mode: "none", why: "yankı sık" };
+    return f.words <= RULES.captionFullMaxWords ? { mode: "full", why: "zirve vurgusu" } : { mode: "key", why: "zirve anahtar kelimesi" };
   }
   if (!pictured) return { mode: "full", why: "resimsiz" };
   return { mode: "none", why: "dolgu" };
 }
+/*
+ * ANLATIM VURUŞU (efekt yerleşimi): efekt serpiştirilmez, anlatımın bir vuruşuna oturur — söylenen sayı, cümle
+ * başında olmayan özel ad, dönüş sözcüğü (but/yet/then/suddenly/never...), vuruş sahnesi (slam/metinli montaj).
+ * Gimli 20261028-9ff721 / Kartal Yuvası 950730, 29 Ekim 2026: yerleşim rnd*0,6 ile sürüyordu; sessiz bilgi
+ * çekimleri efekt alıyor, vuruşlar almıyordu. Puan 0 = sakin bilgi çekimi (temiz kalır).
+ */
+const TURN_WORDS = /\b(but|yet|then|suddenly|never|until|instead|however|except|ama|fakat|ancak|oysa|sonra|birden|aniden|asla)\b/i;
+export function narrationBeat(s) {
+  if (!s || isCard(s)) return 0;
+  const say = stripTags(s.say || "");
+  const toks = capWords(say);
+  let b = 0;
+  if (s.type === "slam") b += 1.2;
+  else if (isImpactScene(s)) b += 0.9;
+  if (/\d/.test(say) || CAP_NUMBERS.test(say)) b += 0.5;
+  if (toks.some((w, i) => i > 0 && !/[.!?:…]$/.test(toks[i - 1]) && /^\p{Lu}/u.test(bareWord(w)) && bareWord(w).length >= 2 && !CAP_NOT_NAMES.has(bareWord(w)))) b += 0.4;
+  if (TURN_WORDS.test(say)) b += 0.5;
+  return +b.toFixed(2);
+}
+
 /** Zirve (enerji 4-5) olabilecek an: gerilim/ifşa/zafer duygusu ya da slam/montaj — sakin/hüzünlü değil. */
 const PEAK_MOODS = new Set(["reveal", "tension", "triumph"]);
 /** Enerjiye göre sahne içi kesme yoğunluğu (render: hold = tek kesintisiz çekim, rapid = 3-4 hızlı ara kesme). */
@@ -252,7 +334,8 @@ export const STRONG_FX = new Set(["glitch", "shake", "chroma", "film-burn"]);
 const STRONG_MOODS = new Set(["tension", "reveal"]);
 /** Yumuşak dokunuş isteyen duygular. */
 export const GENTLE_MOODS = new Set(["calm", "sad"]);
-const GENTLE_FX = new Set(["vignette-pulse", "dust", "bokeh", "light-leak", "rack-focus", "push-in", "parallax", "tilt-reveal"]);
+// vignette-pulse yumuşak dokunuş değil: sakin/hüzünlü sahneyi karartıyordu (Gimli 20261028-9ff721, 29 Ekim 2026).
+const GENTLE_FX = new Set(["dust", "bokeh", "light-leak", "rack-focus", "push-in", "parallax", "tilt-reveal"]);
 /** Sakin/hüzünlü sahneye konmayan yüksek sesli yazı stilleri ve geçişler. */
 const LOUD_TEXT = new Set(["stamp", "glitch", "cutout", "neon"]);
 const LOUD_TRANSITIONS = new Set(["glitch", "whip", "flash", "spin-blur", "pixel", "film-burn", "zoom", "split-wipe", "paper-tear"]);
@@ -385,6 +468,8 @@ export function normalizeLooks(raw) {
     const isLight = o.light === true;
     out.push({
       id, genres,
+      // Açık varyant (katalog light: true) açık zeminleri sürer ve kanal genelinde 3 videodan birinde seçilir.
+      isLight,
       leadText, leadGrade: lead(["grade", "grades"], GRADES)[0] || null,
       textStyles: merged(["textStyles", "text", "typography.styles", "type"], REGULAR_TEXT, base.textStyles),
       transitions: merged(["transitions", "transition"], TRANSITIONS.filter((t) => t !== "cut"), base.transitions),
@@ -481,8 +566,21 @@ export function openLooks(script, catalogs, history) {
   const recent = recentFor(history, ctx.genre, script.id);
   const blockN = Math.min(RULES.historyWindow, Math.max(0, pool.length - 1));
   const blocked = new Set(recent.slice(0, blockN).map((e) => e.variant));
-  return { pool, open: pool.filter((l) => !blocked.has(l.id)), recent, ctx };
+  let open = pool.filter((l) => !blocked.has(l.id));
+  // Kanal genelinde her 3 ardışık videodan en az biri AÇIK varyant (tür birine sahipse): son iki video koyuysa
+  // bu video açık olmak zorunda (Gimli 20261028-9ff721 / Kartal Yuvası 950730, 29 Ekim 2026: 7 videonun hepsi koyu).
+  const needLight = needsLightLook(history, script.id);
+  const lightOpen = open.filter((l) => l.isLight && !l.original);
+  if (needLight && lightOpen.length) open = lightOpen;
+  return { pool, open, recent, ctx, needLight: needLight && lightOpen.length > 0 };
 }
+
+/** Kanal geçmişi (tür fark etmez), aynı video hariç, en yeni önce. */
+export const channelRecent = (history, id, n = 3) => history.filter((e) => !id || e.id !== id).slice(-n).reverse();
+/** Son iki video koyu muydu (alanı olmayan eski kayıtlar koyu sayılır: hepsi koyuydu)? */
+export const needsLightLook = (history, id) => { const r = channelRecent(history, id, 2); return r.length >= 2 && r.every((e) => e.isLight !== true); };
+/** Önceki videonun taban derecelendirmesi (kanal geneli). */
+export const prevBaseGrade = (history, id) => channelRecent(history, id, 1)[0]?.baseGrade || null;
 
 /* ================================================================ geçmiş */
 
@@ -519,6 +617,31 @@ const lum = (hex) => {
 };
 /** Açık/renkli zemin mi (koyu tema dışı)? */
 export const isLightBackdrop = (b) => !!b && (b.kind === "paper" || b.tone === "light" || (b.kind === "era" && b.variant !== "film" && b.tone !== "dark") || lum(b.color) > 0.55);
+/** Videonun varyantı açık mı (script.look.variant → katalog light: true)? */
+export function lookIsLight(script, catalogs = null) {
+  const id = script?.look?.variant;
+  if (!id) return false;
+  const looks = catalogs?.looks || loadCatalogs().looks;
+  return looks.find((l) => l.id === id)?.isLight === true;
+}
+/** Tonu açıktan koyuya çevrilebilen zemin (ilgili resim / dönem dokusu); kâğıt ve açık düz renk hep açıktır. */
+const toneAdjustable = (b) => !!b && RELATED_BACKDROPS.has(b.kind);
+/** Açılamayan koyu zemin: sessizlik anının düz zemini ya da uzun sayı satırı (sayı inene kadar zemin görünür). */
+const liftBlocked = (s, b) => (BIG_TEXT_TYPES.has(s?.type) && SILENCE_BACKDROPS.has(b?.kind)) || longNumberLine(s);
+/**
+ * Açık zemin sayısının [alt, üst] sınırı (LIGHT_SHARE): alt sınır açılabilecek zeminle, üst sınır koyulaştırılamayan
+ * açık zeminle (kâğıt) sınırlı — kural uygulanamaz bir şey istemez.
+ */
+export function lightShareBounds(S, idx, isLight) {
+  const n = idx.length;
+  if (!n) return [0, 0];
+  const [a, b] = LIGHT_SHARE[isLight ? "light" : "dark"];
+  const light = idx.filter((i) => isLightBackdrop(S[i].backdrop)).length;
+  const liftable = idx.filter((i) => !isLightBackdrop(S[i].backdrop) && !liftBlocked(S[i], S[i].backdrop)).length;
+  const fixedLight = idx.filter((i) => isLightBackdrop(S[i].backdrop) && !toneAdjustable(S[i].backdrop)).length;
+  const lo = Math.min(Math.ceil(a * n), light + liftable);
+  return [lo, Math.max(lo, Math.floor(b * n), fixedLight)];
+}
 const moodOf = (s) => s?.mood || "curious";
 const chOf = (s) => s?.chapter ?? 0;
 const isCard = (s) => s?.type === "title" && s.chapterCard;
@@ -593,10 +716,17 @@ export function topicOf(script) {
   const t = script?.topic;
   if (!t || typeof t !== "object" || !t.motif) return null;
   const arr = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === "string") : []);
+  // Renk politikası (29 Ekim 2026): kayıttan gelen eski kimlikte taban 'selective'/'mono' olabilir — vurguya taşınır,
+  // taban sanat yönetmeninin renk ailesinden gelir.
+  const eraStart = eraRange(script?.era)?.start ?? null;
+  const g = typeof t.grade === "string" && GRADES.includes(t.grade) ? t.grade : null;
+  const baseOk = g && baseGradeOk(g, eraStart);
+  const acc = typeof t.accentGrade === "string" && GRADES.includes(t.accentGrade) && t.accentGrade !== g ? t.accentGrade : null;
   return {
     motif: t.motif,
     textStyles: arr(t.textStyles),
-    grade: typeof t.grade === "string" ? t.grade : null,
+    grade: baseOk ? g : null,
+    accentGrade: !baseOk && g && DESAT_GRADES.has(g) ? g : acc,
     backdrops: arr(t.backdrops),
     variants: arr(t.variants),
     accent: HEX.test(t.accent || "") ? t.accent.toLowerCase() : null,
@@ -625,7 +755,7 @@ function artContext(script, catalogs) {
   const allowed = {
     textStyle: allow("textStyle", TEXT_STYLES).filter((x) => !TOPIC_ONLY_TEXT.has(x)),
     backdrop: allow("backdrop", BACKDROP_KINDS),
-    grade: allow("grade", GRADES).filter((g) => !TOPIC_ONLY_GRADES.has(g) || topic?.grade === g),
+    grade: allow("grade", GRADES).filter((g) => !TOPIC_ONLY_GRADES.has(g) || topic?.grade === g || topic?.accentGrade === g),
     fx: allow("fx", FX_KINDS),
     transition: allow("transition", TRANSITIONS),
     counterStyle: allow("counterStyle", COUNTER_STYLES),
@@ -635,7 +765,7 @@ function artContext(script, catalogs) {
   if (!allowed.backdrop.length) allowed.backdrop = ["solid"];
   const idx = (f) => scenes.map((s, i) => (f(s) ? i : -1)).filter((i) => i >= 0);
   return {
-    script, scenes, n: scenes.length, starts, total, era, genre, nCh, allowed, topic,
+    script, scenes, n: scenes.length, starts, total, era, eraStart: era?.start ?? null, genre, nCh, allowed, topic,
     text: idx(isTextScene), backdrop: idx(isBackdropScene), grade: idx(isGradeScene), counter: idx((s) => s?.type === "counter"),
     seed: String(script.seedKey || script.id || script.title || "docu"),
   };
@@ -735,10 +865,14 @@ export function checkPlan(script, { catalogs, history = null } = {}) {
   {
     const picsFx = ctx.grade;
     const withFx = picsFx.filter((i) => S[i].fx?.length).length;
-    if (picsFx.length >= 10 && withFx / picsFx.length < RULES.minPictureFxShare) bad(`resimli sahnelerde efekt az: ${withFx}/${picsFx.length} (en az %${RULES.minPictureFxShare * 100})`);
+    // Taban yalnızca anlatım vuruşu olan resimli sahnelerle doldurulabilir (sakin bilgi çekimi temiz kalır, 29 Ekim 2026).
+    const beatPics = picsFx.filter((i) => !S[i].fx?.length && S[i].type !== "slam" && S[i].energy >= 3 && narrationBeat(S[i]) > 0).length;
+    const need = Math.min(Math.ceil(RULES.minPictureFxShare * picsFx.length), withFx + beatPics);
+    if (picsFx.length >= 10 && withFx < need) bad(`resimli sahnelerde efekt az: ${withFx}/${picsFx.length} (en az %${RULES.minPictureFxShare * 100})`);
   }
   let prevFx = null;
   let lastStrongAt = -Infinity;
+  let pulseN = 0;
   for (const i of fxScenes) {
     const s = S[i];
     const f = s.fx;
@@ -748,6 +882,12 @@ export function checkPlan(script, { catalogs, history = null } = {}) {
       if (!fxFits(s, k)) bad(`#${i}: efekt ${k} bu sahneye uymuyor (resim/klip yok)`);
       if (prevFx && prevFx.includes(k)) bad(`#${i}: aynı efekt art arda (${k})`);
       if (GENTLE_MOODS.has(moodOf(s)) && !GENTLE_FX.has(k) && !(s.type === "slam" && HIT_FX.includes(k))) bad(`#${i}: ${moodOf(s)} sahnede sert efekt ${k}`);
+      // Efekt anlatımın vuruşunda (29 Ekim 2026): yüksek sesli efekt yalnızca vuruş/zirvede; vignette-pulse en çok 2, dread/tension vuruşunda.
+      if (LOUD_FX.has(k) && !isImpactScene(s) && !(s.energy >= 4)) bad(`#${i}: yüksek sesli efekt ${k} vuruş/zirve dışında (enerji ${s.energy})`);
+      if (k === "vignette-pulse") {
+        if (!(isImpactScene(s) && VIGNETTE_MOODS.has(moodOf(s)))) bad(`#${i}: vignette-pulse yalnızca dread/tension vuruşunda (${s.type} ${moodOf(s)})`);
+        if (++pulseN > VIGNETTE_PULSE_MAX) bad(`#${i}: vignette-pulse ${pulseN} > ${VIGNETTE_PULSE_MAX}`);
+      }
       if (STRONG_FX.has(k)) {
         if (!STRONG_MOODS.has(moodOf(s))) bad(`#${i}: sert efekt ${k} gerilim/ifşa anı değil (${moodOf(s)})`);
         if (ctx.starts[i] - lastStrongAt < RULES.strongFxGapSec) bad(`#${i}: sert efekt önceki sertten ${Math.round(ctx.starts[i] - lastStrongAt)} sn sonra`);
@@ -773,6 +913,19 @@ export function checkPlan(script, { catalogs, history = null } = {}) {
     if (c?.backdrop && !BACKDROP_KINDS.includes(c.backdrop.kind)) bad(`bölüm ${k + 1}: backdrop geçersiz`);
   });
   for (const [c, set] of Object.entries(chGrades)) if (set.size > RULES.gradesPerChapter) bad(`bölüm ${+c + 1}: ${set.size} farklı grade (${[...set].join(", ")})`);
+  // Renk politikası (Gimli 20261028-9ff721 / Kartal Yuvası 950730, 29 Ekim 2026: luma 52-56, doygunluk 2,5-6): bölüm
+  // tabanı renk ailesinden; soldurucu vurgu en çok bir bölümde (kanca bölümü 0'da asla) ve resimli sahnelerin en çok %15'i.
+  {
+    const es = ctx.eraStart;
+    (script.chapterLooks || []).forEach((c, k) => { if (c?.grade && !baseGradeOk(c.grade, es)) bad(`bölüm ${k + 1}: taban grade ${c.grade} renk ailesinden değil (soluk taban: ${COLOUR_GRADES.join("/")})`); });
+    const accCh = new Set();
+    let accN = 0;
+    ctx.grade.forEach((i) => { const g = S[i].grade; if (g && accentGradeOf(g, es)) { accN++; accCh.add(chOf(S[i])); } });
+    if (accCh.size > RULES.accentGradeChapters) bad(`soldurucu vurgu grade ${accCh.size} bölümde (en çok ${RULES.accentGradeChapters})`);
+    if (accCh.has(0)) bad(`soldurucu vurgu grade kanca bölümünde (bölüm 1)`);
+    const cap = accentGradeCap(ctx.grade.length);
+    if (accN > cap) bad(`soldurucu vurgu grade ${accN}/${ctx.grade.length} resimli sahnede (tavan %${ACCENT_GRADE_SHARE * 100} = ${cap})`);
+  }
   // kamera ve kadraj
   const pics = ctx.grade;
   const cams = {};
@@ -833,7 +986,8 @@ export function checkPlan(script, { catalogs, history = null } = {}) {
     if (prevSlam && s.textStyle && s.textStyle === prevSlam.textStyle) bad(`#${i}: ardışık iki slam aynı vurucu stil (${s.textStyle})`);
     prevSlam = s;
     if (s.energy !== 5) bad(`#${i}: slam enerjisi ${s.energy} (5 olmalı)`);
-    if (!(s.fx || []).some((k) => HIT_FX.includes(k))) bad(`#${i}: slam vuruş efekti yok (${(s.fx || []).join(",") || "-"})`);
+    // Slam vuruş efekti zorunlu değil (29 Ekim 2026): vuruş efekti, kamera vuruşu (push-in) ya da hiç efekt; başka efekt olmaz.
+    if ((s.fx || []).length && !(s.fx || []).some((k) => HIT_FX.includes(k) || k === SLAM_PUNCH_FX)) bad(`#${i}: slam vuruş efekti yok (${(s.fx || []).join(",") || "-"})`);
     if (i > 0 && !SHARP_TRANSITIONS.has(s.transition)) bad(`#${i}: slam'e keskin geçiş yok (${s.transition})`);
   }
   const hk = allowed.textStyle.includes("kinetic") ? hookIndex(S, ctx.starts) : -1;
@@ -866,15 +1020,18 @@ export function checkPlan(script, { catalogs, history = null } = {}) {
     if (s.textMode === "none" && !showsPicture(s)) bad(`#${i}: resimsiz sahne yazısız bırakılmış`);
     if (s.textMode === "key" && !f.keyword) bad(`#${i}: key yazısı için anahtar kelime yok`);
   });
-  // zeminler: büyük yazı boş zeminde durmaz (related/era; düz zemin yalnızca sessizlik anı)
+  // zeminler: büyük yazı boş zeminde durmaz (related/era/tasarlanmış yüzey; düz zemin yalnızca sessizlik anı)
   let silenceN = 0;
+  let designedN = 0;
   S.forEach((s, i) => {
     const b = s.backdrop;
     if (!b || !BIG_TEXT_TYPES.has(s.type) || !isBackdropScene(s)) return;
     if (SILENCE_BACKDROPS.has(b.kind)) {
       if (s.energy !== 1 || !(s.silence === true || GENTLE_MOODS.has(moodOf(s)))) bad(`#${i}: büyük yazı düz zeminde (${b.kind}) — yalnızca sessizlik anı (enerji 1, sakin/hüzünlü)`);
       else if (++silenceN > SILENCE_BEATS_MAX) bad(`#${i}: düz zeminli sessizlik anı ${silenceN} > ${SILENCE_BEATS_MAX}`);
-    } else if (!RELATED_BACKDROPS.has(b.kind)) bad(`#${i}: büyük yazı boş zeminde (${b.kind}) — ilgili resim (related) ya da dönem dokusu (era) olmalı`);
+    } else if (DESIGNED_BACKDROPS.has(b.kind)) {
+      if (++designedN > DESIGNED_TEXT_MAX) bad(`#${i}: tasarlanmış yüzeyde büyük yazı ${designedN} > ${DESIGNED_TEXT_MAX}`);
+    } else if (!RELATED_BACKDROPS.has(b.kind)) bad(`#${i}: büyük yazı boş zeminde (${b.kind}) — ilgili resim (related), dönem dokusu (era) ya da tasarlanmış yüzey (paper/texture) olmalı`);
     if (b.kind === "era" && b.variant !== undefined && !ERA_TEXTURES.includes(b.variant)) bad(`#${i}: era dokusu ${b.variant} geçersiz`);
   });
   let light = 0;
@@ -886,8 +1043,14 @@ export function checkPlan(script, { catalogs, history = null } = {}) {
     for (const k of ["color", "color2"]) if (b[k] !== undefined && !HEX.test(b[k])) bad(`#${i}: backdrop ${k} geçersiz`);
     if (isLightBackdrop(b)) light++;
   });
-  const needLight = Math.min(RULES.lightBackdropsMin, ctx.backdrop.length);
-  if (light < needLight) bad(`açık/renkli zemin ${light} < ${needLight} (hepsi koyu)`);
+  {
+    // Açık zemin payı (29 Ekim 2026, lightBackdropsMin 3 yerine): açık varyantta %40-60, koyu varyantta ~%20.
+    const isLight = lookIsLight(script, catalogs);
+    const idx = ctx.backdrop.filter((i) => S[i].backdrop);
+    const [lo, hi] = lightShareBounds(S, idx, isLight);
+    if (light < lo) bad(`açık/renkli zemin ${light}/${idx.length} < ${lo} (${isLight ? "açık" : "koyu"} varyant hedefi %${Math.round(LIGHT_SHARE[isLight ? "light" : "dark"][0] * 100)}+, hepsi koyu olmasın)`);
+    if (light > hi) bad(`açık/renkli zemin ${light}/${idx.length} > ${hi} (${isLight ? "açık" : "koyu"} varyant)`);
+  }
   // açılış (script.opening): uygun tür, dönem, kanal genelinde son 2 videodan farklı (docu-opening.js)
   for (const m of checkOpening(script, { history, eraStart: ctx.era?.start ?? null })) bad(m);
   return v;
@@ -904,13 +1067,17 @@ const FAMILY_ACCENTS = {
   sad: ["#9aa5b8", "#b8a9c9", "#a7b4c2"],
   climax: ["#e63946", "#d62828", "#ff3b30", "#c1121f"],
 };
+// Bölüm TABAN derecelendirmeleri yalnızca renk ailesinden (eskiden dread/sad/climax mono/bleach/duotone ile başlıyordu:
+// Gimli 20261028-9ff721 / Kartal Yuvası 950730, 29 Ekim 2026, luma 52-56, doygunluk 2,5-6). sepia yalnızca renk öncesi
+// hikâyede taban olabilir (baseGradeOk süzer). Soldurucu tonlar FAMILY_ACCENT_GRADES: tek vurgu bölümünün ikinci tonu.
 const FAMILY_GRADES = {
-  warm: ["warm", "kodachrome", "sepia", "color", "teal-orange"],
-  cold: ["cool", "cyanotype", "mono", "bleach", "teal-orange"],
-  dread: ["mono", "bleach", "cool", "duotone", "vhs"],
-  sad: ["mono", "cool", "sepia", "color"],
-  climax: ["bleach", "duotone", "teal-orange", "mono", "vhs"],
+  warm: ["warm", "kodachrome", "color", "teal-orange", "sepia"],
+  cold: ["cool", "teal-orange", "color"],
+  dread: ["cool", "color", "teal-orange"],
+  sad: ["cool", "color", "warm", "sepia"],
+  climax: ["teal-orange", "color", "cool", "kodachrome"],
 };
+const FAMILY_ACCENT_GRADES = ["bleach", "mono", "duotone", "cyanotype", "sepia"];
 const ROLE_TEXT = {
   slam: ["stamp", "cutout", "stack", "outline", "glitch", "neon", "box"],
   title: ["serif", "stack", "outline", "typewriter", "lower-third"],
@@ -926,12 +1093,14 @@ const MOOD_TEXT = {
   triumph: ["stack", "outline", "neon", "serif", "marker"],
 };
 const MOOD_FX = {
-  tension: ["push-in", "zoom-blur", "rack-focus", "shake", "chroma", "flash-frame", "vignette-pulse", "speed-ramp", "dolly-zoom", "scan-lines"],
+  // vignette-pulse dread/sad listelerinin başındaydı: her karanlık anı daha da karartıyordu (29 Ekim 2026). Artık
+  // yalnızca dread/tension sonunda, vuruş sahnesine ve videoda en çok VIGNETTE_PULSE_MAX kez.
+  tension: ["push-in", "zoom-blur", "rack-focus", "shake", "chroma", "flash-frame", "speed-ramp", "dolly-zoom", "scan-lines", "vignette-pulse"],
   reveal: ["dolly-zoom", "flash-frame", "flare", "glitch", "film-burn", "push-in", "zoom-blur", "chroma"],
-  dread: ["vignette-pulse", "dust", "rack-focus", "push-in", "scan-lines", "halftone", "tilt-reveal", "vhs"],
+  dread: ["dust", "rack-focus", "push-in", "scan-lines", "halftone", "tilt-reveal", "vhs", "vignette-pulse"],
   curious: ["parallax", "tilt-reveal", "push-in", "light-leak", "halftone", "rack-focus", "dust"],
   calm: ["light-leak", "bokeh", "parallax", "dust", "tilt-reveal", "rack-focus"],
-  sad: ["vignette-pulse", "dust", "rack-focus", "bokeh", "push-in"],
+  sad: ["dust", "rack-focus", "bokeh", "push-in"],
   triumph: ["flare", "light-leak", "bokeh", "push-in", "tilt-reveal", "parallax"],
 };
 const MOOD_CAM = {
@@ -1101,10 +1270,11 @@ export function buildPlan(script, { prop = null, history = [], catalogs = loadCa
   const notes = [];
 
   // 1) Görünüm varyantı: türün son 3 videosundan farklı.
-  const { pool, open, recent } = openLooks(script, catalogs, history);
+  const { pool, open, recent, needLight } = openLooks(script, catalogs, history);
   const lastUse = (id) => { const k = history.map((e) => e.genre === genre && e.variant).lastIndexOf(id); return k; };
+  if (needLight) notes.push(`kanalın son iki videosu koyu — bu video açık varyantla (${open.map((l) => l.id).join("/")})`);
   let look = prop?.variant && open.find((l) => l.id === prop.variant);
-  if (prop?.variant && !look) notes.push(`model görünümü ${prop.variant} reddedildi (son videolarda kullanıldı, döneme uymuyor ya da yok)`);
+  if (prop?.variant && !look) notes.push(`model görünümü ${prop.variant} reddedildi (son videolarda kullanıldı, döneme uymuyor, açık varyant sırası ya da yok)`);
   const T = ctx.topic;
   if (!look && T) {
     // Konunun önerdiği varyantlar (sırayla), yoksa yazı ailesiyle en çok örtüşen açık görünüm.
@@ -1208,27 +1378,53 @@ export function buildPlan(script, { prop = null, history = [], catalogs = loadCa
     return "neutral";
   });
   const propCh = Array.isArray(prop?.chapterLooks) ? prop.chapterLooks : [];
+  const pcOf = (c) => propCh.find((x) => x?.chapter === c + 1) || (propCh.every((x) => !isInt(x?.chapter)) ? propCh[c] : null);
+  // 4a) RENK POLİTİKASI (Gimli 20261028-9ff721 / Kartal Yuvası 950730, 29 Ekim 2026: luma 52-56, doygunluk 2,5-6;
+  // Panama 'color' 88 / 10,2). Videonun TABAN derecelendirmesi renk ailesinden: modelin ilk bölüm önerisi, varyantın
+  // kendi rengi (leadGrade), konunun tabanı, varyantın listesi — önceki videonunkinden FARKLI. Soldurucu ton yalnızca
+  // tek bir vurgu bölümünde (doruk / en karanlık, asla bölüm 0) ve resimli sahnelerin en çok %15'inde.
+  const es = ctx.eraStart;
+  const baseOk = (g) => typeof g === "string" && allowed.grade.includes(g) && baseGradeOk(g, es);
+  const accOk = (g) => typeof g === "string" && allowed.grade.includes(g) && accentGradeOf(g, es);
+  const lookGradesAll = look.grades.filter((g) => allowed.grade.includes(g));
+  const prevBase = prevBaseGrade(history, script.id);
+  const baseCands = [...new Set([pcOf(0)?.grade, look.leadGrade, ctx.topic?.grade, ...lookGradesAll, ...byRnd(COLOUR_GRADES, "base")].filter(baseOk))];
+  const baseGrade = baseCands.find((g) => g !== prevBase) || baseCands[0] || "color";
+  if (prevBase && baseGrade !== prevBase && baseCands[0] === prevBase) notes.push(`taban renk ${prevBase} önceki videoda kullanıldı — ${baseGrade}`);
+  const nPics = ctx.grade.length;
+  const accentCap = accentGradeCap(nPics);
+  // Vurgu bölümü: modelin soldurucu önerdiği ilk bölüm (0 hariç), yoksa doruk, yoksa en karanlık bölüm.
+  let accentChapter = -1;
+  if (C >= 2 && accentCap > 0) {
+    const propAccCh = [...Array(C).keys()].find((c) => c > 0 && accOk(pcOf(c)?.grade));
+    const propSceneCh = ctx.grade.map((i) => chOf(S[i])).find((c, k) => c > 0 && accOk(prop?.scenes?.[ctx.grade[k]]?.grade));
+    const darkest = [...Array(C).keys()].filter((c) => c > 0).sort((a, b) => (chStats[b].intensity + chStats[b].dread) - (chStats[a].intensity + chStats[a].dread))[0];
+    accentChapter = propAccCh ?? propSceneCh ?? (climax > 0 ? climax : darkest ?? -1);
+  }
+  const accentCands = [ctx.topic?.accentGrade, pcOf(accentChapter)?.grade, ...ctx.grade.filter((i) => chOf(S[i]) === accentChapter).map((i) => prop?.scenes?.[i]?.grade), ...lookGradesAll, ...FAMILY_ACCENT_GRADES].filter(accOk);
+  const accentGrade = accentChapter > 0 ? accentCands[0] || null : null;
   const chapterLooks = [];
   const secondGrade = [];
   for (let c = 0; c < C; c++) {
     const fam = families[c];
     const prevL = chapterLooks[c - 1];
-    const pc = propCh.find((x) => x?.chapter === c + 1) || (propCh.every((x) => !isInt(x?.chapter)) ? propCh[c] : null);
+    const pc = pcOf(c);
     let accent = hexOr(pc?.accent, null);
     if (!accent && ctx.topic?.accent && (c === 0 || fam === "neutral")) accent = ctx.topic.accent;
     if (!accent) {
       const opts = fam === "neutral" ? [look.accent, ...FAMILY_ACCENTS.warm.slice(0, 1), ...FAMILY_ACCENTS.cold.slice(0, 1)] : FAMILY_ACCENTS[fam];
       accent = (c === 0 && fam === "neutral") ? look.accent : byRnd(opts.filter((a) => a !== prevL?.accent), `acc${c}`)[0] || look.accent;
     }
-    const lookGrades = look.grades.filter((g) => allowed.grade.includes(g));
-    // Konu kimliğinin bağlayıcı derecelendirmesi bütün bölümlerin tabanı (en sert anlar ikincil alabilir).
-    const tGrade = ctx.topic?.grade && allowed.grade.includes(ctx.topic.grade) ? ctx.topic.grade : null;
-    let grade = tGrade || (pc?.grade && allowed.grade.includes(pc.grade) ? pc.grade : null);
+    // Kanca bölümü ve nötr bölümler videonun tabanında; duygusu belirgin bölüm renk ailesinden kendi tonunu alır.
+    let grade = c === 0 ? baseGrade : baseOk(pc?.grade) ? pc.grade : null;
+    if (!grade && fam === "neutral") grade = baseGrade;
     if (!grade) {
-      const famG = fam === "neutral" ? lookGrades : (FAMILY_GRADES[fam] || []).filter((g) => allowed.grade.includes(g));
-      const pref = famG.filter((g) => lookGrades.includes(g));
-      const list = (pref.length ? pref : famG.length ? famG : lookGrades.length ? lookGrades : allowed.grade).filter((g) => g !== prevL?.grade);
-      grade = byRnd(list.length ? list : allowed.grade, `grade${c}`)[0] || "color";
+      const famG = (FAMILY_GRADES[fam] || []).filter(baseOk);
+      const pref = famG.filter((g) => lookGradesAll.includes(g));
+      // Bölümler arası renk yolculuğu: önce varyantın kendi tonları, tükenirse ailenin diğer renkleri (önceki bölümden farklı).
+      let list = pref.filter((g) => g !== prevL?.grade);
+      if (!list.length) list = famG.filter((g) => g !== prevL?.grade);
+      grade = byRnd(list, `grade${c}`)[0] || baseGrade;
     }
     let backdrop = null;
     if (pc?.backdrop && allowed.backdrop.includes(pc.backdrop.kind)) {
@@ -1238,11 +1434,14 @@ export function buildPlan(script, { prop = null, history = [], catalogs = loadCa
     if (!backdrop) {
       const kinds = [...(ctx.topic?.backdrops || []), ...look.backdrops].filter((k, j, a) => a.indexOf(k) === j && allowed.backdrop.includes(k) && k !== "blur" && !RELATED_BACKDROPS.has(k) && k !== prevL?.backdrop?.kind);
       const kind = byRnd(kinds.length ? kinds : allowed.backdrop, `bd${c}`)[0];
-      backdrop = makeBackdrop(kind, accent, look, (fam === "warm" || fam === "neutral") && rnd(`bdl${c}`) < 0.35);
+      // Açık varyantta bölüm zemini çoğunlukla açık (aynı ders: zeminlerin hepsi koyuydu).
+      backdrop = makeBackdrop(kind, accent, look, look.isLight ? rnd(`bdl${c}`) < 0.6 : (fam === "warm" || fam === "neutral") && rnd(`bdl${c}`) < 0.35);
     }
     chapterLooks.push({ accent, grade, backdrop });
-    const others = lookGrades.filter((g) => g !== grade);
-    secondGrade.push(byRnd(others.length ? others : allowed.grade.filter((g) => g !== grade), `g2${c}`)[0] || null);
+    // İkinci ton: vurgu bölümünde soldurucu vurgu; diğer bölümlerde yine renkli (soldurucu değil) bir ton.
+    const others = lookGradesAll.filter((g) => g !== grade && !accentGradeOf(g, es));
+    const colourOthers = allowed.grade.filter((g) => g !== grade && !accentGradeOf(g, es));
+    secondGrade.push(c === accentChapter && accentGrade ? accentGrade : byRnd(others.length ? others : colourOthers, `g2${c}`)[0] || null);
   }
 
   const out = S.map(() => ({}));
@@ -1374,7 +1573,9 @@ export function buildPlan(script, { prop = null, history = [], catalogs = loadCa
       const auto = captionDecision(s, { energy: E[i], gapSec: at - lastText, pictured, hook: i === hook || ACCENT_TEXT.has(out[i].textStyle) });
       const f = captionFacts(s);
       const pc = P(i).caption;
-      const okP = CAPTION_MODES.includes(pc) && !(pc === "none" && (f.info || f.quote || !pictured || i === hook)) && !(pc === "key" && !f.keyword);
+      // Model yankı yazısını açamaz: bilgi/alıntı/kanca/resimsiz olmayan satırda kural "none" diyorsa öneri geçmez (1.16.16).
+      const echoUp = pc !== "none" && auto.mode === "none" && !f.info && !f.quote && pictured && i !== hook;
+      const okP = CAPTION_MODES.includes(pc) && !(pc === "none" && (f.info || f.quote || !pictured || i === hook)) && !(pc === "key" && !f.keyword) && !echoUp;
       const mode = okP ? pc : auto.mode;
       out[i].textMode = mode;
       // Bilgi yazısının küçük başlığı: satırdaki tarih/yıl (yoksa motor bölüm adını koyar).
@@ -1442,17 +1643,23 @@ export function buildPlan(script, { prop = null, history = [], catalogs = loadCa
   // (açık kâğıda yıkanmış / koyu) bölümün ve görünümün tonunu izler.
   let prevBd = null;
   let silenceUsed = 0;
+  let designedUsed = 0;
   for (const i of ctx.backdrop) {
     const s = S[i];
     const pb = P(i).backdrop;
     let b = null;
     if (BIG_TEXT_TYPES.has(s.type)) {
       const cl = chapterLooks[chOf(s)] || chapterLooks[0];
-      const lightTone = pb?.tone ? pb.tone === "light" : pb?.kind === "paper" || isLightBackdrop(pb) || (!pb && (isLightBackdrop(cl.backdrop) || rnd(`bl${i}`) < (["calm", "curious", "triumph", "sad"].includes(moodOf(s)) ? 0.3 : 0.1)));
+      const lightP = look.isLight ? (["calm", "curious", "triumph", "sad"].includes(moodOf(s)) ? 0.6 : 0.4) : ["calm", "curious", "triumph", "sad"].includes(moodOf(s)) ? 0.3 : 0.1;
+      const lightTone = !longNumberLine(s) && (pb?.tone ? pb.tone === "light" : pb?.kind === "paper" || isLightBackdrop(pb) || (!pb && (isLightBackdrop(cl.backdrop) || rnd(`bl${i}`) < lightP)));
       if (pb && SILENCE_BACKDROPS.has(pb.kind) && allowed.backdrop.includes(pb.kind) && E[i] === 1 && (s.silence === true || GENTLE_MOODS.has(moodOf(s))) && silenceUsed < SILENCE_BEATS_MAX) {
         b = { kind: pb.kind };
         for (const k of ["color", "color2"]) if (HEX.test(pb[k] || "")) b[k] = pb[k].toLowerCase();
         silenceUsed++;
+      } else if (pb && DESIGNED_BACKDROPS.has(pb.kind) && allowed.backdrop.includes(pb.kind) && designedUsed < DESIGNED_TEXT_MAX) {
+        b = makeBackdrop(pb.kind, cl.accent, look, pb.tone ? pb.tone === "light" : lightTone);
+        for (const k of ["color", "color2"]) if (HEX.test(pb[k] || "")) b[k] = pb[k].toLowerCase();
+        designedUsed++;
       } else if (pb?.kind === "era" && allowed.backdrop.includes("era")) {
         b = { kind: "era", ...(ERA_TEXTURES.includes(pb.variant) ? { variant: pb.variant } : {}), ...(pb.tone === "light" || pb.tone === "dark" ? { tone: pb.tone } : {}) };
       } else b = makeBackdrop("related", cl.accent, look, lightTone);
@@ -1467,7 +1674,7 @@ export function buildPlan(script, { prop = null, history = [], catalogs = loadCa
     if (!b) {
       const cl = chapterLooks[chOf(s)] || chapterLooks[0];
       const m = moodOf(s);
-      const light = rnd(`bl${i}`) < (["calm", "curious", "triumph", "sad"].includes(m) ? 0.4 : 0.15);
+      const light = rnd(`bl${i}`) < (look.isLight ? (["calm", "curious", "triumph", "sad"].includes(m) ? 0.7 : 0.45) : ["calm", "curious", "triumph", "sad"].includes(m) ? 0.4 : 0.15);
       const kinds = [cl.backdrop.kind, ...(ctx.topic?.backdrops || []), ...look.backdrops].filter((k, j, a) => a.indexOf(k) === j && allowed.backdrop.includes(k) && k !== "blur" && !RELATED_BACKDROPS.has(k) && k !== prevBd);
       const kind = rnd(`bk${i}`) < 0.45 && kinds.includes(cl.backdrop.kind) ? cl.backdrop.kind : byRnd(kinds.length ? kinds : allowed.backdrop, `bk${i}`)[0];
       b = kind === cl.backdrop.kind && !light ? { ...cl.backdrop } : makeBackdrop(kind, cl.accent, look, light);
@@ -1475,21 +1682,24 @@ export function buildPlan(script, { prop = null, history = [], catalogs = loadCa
     out[i].backdrop = b;
     prevBd = b.kind;
   }
+  // Açık zemin payı (LIGHT_SHARE; eskiden en az 3): açık varyantta %40-60, koyu varyantta ~%20 — iki yönde onarılır.
   const lightN = () => ctx.backdrop.filter((i) => isLightBackdrop(out[i].backdrop)).length;
-  const needLight = Math.min(RULES.lightBackdropsMin, ctx.backdrop.length);
-  if (lightN() < needLight) {
+  const bdIdx = ctx.backdrop.filter((i) => out[i].backdrop);
+  const asScenes = S.map((s, i) => (out[i].backdrop ? { ...s, backdrop: out[i].backdrop } : s));
+  const needLightBd = Math.max(lightShareBounds(asScenes, bdIdx, look.isLight)[0], Math.min(bdIdx.length, Math.round(lightShareTarget(look.isLight) * bdIdx.length)));
+  if (lightN() < needLightBd) {
     const order = { calm: 0, curious: 1, triumph: 2, sad: 3, tension: 4, reveal: 5, dread: 6 };
     const darks = ctx.backdrop.filter((i) => !isLightBackdrop(out[i].backdrop)).sort((a, b) => (order[moodOf(S[a])] ?? 4) - (order[moodOf(S[b])] ?? 4) || rnd(`lf${a}`) - rnd(`lf${b}`));
     // birbirinden uzak olanlar önce: aynı yere yığılmasın
     const picked = [];
     for (const i of darks) if (picked.every((j) => Math.abs(j - i) > 6)) picked.push(i);
     for (const i of [...picked, ...darks]) {
-      if (lightN() >= needLight) break;
+      if (lightN() >= needLightBd) break;
       if (isLightBackdrop(out[i].backdrop)) continue;
       const cl = chapterLooks[chOf(S[i])] || chapterLooks[0];
+      if (liftBlocked(S[i], out[i].backdrop)) continue;
       if (BIG_TEXT_TYPES.has(S[i].type)) {
-        if (SILENCE_BACKDROPS.has(out[i].backdrop.kind)) continue;
-        out[i].backdrop = out[i].backdrop.kind === "era" ? { ...out[i].backdrop, tone: "light", variant: undefined } : makeBackdrop("related", cl.accent, look, true);
+        out[i].backdrop = out[i].backdrop.kind === "era" ? { ...out[i].backdrop, tone: "light", variant: undefined } : out[i].backdrop.kind === "texture" ? makeBackdrop("texture", cl.accent, look, true) : makeBackdrop("related", cl.accent, look, true);
         if (out[i].backdrop.variant === undefined) delete out[i].backdrop.variant;
         continue;
       }
@@ -1497,21 +1707,41 @@ export function buildPlan(script, { prop = null, history = [], catalogs = loadCa
       out[i].backdrop = kind === "paper" ? makeBackdrop("paper", cl.accent, look, true) : { kind, color: look.light };
     }
   }
+  {
+    // Üst sınır: tonu ayarlanabilen açık zemin (related/era) fazlaysa en gergin anlardan başlayarak koyulaşır.
+    const hi = lightShareBounds(S.map((s, i) => (out[i].backdrop ? { ...s, backdrop: out[i].backdrop } : s)), bdIdx, look.isLight)[1];
+    const order = { dread: 0, reveal: 1, tension: 2, sad: 3, triumph: 4, curious: 5, calm: 6 };
+    const lights = bdIdx.filter((i) => isLightBackdrop(out[i].backdrop) && toneAdjustable(out[i].backdrop)).sort((a, b) => (order[moodOf(S[a])] ?? 3) - (order[moodOf(S[b])] ?? 3) || rnd(`ld${a}`) - rnd(`ld${b}`));
+    for (const i of lights) {
+      if (lightN() <= hi) break;
+      const cl = chapterLooks[chOf(S[i])] || chapterLooks[0];
+      out[i].backdrop = out[i].backdrop.kind === "era" ? { kind: "era", tone: "dark", variant: "film" } : makeBackdrop("related", cl.accent, look, false);
+    }
+  }
 
   // 7) Renk derecelendirmesi: bölüm tabanı + en çok bir ikincil.
   const chSet = chapterLooks.map((c) => new Set([c.grade]));
+  let accentGradeUsed = 0;
   for (const i of ctx.grade) {
     const s = S[i];
     const c = chOf(s);
     const cl = chapterLooks[c] || chapterLooks[0];
     const set = chSet[c] || (chSet[c] = new Set([cl.grade]));
-    const pg = P(i).grade;
+    const fits = (x) => set.has(x) || set.size < RULES.gradesPerChapter;
+    // Soldurucu ton yalnızca vurgu bölümünde ve %15 tavanı içinde (renk politikası, 29 Ekim 2026).
+    const accentRoom = c === accentChapter && !!accentGrade && accentGradeUsed < accentCap;
+    let pg = P(i).grade;
+    if (pg && accOk(pg)) pg = accentRoom ? accentGrade : null;
     let g = null;
-    if (pg && allowed.grade.includes(pg) && (set.has(pg) || set.size < RULES.gradesPerChapter)) g = pg;
+    if (pg && allowed.grade.includes(pg) && fits(pg)) g = pg;
     if (!g) {
       const second = secondGrade[c];
-      g = second && ["dread", "reveal", "sad"].includes(moodOf(s)) && rnd(`g${i}`) < 0.35 && (set.has(second) || set.size < RULES.gradesPerChapter) ? second : cl.grade;
+      const isAcc = !!second && accentGradeOf(second, es);
+      // Gerçek arşiv fotoğrafı/klibi yedek seçimde soldurulmaz (kendi rengi kalır).
+      const okSecond = second && ["dread", "reveal", "sad"].includes(moodOf(s)) && rnd(`g${i}`) < 0.35 && fits(second) && (!isAcc || (accentRoom && !(s.archived || s.source === "archive")));
+      g = okSecond ? second : cl.grade;
     }
+    if (accentGradeOf(g, es)) accentGradeUsed++;
     set.add(g);
     out[i].grade = g;
   }
@@ -1605,25 +1835,36 @@ export function buildPlan(script, { prop = null, history = [], catalogs = loadCa
     out[i].fit = isTextualPicture(s) || (a !== null && a < 1 && !TILT_CAMS.has(camArr[i]) && !STILL_CAMS.has(camArr[i])) ? "contain" : FITS.includes(pf) ? pf : "smart";
   }
 
-  // 8) Efektler.
+  // 8) Efektler — anlatımın VURUŞUNA bağlı (narrationBeat: söylenen sayı, özel ad, dönüş sözcüğü, slam/vuruş), rastgele
+  // pay yalnızca eşitlik bozucu (RULES.fxTieBreak, eskiden 0,6). Gimli 20261028-9ff721 / Kartal Yuvası 950730, 29 Ekim
+  // 2026: "anlık efektler doğal değil" — efektler sessiz bilgi çekimlerine serpiliyordu; vuruşu olmayan sakin çekim temiz kalır.
   const maxFx = fxCap(n);
   const lookFx = new Set(look.fx);
   const fxUse = {};
+  const beat = S.map((s) => narrationBeat(s));
+  const tie = (tag) => rnd(tag) * RULES.fxTieBreak;
+  let pulseN = 0;
+  /** Yüksek sesli efekt yalnızca vuruş/zirvede; vignette-pulse yalnızca dread/tension vuruşunda, videoda en çok 2. */
+  const loudOk = (s, i, k) => (!LOUD_FX.has(k) || isImpactScene(s) || E[i] >= 4) && (k !== "vignette-pulse" || (isImpactScene(s) && VIGNETTE_MOODS.has(moodOf(s)) && pulseN < VIGNETTE_PULSE_MAX));
+  const countPulse = (list) => { if (list.includes("vignette-pulse")) pulseN++; };
   // Yedek seçim her zaman kurulur: model efekt önermediyse (ya da çok az önerdiyse) boşluk bununla dolar.
-  const fxTarget = Math.min(maxFx, Math.round(n * (0.25 + 0.06 * rnd("fxshare"))));
-  const fbChosen = S.map((s, i) => ({ i, sc: (isCard(s) || !(E[i] >= 3) ? -9 : 0) + (FX_WEIGHT[moodOf(s)] ?? 0.2) + (E[i] - 3) * 0.25 + (isGradeScene(s) ? 0.25 : 0) + rnd(`fx${i}`) * 0.6 + (i === 0 ? 0.3 : 0) })).filter((x) => x.sc > -5)
+  const fxTarget = Math.min(maxFx, Math.round(n * (0.2 + 0.04 * rnd("fxshare"))));
+  const fbChosen = S.map((s, i) => ({ i, sc: (isCard(s) || !(E[i] >= 3) || (!beat[i] && E[i] < 4) ? -9 : 0) + (FX_WEIGHT[moodOf(s)] ?? 0.2) + (E[i] - 3) * 0.25 + (isGradeScene(s) ? 0.25 : 0) + beat[i] * 0.8 + tie(`fx${i}`) + (i === 0 ? 0.3 : 0) })).filter((x) => x.sc > -5)
     .sort((a, b) => b.sc - a.sc).slice(0, fxTarget).map((x) => x.i);
   const propFxIdx = prop?.scenes ? S.map((_, i) => i).filter((i) => Array.isArray(P(i).fx) && P(i).fx.length && E[i] >= 3) : [];
   let chosen = prop?.scenes && propFxIdx.length >= Math.round(n * 0.2) ? propFxIdx : [...new Set([...propFxIdx, ...fbChosen])].slice(0, Math.max(fxTarget, propFxIdx.length));
   chosen.sort((a, b) => a - b);
-  // Her slam vuruşa oturan bir efekt alır (flash-frame; art arda gelirse shake/flare/vignette-pulse...).
+  // Slam vuruş efekti (flash-frame/shake/flare/chroma) yalnızca gerçek darbede: kanca slam'i, ifşa slam'i ya da bir
+  // önceki vuruştan en az SLAM_HIT_GAP_SEC sonra gelen gerilim/dehşet slam'i. Diğer slam'ler kamera vuruşu (push-in,
+  // resmi varsa) ya da hiç efekt alır — her slam'de flaş yok (Gimli 20261028-9ff721, 29 Ekim 2026).
   const slamIdx = S.map((s, i) => (s.type === "slam" && !isCard(s) ? i : -1)).filter((i) => i >= 0);
+  let lastSlamHitAt = -Infinity;
+  const slamHit = (i, k) => k === 0 || moodOf(S[i]) === "reveal" || ((moodOf(S[i]) === "tension" || moodOf(S[i]) === "dread" || only(P(i).fx, HIT_FX).length > 0) && ctx.starts[i] - lastSlamHitAt >= SLAM_HIT_GAP_SEC);
   chosen = [...new Set([...slamIdx, ...chosen.filter((i) => !slamIdx.includes(i)).slice(0, Math.max(0, chosen.length - slamIdx.length))])].sort((a, b) => a - b);
   let prevFx = [];
   let lastStrong = -Infinity;
   let fxCount = 0;
   let slamsLeft = slamIdx.length;
-  let prevFxAt = -1;
   let lastSlamHit = null;
   for (const i of chosen) {
     const s = S[i];
@@ -1632,21 +1873,16 @@ export function buildPlan(script, { prop = null, history = [], catalogs = loadCa
       slamsLeft--;
       const okHit = (k) => allowed.fx.includes(k) && fxFits(s, k) && !prevFx.includes(k) && k !== out[i].camera
         && !(STRONG_FX.has(k) && (!STRONG_MOODS.has(m) || E[i] < 5 || ctx.starts[i] - lastStrong < RULES.strongFxGapSec));
-      const pk = only(P(i).fx, HIT_FX).find(okHit);
-      // flash-frame ile shake (gerilim/ifşa slam'inde, 45 sn kuralı izin verirse) dönüşümlü
-      const hitOrder = lastSlamHit === "flash-frame" ? ["shake", ...HIT_FX.filter((x) => x !== "shake")] : HIT_FX;
-      let k = pk || hitOrder.find(okHit);
-      if (!k && prevFxAt >= 0) {
-        // vuruş önce gelir: önceki efektli sahneden çakışan türü al
-        k = HIT_FX.find((x) => allowed.fx.includes(x) && fxFits(s, x) && x !== out[i].camera && !STRONG_FX.has(x));
-        if (k) {
-          const rest = (out[prevFxAt].fx || []).filter((x) => x !== k);
-          if (rest.length) out[prevFxAt].fx = rest; else { delete out[prevFxAt].fx; fxCount--; }
-        }
+      let k = null;
+      if (slamHit(i, slamIdx.indexOf(i))) {
+        const pk = only(P(i).fx, HIT_FX).find(okHit);
+        // flash-frame ile shake (gerilim/ifşa slam'inde, 45 sn kuralı izin verirse) dönüşümlü
+        const hitOrder = lastSlamHit === "flash-frame" ? ["shake", ...HIT_FX.filter((x) => x !== "shake")] : HIT_FX;
+        k = pk || hitOrder.find(okHit) || null;
       }
+      if (!k && [SLAM_PUNCH_FX].find((x) => allowed.fx.includes(x) && fxFits(s, x) && !prevFx.includes(x) && x !== out[i].camera)) k = SLAM_PUNCH_FX;
       if (!k) continue;
-      lastSlamHit = k;
-      prevFxAt = i;
+      if (HIT_FX.includes(k)) { lastSlamHit = k; lastSlamHitAt = ctx.starts[i]; }
       out[i].fx = [k];
       fxUse[k] = (fxUse[k] || 0) + 1;
       if (STRONG_FX.has(k)) lastStrong = ctx.starts[i];
@@ -1655,47 +1891,50 @@ export function buildPlan(script, { prop = null, history = [], catalogs = loadCa
       continue;
     }
     if (fxCount >= maxFx - slamsLeft) continue;
-    const okFx = (k) => allowed.fx.includes(k) && fxFits(s, k) && !prevFx.includes(k) && k !== out[i].camera && !(GENTLE_MOODS.has(m) && !GENTLE_FX.has(k))
+    const okFx = (k) => allowed.fx.includes(k) && fxFits(s, k) && !prevFx.includes(k) && k !== out[i].camera && !(GENTLE_MOODS.has(m) && !GENTLE_FX.has(k)) && loudOk(s, i, k)
       && !(STRONG_FX.has(k) && (!STRONG_MOODS.has(m) || E[i] < 5 || ctx.starts[i] - lastStrong < RULES.strongFxGapSec));
     let list = [];
     if (only(P(i).fx, FX_KINDS).length) {
       for (const k of only(P(i).fx, FX_KINDS)) {
         if (list.length >= 2) break;
-        if (okFx(k) && !(STRONG_FX.has(k) && list.some((x) => STRONG_FX.has(x)))) list.push(k);
+        if (okFx(k) && !(STRONG_FX.has(k) && list.some((x) => STRONG_FX.has(x))) && !(k === "vignette-pulse" && list.includes(k))) list.push(k);
       }
     } else {
       const cands = (MOOD_FX[m] || MOOD_FX.curious).filter(okFx);
-      const score = (k) => (lookFx.has(k) ? 0.5 : 0) - (fxUse[k] || 0) * 0.25 + rnd(`fk${i}|${k}`) + (E[i] >= 5 && STRONG_FX.has(k) ? 0.4 : 0) + (E[i] === 3 && GENTLE_FX.has(k) ? 0.3 : 0);
+      // Duygunun listesi tercih sırasıdır (baştaki en doğal efekt).
+      const rank = new Map(cands.map((k, j) => [k, j]));
+      const score = (k) => (lookFx.has(k) ? 0.5 : 0) - (fxUse[k] || 0) * 0.25 + tie(`fk${i}|${k}`) + (E[i] >= 5 && STRONG_FX.has(k) ? 0.4 : 0) + (E[i] === 3 && GENTLE_FX.has(k) ? 0.3 : 0) - (rank.get(k) || 0) * 0.05;
       const first = cands.sort((a, b) => score(b) - score(a))[0];
       if (first) {
         list.push(first);
-        if (rnd(`fx2${i}`) < 0.2) {
-          const second = cands.filter((k) => k !== first && !STRONG_FX.has(k) && !(STRONG_FX.has(first) && STRONG_FX.has(k)) && !(PICTURE_FX.has(first) && PICTURE_FX.has(k)))[0];
+        if (beat[i] >= 1 && rnd(`fx2${i}`) < 0.2) {
+          const second = cands.filter((k) => k !== first && !STRONG_FX.has(k) && k !== "vignette-pulse" && !(STRONG_FX.has(first) && STRONG_FX.has(k)) && !(PICTURE_FX.has(first) && PICTURE_FX.has(k)))[0];
           if (second) list.push(second);
         }
       }
     }
     if (!list.length) continue;
     out[i].fx = list;
+    countPulse(list);
     for (const k of list) fxUse[k] = (fxUse[k] || 0) + 1;
     if (list.some((k) => STRONG_FX.has(k))) lastStrong = ctx.starts[i];
     prevFx = list;
-    prevFxAt = i;
     fxCount++;
   }
-  // Alt sınır: resimli sahnelerin en az %22'si efektli (komşu efektlerle çakışmadan, sert efekt yok).
+  // Alt sınır: resimli sahnelerin en az %12'si efektli — yalnızca anlatım vuruşu olan sahnelerde, vuruşu en güçlü
+  // olandan başlayarak (komşu efektlerle çakışmadan, sert/yüksek sesli efekt ve vignette-pulse yok).
   {
     const picsAll = ctx.grade;
     const need = picsAll.length >= 10 ? Math.ceil(RULES.minPictureFxShare * picsAll.length) : 0;
     const fxNear = (i, dir) => { for (let j = i + dir; j >= 0 && j < n; j += dir) if (out[j].fx?.length) return out[j].fx; return []; };
     let have = picsAll.filter((i) => out[i].fx?.length).length;
-    const cand = picsAll.filter((i) => !out[i].fx?.length && E[i] >= 3).sort((a, b) => (E[b] - E[a]) || rnd(`fxu${a}`) - rnd(`fxu${b}`));
+    const cand = picsAll.filter((i) => !out[i].fx?.length && E[i] >= 3 && S[i].type !== "slam" && beat[i] > 0).sort((a, b) => (beat[b] > 0) - (beat[a] > 0) || beat[b] - beat[a] || (E[b] - E[a]) || rnd(`fxu${a}`) - rnd(`fxu${b}`));
     for (const i of cand) {
       if (have >= need || fxCount >= maxFx) break;
       const s = S[i];
       const m = moodOf(s);
       const near = [...fxNear(i, -1), ...fxNear(i, 1)];
-      const k = (MOOD_FX[m] || MOOD_FX.curious).filter((x) => allowed.fx.includes(x) && fxFits(s, x) && !STRONG_FX.has(x) && !near.includes(x) && x !== out[i].camera && !(GENTLE_MOODS.has(m) && !GENTLE_FX.has(x)))
+      const k = (MOOD_FX[m] || MOOD_FX.curious).filter((x) => allowed.fx.includes(x) && fxFits(s, x) && !STRONG_FX.has(x) && x !== "vignette-pulse" && !(LOUD_FX.has(x) && !isImpactScene(s) && E[i] < 4) && !near.includes(x) && x !== out[i].camera && !(GENTLE_MOODS.has(m) && !GENTLE_FX.has(x)))
         .sort((a, b) => (fxUse[a] || 0) - (fxUse[b] || 0) || rnd(`fxk${i}|${a}`) - rnd(`fxk${i}|${b}`))[0];
       if (!k) continue;
       out[i].fx = [k];
@@ -1811,9 +2050,19 @@ export function buildPlan(script, { prop = null, history = [], catalogs = loadCa
   }
 
   const usedTr = Object.keys(trUse);
+  // Kanal geneli görünüm çeşitliliği (docu-look-history.json): taban/vurgu derecelendirmesi, açık varyant, açık zemin payı.
+  const bdN = ctx.backdrop.filter((i) => out[i].backdrop).length;
+  const grading = {
+    base: baseGrade,
+    accent: accentGradeUsed ? accentGrade : null,
+    accentChapter: accentGradeUsed ? accentChapter : null,
+    isLight: look.isLight === true,
+    lightShare: bdN ? +(lightN() / bdN).toFixed(2) : 0,
+  };
   return {
     version: ART_VERSION,
     look: { variant: look.id },
+    grading,
     ...(() => {
       // Açılış türü (docu-opening.js): modelin önerisi uygunsa, değilse belirleyici seçim; son 2 videoda olmayan.
       // Konu kimliğinin açılış tercihi (docu-topic-bible.js) modelin önerisi yoksa öneri sayılır; uygunluk yine denetlenir.
@@ -1898,6 +2147,7 @@ export function applyArtPlan(script, plan, { logFn = () => {} } = {}) {
   const extra = {
     transitionPalette: [...(plan.palette?.transitions || []), ...(plan.palette?.accents || [])],
     fxPalette: [...new Set(own2.flatMap((s) => s.fx || []))],
+    // TÜRETİLMİŞ değer: sahnelerde kalan efektlerden sayılır (bağımsız bir hedef değil; 29 Ekim 2026 efekt dersi).
     fxDensity: +(own2.filter((s) => s.fx?.length).length / Math.max(1, own2.length)).toFixed(2),
   };
   return { ...script, scenes, look: { ...plan.look }, chapterLooks: plan.chapterLooks.map((c) => ({ ...c, ...(c.backdrop ? { backdrop: { ...c.backdrop } } : {}) })), ...extra, ...(plan.opening?.kind ? { opening: { kind: plan.opening.kind, ...(plan.opening.hook ? { hook: plan.opening.hook } : {}) } } : {}) };
@@ -1924,7 +2174,7 @@ export function planSchema(variants, allowed, openings = []) {
         type: "array",
         items: {
           type: "object",
-          properties: { chapter: { type: "integer", description: "1-based, as ch1 in the scene list" }, accent: { type: "string", description: "#rrggbb" }, grade: { type: "string", enum: allowed.grade }, backdrop: BACKDROP_SCHEMA, why: { type: "string" } },
+          properties: { chapter: { type: "integer", description: "1-based, as ch1 in the scene list" }, accent: { type: "string", description: "#rrggbb" }, grade: { type: "string", enum: allowed.grade, description: "the chapter BASE grade: colour family only (color, warm, cool, teal-orange, kodachrome); a desaturating grade here marks the ONE accent chapter (never chapter 1)" }, backdrop: BACKDROP_SCHEMA, why: { type: "string" } },
           required: ["chapter", "accent", "grade", "backdrop"],
           additionalProperties: false,
         },
@@ -1937,7 +2187,7 @@ export function planSchema(variants, allowed, openings = []) {
             scene: { type: "integer" },
             textStyle: { type: "string", enum: allowed.textStyle },
             backdrop: BACKDROP_SCHEMA,
-            grade: { type: "string", enum: allowed.grade },
+            grade: { type: "string", enum: allowed.grade, description: "{G} scenes: the chapter base, or a desaturating accent (mono/bleach/duotone/selective...) only inside the one accent chapter, at most 15% of picture scenes" },
             fx: { type: "array", items: { type: "string", enum: allowed.fx } },
             transition: { type: "string", enum: allowed.transition },
             camera: { type: "string", enum: CAMERAS },
@@ -1956,9 +2206,10 @@ export function planSchema(variants, allowed, openings = []) {
   };
 }
 
-const clock = (sec) => `${String(Math.floor(sec / 60)).padStart(2, "0")}:${String(Math.round(sec % 60)).padStart(2, "0")}`;
+// Rounded to whole seconds first: 539.6 s is 09:00, never 08:60.
+const clock = (sec) => { const t = Math.round(sec); return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`; };
 
-export function artPrompt(script, { looks, allowed, recent, openings = null }) {
+export function artPrompt(script, { looks, allowed, recent, openings = null, history = [] }) {
   const op = openingPrompt(openings);
   const ctx = artContext(script, null);
   const lines = ctx.scenes.map((s, i) => {
@@ -1974,9 +2225,10 @@ export function artPrompt(script, { looks, allowed, recent, openings = null }) {
     "YOU DECIDE:",
     "- variant: one look from the candidate list (the ones used by the last videos of this genre are already excluded).",
     "- textStyles: the 4-6 regular text styles this video uses (the look's own styles lead). Accent styles lyric (whole line fills the screen word by word) and kinetic (each word slams in on its spoken frame) are NOT part of these 4-6: use them on at most 3 text scenes in total, only on the hook (first ~40 s), a real quote, or a peak (energy 4-5), never on two consecutive text scenes and never on calm/sad scenes. transitions: a palette of 3-4 transition kinds. accents: 1-3 rare kinds for the biggest moments (≤3 uses in total).",
-    "- chapterLooks: for EVERY chapter an accent colour (#rrggbb), a base grade and a backdrop — a colour journey that follows the story (e.g. warm at the start, cold when the crime happens, red at the climax, a soft resolve).",
+    "- chapterLooks: for EVERY chapter an accent colour (#rrggbb), a base grade and a backdrop — a colour journey that follows the story (e.g. warm at the start, cool when the crime happens, teal-orange at the climax, a soft resolve) — IN COLOUR.",
     "- scenes: for each scene: textStyle on {T} scenes (text scenes — every one needs a style), backdrop on {B} scenes (text/counter/chart/quote/timeline not over a picture), grade on {G} scenes (photo/video), fx (0-2 effects), transition (INTO the scene; 'cut' is the default and most cuts should be plain); on {G} scenes also camera and fit.",
     "- camera: static | drift | push-in | pull-out | pan-left | pan-right | tilt-up | tilt-down | detail-punch | parallax | handheld | rack-focus. fit: cover | contain | smart (default smart).",
+    "- effects sit on a narration beat (a spoken number, a name, a turn word like but/yet/then/suddenly/never, a slam) — never sprinkled; quiet informative shots stay clean. vignette-pulse only on a dread/tension impact, at most twice per video.",
     "- edit grammar (the engine enforces it, so choose within it): in a grave story (war, death, collapse, crime) never light leaks, glitch, pixel, spin or split wipes, chroma, bokeh, VHS, flares. Loud devices — whip, zoom punch, slide, flash, zoom-blur, shake, speed-ramp, dolly-zoom — are accents: only on an impact (energy 4-5, a slam, a reveal) or a chapter turn, about once per chapter; dolly-zoom at most once per film, on dread. A sad, calm or held beat opens on a cut or a fade to black, and its camera holds, drifts or pushes in slowly; handheld belongs to action.",
     `- counterStyle on {C} scenes (counters) — how the figure is drawn: box (the look's original label box), bare (huge bare numeral + thin rule + small caps label), odometer (mechanical rolling digit drums), photo (the figure over the previous scene's darkened picture — only on {C+} scenes), ticker (stock-ticker paper tape, finance), newsprint (a newspaper clipping), outline (giant outlined numeral flooding with colour). Prefer the look's own counter list; match the moment (ticker for prices/volumes, odometer for money piling up, photo when the number is about the place just shown, newsprint for "the papers reported").`,
     "",
@@ -1986,11 +2238,13 @@ export function artPrompt(script, { looks, allowed, recent, openings = null }) {
     `- Transitions: only the palette + accents; never the same non-cut transition twice in a row; roughly 60-70% plain cuts; heavy transitions (blackout, ink, paper-tear, iris, dip-color) only where mood or story turns; match only between two pictures.`,
     `- fx on at most 35% of scenes (aim for ~25%), never the same effect on two consecutive effect scenes; strong effects (glitch, shake, chroma, film-burn) only on tension/reveal moments and at most one per 45 s. Picture effects (parallax, rack-focus, push-in, dolly-zoom, tilt-reveal, zoom-blur, halftone, bokeh) only on scenes with their own picture; speed-ramp only on video.`,
     `- At most 2 different grades per chapter (the chapter grade + one accent grade for its hardest moments).`,
-    `- BIG TEXT NEVER SITS ON AN EMPTY GROUND (viewers complained). Every {B} words/slam/title/counter/quote gets backdrop 'related' (the engine lays the nearest related picture or clip behind it, heavily darkened, drifting with depth blur; a clip plays slowed) with tone 'dark' or 'light' (washed into the look's paper) — or 'era' (newsprint / film gate / ledger texture) when the story is about paper, money or film. Plain 'solid'/'gradient' ONLY for a deliberate silence beat (energy 1, a calm/sad hush), at most ${SILENCE_BEATS_MAX} per video. paper/blueprint/halftone/split-color/texture are for charts and timelines. Use the light tone at least 3 times on curious/calm/triumph moments.`,
-    `- ON-SCREEN TEXT ONLY WHEN IT ADDS SOMETHING (caption on {W} words scenes): the voice already says the line. full = the line on screen, its key word emphasised (for {W+} lines carrying a name, place, date/time or number, {Wq} real quotes, short punchy lines, deliberate peaks); key = only the key word, big, landing on its spoken frame (long lines that would just echo the narration); none = no text, a clean picture shot (filler lines with no key word — never on {W+}/{Wq}). Keep a Cooper-like rhythm of emphasis (a designed text moment every ~15-25 s), never a plain sentence copied under the picture. lower-third is the editorial info super (small-caps kicker, hairline, serif line): ONLY on {W+} lines.`,
+    // Gimli 20261028-9ff721 / Kartal Yuvası 950730, 29 Ekim 2026: luma 52-56, doygunluk 2,5-6 — "her video siyah, karanlık, aynı".
+    `- COLOUR FIRST (the channel owner: every video looked black, dark and identical; our best video, in natural colour, measured twice as bright and saturated): every chapter BASE grade is a colour grade (${COLOUR_GRADES.join(", ")})${ctx.eraStart !== null && ctx.eraStart < PRE_COLOUR_YEAR ? " — this story predates colour photography, so sepia may also be a base" : ""}. Desaturating grades (${[...DESAT_GRADES].join(", ")}) are ACCENTS: in at most ONE chapter (the climax or darkest one, never chapter 1 / the hook) and on at most 15% of picture scenes. The base grade must differ from the previous video's.`,
+    `- BIG TEXT NEVER SITS ON AN EMPTY GROUND (viewers complained). Every {B} words/slam/title/counter/quote gets backdrop 'related' (the engine lays the nearest related picture or clip behind it, heavily darkened, drifting with depth blur; a clip plays slowed) with tone 'dark' or 'light' (washed into the look's paper) — or 'era' (newsprint / film gate / ledger texture) when the story is about paper, money or film. Or 'paper'/'texture' — a designed card surface, like a printed claim card — for a chapter's curiosity question or claim and a hard pivot line ('It wasn't a defeat. It was a martyrdom.'), at most ${DESIGNED_TEXT_MAX} per video. Plain 'solid'/'gradient' ONLY for a deliberate silence beat (energy 1, a calm/sad hush), at most ${SILENCE_BEATS_MAX} per video. blueprint/halftone/split-color are for charts and timelines. Use the light tone at least 3 times on curious/calm/triumph moments.`,
+    `- ON-SCREEN TEXT ONLY WHEN IT ADDS SOMETHING (caption on {W} words scenes): the voice already says the line. full = the line on screen, its key word emphasised (for {W+} lines carrying a name, place, date/time or number, {Wq} real quotes, short punchy lines, deliberate peaks); key = only the key word, big, landing on its spoken frame (long lines that would just echo the narration); none = no text, a clean picture shot (filler lines with no key word — never on {W+}/{Wq}). ON-SCREEN TEXT IS INFORMATION (the outlier channels, frame by frame): a number on its word, a name + role, a place, a date, a list, a quote. A big single echo word (\"CROWN\", \"CHARTS\") or a plain line copied from the narration is not information — only at a real peak (energy 4-5) and at most one every ~30 s; everywhere else {W} lines without facts are none (a clean full-frame picture). Never a plain sentence copied under the picture. lower-third is the editorial info super (small-caps kicker, hairline, serif line): ONLY on {W+} lines.`,
     `- calm/sad scenes get gentle treatments only (serif/underline/lower-third/typewriter text, soft fx like light-leak/dust/bokeh/rack-focus, soft transitions like leak/dip-color/iris/slide).`,
     `- Camera: ~30-35% of picture scenes static or drift (documents, text-heavy pictures, emotional beats); never the same camera on 3 consecutive picture scenes; detail-punch and parallax are accents (at most one per ~40 s); handheld only on tension/chase moments; wide pictures pan, tall ones tilt or fit contain; {D} pictures (documents, scans, pictures with text) always fit contain with a calm camera. Never repeat the camera move as an fx.`,
-    `- SLAMS ARE THE PUNCH viewers love: every slam gets an IMPACT text style (kinetic, stamp, box, outline, stack, glitch, neon, cutout — never serif, typewriter, lower-third, underline, marker or lyric, which render a slam small and thin), rotating so two consecutive slams never share a style; energy 5; a hit-timed fx (flash-frame, or shake/flare/vignette-pulse/chroma when the previous effect was flash-frame); and a sharp transition in (flash, zoom, whip, glitch, spin-blur, split-wipe, pixel, slide, film-burn). Montage hook words also use impact styles. THE HOOK: the first slam or words scene within the first 30 s is kinetic (it counts toward the 3 lyric/kinetic accents).`,
+    `- SLAMS ARE THE PUNCH viewers love: every slam gets an IMPACT text style (kinetic, stamp, box, outline, stack, glitch, neon, cutout — never serif, typewriter, lower-third, underline, marker or lyric, which render a slam small and thin), rotating so two consecutive slams never share a style; energy 5; on a real blow (tension/reveal/dread, or the hook) a hit-timed fx (flash-frame, or shake/flare/chroma when the previous effect was flash-frame), otherwise a camera punch (push-in) or no fx at all — never a flash on every slam; and a sharp transition in (flash, zoom, whip, glitch, spin-blur, split-wipe, pixel, slide, film-burn). Montage hook words also use impact styles. THE HOOK: the first slam or words scene within the first 30 s is kinetic (it counts toward the 3 lyric/kinetic accents).`,
     `- PACING: give EVERY scene an energy 1-5 forming a wave per chapter: exposition low (1-2), build (3), peak (4-5 — only on tension/reveal/triumph moments, slams, montages), and right after every peak a BREATH scene with energy 1 (a held quiet frame: static camera, no fx, cut). Never more than 3 consecutive scenes at 4+. Every chapter needs a peak and a low stretch of 2+ scenes. Whole video ~40% low (1-2), 35% mid (3), 25% high (4-5).`,
     `- Energy drives everything: energy 1 → static/drift camera; 2 → calm moves; 3 → slow push/pan; 4-5 → fast push, detail-punch, handheld (tension only). No fx at 1-2; strong fx only at 5. Low energy (1-2) enters with a plain cut; peaks get the sharper transitions.`,
     `- Era: the enum lists are already filtered to what fits this story's era (no VHS outside the 80s-90s, no neon in medieval epics, etc.).`,
@@ -2000,7 +2254,8 @@ export function artPrompt(script, { looks, allowed, recent, openings = null }) {
   const user = [
     `Documentary: "${script.title || ""}" · genre: ${script.genre || "documentary"} · era: ${script.era || "unknown"} · ${ctx.n} scenes · ~${clock(ctx.total)}`,
     `Chapters: ${(script.chapters || []).map((c, i) => `${i + 1}. ${typeof c === "string" ? c : c?.title}`).join(" · ")}`,
-    ctx.topic ? `TOPIC IDENTITY (binding — the topic designer already decided; keep the video consistent with it): motif ${ctx.topic.motif}; text family ${ctx.topic.textStyles.join("/") || "-"} (your 4-6 text styles must include at least 3 of these); base photo grade ${ctx.topic.grade || "-"} for every chapter (one accent grade per chapter at most); accent ${ctx.topic.accent || "-"} for the first chapter; preferred grounds ${ctx.topic.backdrops.join("/") || "-"}; preferred looks ${ctx.topic.variants.join("/") || "-"}. Chapter cards, wipes, photo presentation and the signature explainers are drawn by the topic motif — do not fight it with loud transitions.` : "",
+    ctx.topic ? `TOPIC IDENTITY (binding — the topic designer already decided; keep the video consistent with it): motif ${ctx.topic.motif}; text family ${ctx.topic.textStyles.join("/") || "-"} (your 4-6 text styles must include at least 3 of these); base photo grade ${ctx.topic.grade || "-"} (colour; the video's base — chapters may vary within the colour family)${ctx.topic.accentGrade ? `; accent grade ${ctx.topic.accentGrade} for the ONE accent chapter only` : ""}; accent ${ctx.topic.accent || "-"} for the first chapter; preferred grounds ${ctx.topic.backdrops.join("/") || "-"}; preferred looks ${ctx.topic.variants.join("/") || "-"}. Chapter cards, wipes, photo presentation and the signature explainers are drawn by the topic motif — do not fight it with loud transitions.` : "",
+    (() => { const h = channelRecent(history || [], script.id, 3); return h.length ? `Last videos on the channel: ${h.map((e) => `${e.variant} (base grade ${e.baseGrade || "?"}, ${e.isLight === true ? "light" : "dark"} look)`).join(" | ")} — use a different base grade${needsLightLook(history || [], script.id) ? "; the last two were dark, so this one must use a LIGHT look (only light looks are offered)" : ""}.` : ""; })(),
     recent.length ? `Last videos of this genre used: ${recent.map((e) => `${e.variant} (text: ${(e.textStyles || []).join("/")}; transitions: ${(e.transitions || []).join("/")})`).join(" | ")} — make this one feel different.` : "",
     "",
     ...op.user,
@@ -2013,6 +2268,17 @@ export function artPrompt(script, { looks, allowed, recent, openings = null }) {
     "Return the plan. List every scene with at least its transition.",
   ].filter((x) => x !== "").join("\n");
   return { system, user };
+}
+
+/** Kayıtlı bir planı buildPlan'ın öneri biçimine çevirir (renk politikası onarımı; model çağrısı yok). */
+export function planAsProposal(plan) {
+  const scenes = {};
+  for (const e of plan?.scenes || []) if (isInt(e?.i)) scenes[e.i] = { ...e, scene: e.i, ...(e.textMode ? { caption: e.textMode } : {}) };
+  return {
+    variant: plan?.look?.variant, opening: plan?.opening?.kind, openingHook: plan?.opening?.hook,
+    textStyles: plan?.palette?.textStyles, transitions: plan?.palette?.transitions, accents: plan?.palette?.accents,
+    chapterLooks: (plan?.chapterLooks || []).map((c, k) => ({ chapter: k + 1, ...c })), scenes,
+  };
 }
 
 /** Modelin cevabını buildPlan'ın öneri biçimine çevirir. */
@@ -2076,6 +2342,7 @@ export function summarizePlan(script, plan) {
     `kamera: ${camN} resimli sahne, durağan %${Math.round((((cam.static || 0) + (cam.drift || 0)) / Math.max(1, camN)) * 100)}, contain ${S.filter((e) => e.fit === "contain").length} · ${fmt(cam)}`,
     `zemin: ${bds.length} sahne (${light} açık/renkli) · ${fmt(cnt(bds.map((e) => e.backdrop.kind)))}`,
     `bölümler: ${plan.chapterLooks.map((c, k) => `${k + 1}:${c.accent}/${c.grade}/${c.backdrop?.kind}`).join("  ")}`,
+    ...(plan.grading ? [`renk: taban ${plan.grading.base}${plan.grading.accent ? ` · vurgu ${plan.grading.accent} (bölüm ${plan.grading.accentChapter + 1}, ${S.filter((e) => e.grade === plan.grading.accent).length} sahne)` : " · vurgu yok"} · ${plan.grading.isLight ? "açık" : "koyu"} varyant · açık zemin %${Math.round(plan.grading.lightShare * 100)}`] : []),
     `açılış: ${plan.opening?.kind ? `${plan.opening.kind} · kanca ${plan.opening.hook || "tür varsayılanı"}` : "klasik (montaj + başlık)"}`,
   ];
 }
@@ -2103,6 +2370,14 @@ export async function artDirect(script, { settings = {}, usage, logFn = () => {}
     plan = cached.plan;
     mode = cached.mode || "fallback";
     fromCache = true;
+    // Renk politikası öncesi kayıtlı plan (grading yok; tabanı mono/selective olabilir): kayıtlı kararlar öneri sayılıp
+    // planlayıcıdan yeniden geçer — model çağrısı/kredi YOK, devam eden işler de renkli görünür (29 Ekim 2026).
+    if (!plan.grading) {
+      plan = buildPlan(script, { prop: planAsProposal(plan), history, catalogs: cats });
+      delete plan._usedTransitions;
+      if (cacheFile) writeJson(cacheFile, { ...cached, plan, repairedAt: new Date().toISOString() });
+      logFn("Sanat yönetmeni: kayıtlı plan renk politikasına göre onarıldı (model çağrısı yok)");
+    }
   } else {
     let prop = null;
     const { open, recent, ctx } = openLooks(script, cats, history);
@@ -2110,7 +2385,7 @@ export async function artDirect(script, { settings = {}, usage, logFn = () => {}
     else if (!settings.anthropicKey && llm === callJSON) skipped = "no-key";
     else {
       const openings = openingChoices(script, history, ctx.era?.start ?? null);
-      const { system, user } = artPrompt(script, { looks: open, allowed: ctx.allowed, recent, openings });
+      const { system, user } = artPrompt(script, { looks: open, allowed: ctx.allowed, recent, openings, history });
       try {
         const res = await llm({ system, user, schema: planSchema(open.map((l) => l.id), ctx.allowed, openings.open), maxTokens: 24000, usage, logFn, model: mdl, isCancelled });
         prop = proposalOf(res, ctx.n);
@@ -2130,7 +2405,8 @@ export async function artDirect(script, { settings = {}, usage, logFn = () => {}
     if (cacheFile && !transient) writeJson(cacheFile, { key, version: ART_VERSION, model: mdl, mode, savedAt: new Date().toISOString(), plan });
     if (record && historyFile && !transient) {
       try {
-        recordHistory(historyFile, { id: script.id || script.seedKey || null, genre: ctx.genre, variant: plan.look.variant, textStyles: plan.palette.textStyles, transitions: plan.palette.transitions, cameras: topCameras(plan), opening: plan.opening?.kind || null, at: new Date().toISOString() });
+        const gr = plan.grading || {};
+        recordHistory(historyFile, { id: script.id || script.seedKey || null, genre: ctx.genre, variant: plan.look.variant, textStyles: plan.palette.textStyles, transitions: plan.palette.transitions, cameras: topCameras(plan), opening: plan.opening?.kind || null, baseGrade: gr.base || plan.chapterLooks?.[0]?.grade || null, accentGrade: gr.accent || null, isLight: gr.isLight === true, lightShare: gr.lightShare ?? null, at: new Date().toISOString() });
       } catch (e) { logFn(`Görünüm geçmişi yazılamadı: ${String(e?.message || e).slice(0, 120)}`); }
     }
   }

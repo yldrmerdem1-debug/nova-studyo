@@ -48,6 +48,18 @@ function queueExisting(id, resumeOnly) {
   queue.push({jobId:id,from:'resume'}); setImmediate(tick); return publicJob(job);
 }
 export function resumeJob(id) { return queueExisting(id,true); }
+/**
+ * YAMA RENDER (El Niño haberi, Ekim 2026): bitmiş videoda tek sahnelik hata için 2 saatlik baştan render yerine
+ * yalnızca o sahnelerin parçaları yeni motorla çizilir; diğer parçalar ve ses son render'dan aynen alınır
+ * (docu-engine render: patchScenes + chunks/last-render.json).
+ */
+export function patchJob(id, scenes) {
+  const list = [...new Set((Array.isArray(scenes) ? scenes : []).map(Number).filter((n) => Number.isInteger(n) && n >= 0))];
+  if (!list.length) throw new Error("yama için sahne numarası gerekli");
+  updateJob(id, { patchScenes: list });
+  return rerenderJob(id);
+}
+
 export function rerenderJob(id) {
   const job=queueExisting(id,false);
   // Sinematik Belgesel "Yeniden render / eksikleri tamamla": kayıtlı render
@@ -182,6 +194,10 @@ export function newJobFromRequest(body) {
   if (job.mediaKind === "docu" && ["documentary", "crime", "epic", "science", "inspire", "finance", "horror"].includes(body.docuGenre)) job.docuGenre = body.docuGenre;
   // Sıralama (geri sayım): aynı belgesel motoru, senaryo N'den 1'e maddeler (docu-script.js rankingPlan); görsel dili Claude seçer.
   if (job.mediaKind === "docu" && ["ranking", "news"].includes(body.docuFormat)) job.docuFormat = body.docuFormat;
+  // 1.16.16 "Haritalı anlatım" sekmesi (Epik Tarih altında): her yer haritada, videoda 3-5 harita, harita güvencesi.
+  if (job.mediaKind === "docu" && body.docuMapMode === "haritali") job.docuMapMode = "haritali";
+  // 1.16.16 seri şablonu (küçük kanal patlamaları: tek başlık şablonu seri olarak): fikir kartından ya da formdan gelir.
+  if (job.mediaKind === "docu" && typeof body.docuSeries === "string" && body.docuSeries.trim()) job.docuSeries = body.docuSeries.replace(/\s+/g, " ").trim().slice(0, 90);
   // Sinematik Belgesel: hazır sahne senaryosu (örnek video / içe aktarılan JSON) ile başlatılabilir.
   if (job.mediaKind === "docu" && Array.isArray(body.docuScript?.scenes) && body.docuScript.scenes.length) {
     const { id: sourceId, ...seed } = body.docuScript;
@@ -931,7 +947,7 @@ async function runJob(jobId, from) {
       message: seo.incomplete || rendered.qualityWarnings?.length ? "Video üretildi; yayın öncesi inceleme gerekli." : "Hazır 🎉", outputs, usage, needsRerender:false, needsReview:!!seo.incomplete || !!rendered.qualityWarnings?.length, quality:rendered.quality, qualityWarnings:rendered.qualityWarnings || [],
       meta: { ...(getJob(jobId).meta || {}), durationSec, title: script.title },
     });
-    log(jobId, `Video hazır: ${Math.floor(durationSec / 60)} dk ${Math.round(durationSec % 60)} sn`);
+    log(jobId, `Video hazır: ${Math.floor(Math.round(durationSec) / 60)} dk ${Math.round(durationSec) % 60} sn`);
   } catch (e) {
     if (String(e.message).includes("cancelled") || isCancelled()) {
       updateJob(jobId, { status: "cancelled", stage: "cancelled", message: "İptal edildi" });
@@ -1065,7 +1081,7 @@ async function runCollageJob({ jobId, job, dir, from, usage, saveUsage, isCancel
     },
     meta: { ...(getJob(jobId).meta || {}), durationSec, title: script.title },
   });
-  log2(`Video hazır: ${Math.floor(durationSec / 60)} dk ${Math.round(durationSec % 60)} sn, ${beats.length} beat`);
+  log2(`Video hazır: ${Math.floor(Math.round(durationSec) / 60)} dk ${Math.round(durationSec) % 60} sn, ${beats.length} beat`);
 }
 
 /**

@@ -78,6 +78,31 @@ export function aiFixNote(era, what = "") {
 
 /* ================================================================ denetlenecek görseller */
 
+/** Anlatımın parmak izi: docu-design-gate.js sceneFp ile aynı (docu.js'nin klip anahtarı `klip-<fp>` buradakiyle aynı çıkar). */
+const sceneFp = (s) => crypto.createHash("sha1").update(stripTags(s?.say || "")).digest("hex").slice(0, 10);
+
+/**
+ * Motora giden senaryonun sırası → yönetmenin senaryosunun (keyScript) sırası; araya giren ses klibi (source-clips.js
+ * sourceVoice) -1. docu.js directedIndexes'in KOPYASI: docu.js bu dosyayı içe aktarıyor, oradan almak içe aktarma
+ * döngüsü olurdu. İkisi aynı kalmalı (test: donem-denetimi-ses-klibi karşılaştırır).
+ * Denetim motorun senaryosuna bakar; künyeler (scene-N), docu-era-fixes.json, arşiv seçiminin silinmesi
+ * (invalidateArchivePicks) ve applyEraRejections yönetmenin sırasıyla okunur. Ses klibinden sonraki sahnenin dönem
+ * düzeltmesi bir SONRAKİ yönetmen sahnesine yazılıyor, onun arşiv seçimini siliyordu; künyesi de sonraki sahnenindi.
+ */
+export function directedOrder(directedScenes = [], engineScenes = []) {
+  const at = new Map();
+  directedScenes.forEach((s, j) => { const f = sceneFp(s); at.set(f, [...(at.get(f) || []), j]); });
+  const used = new Map();
+  let inserted = 0;
+  return engineScenes.map((s, i) => {
+    if (s?.sourceVoice) { inserted++; return -1; }
+    const f = sceneFp(s);
+    const k = used.get(f) || 0;
+    used.set(f, k + 1);
+    return at.get(f)?.[k] ?? (i - inserted < directedScenes.length ? i - inserted : -1);
+  });
+}
+
 /** Motorun son çizdiği senaryo (hazırlık ya da render): AI görsellerinin dosyaları oradan. */
 function engineScenes(propsFile, n) {
   const p = readJson(propsFile, null);
@@ -104,41 +129,47 @@ export function clipTimes(start, videoDur, dur, n = 3) {
 
 /**
  * Denetim adayları: [{id, scene, label, kind: "archive"|"ai", provider, risk, url, file,
- * video, times, say, ident}]. `file`/`video` public klasörüne göre.
+ * video, times, say, ident, fixId}]. `file`/`video` public klasörüne göre. `id`/`scene`/`label` motorun
+ * sırası (kontak sayfası etiketi); `fixId` kaydın anahtarı, yönetmenin (keyScript) sırası: sahne indeksi, "i-mk" ya da
+ * araya giren ses klibinde "klip-<parmak izi>" (docu.js fixSceneKey ile aynı). keyScript yoksa ikisi aynı.
  */
-export function eraItems(script, credits = {}, { publicDir, propsFile } = {}) {
+export function eraItems(script, credits = {}, { publicDir, propsFile, keyScript } = {}) {
   const items = [];
   const exists = (f) => !!f && !!publicDir && fs.existsSync(path.join(publicDir, f));
   const own = propsFile ? engineScenes(propsFile, script.scenes.length) : null;
+  const toDirected = keyScript && keyScript !== script ? directedOrder(keyScript.scenes, script.scenes) : null;
   script.scenes.forEach((s, i) => {
     const say = stripTags(s.say);
-    // Sahnenin kendi resmi: arşiv/stok seçimi ya da AI görseli.
-    const c = credits[`scene-${i}`];
+    const at = toDirected ? toDirected[i] : i;
+    // Sahnenin kendi resmi: arşiv/stok seçimi ya da AI görseli. Künye yönetmenin sırasıyla (scene-N); ses klibinin
+    // künyesi (source-<id>) dosyasıyla bulunur.
+    const c = at >= 0 ? credits[`scene-${at}`] : Object.values(credits).find((x) => x?.file && x.file === (s.video || s.image));
+    const fixId = at >= 0 ? at : `klip-${sceneFp(s)}`;
     if (s.archived && c?.url && (exists(s.video) || exists(s.image))) {
       const risk = riskOf(c.provider);
       const video = exists(s.video) ? s.video : null;
       items.push({
         id: i, scene: i, kind: "archive", provider: c.provider, risk, url: c.url, page: c.sayfa || null, file: s.image, video,
         times: video ? clipTimes(s.videoStart, s.videoDur, s.dur, risk === 2 ? 1 : 3) : null, say,
-        ident: `a|${c.url}|${video ? `${s.videoStart || 0}` : ""}`,
+        ident: `a|${c.url}|${video ? `${s.videoStart || 0}` : ""}`, fixId,
       });
-    } else if (!s.archived && s.imagePrompt && !s.bg && own) {
+    } else if (!s.archived && s.imagePrompt && !s.bg && own && at >= 0) {
       const e = own[i];
       if (e && !e.borrowed && !e.archived && isAiFile(e.image) && (e.imagePrompt === s.imagePrompt || (s.aiFix && e.imagePrompt === `${s.imagePrompt}. ${s.aiFix}`)) && exists(e.image)) {
-        items.push({ id: i, scene: i, kind: "ai", provider: "ai", risk: 0, url: null, file: e.image, video: null, times: null, say, prompt: s.imagePrompt, ident: `i|${path.basename(e.image)}` });
+        items.push({ id: i, scene: i, kind: "ai", provider: "ai", risk: 0, url: null, file: e.image, video: null, times: null, say, prompt: s.imagePrompt, ident: `i|${path.basename(e.image)}`, fixId });
       }
     }
-    // Montaj/kolaj kareleri.
-    const prompts = Array.isArray(s.imagePrompts) ? s.imagePrompts : [];
+    // Montaj/kolaj kareleri (ses klibinin karesi yok).
+    const prompts = Array.isArray(s.imagePrompts) && at >= 0 ? s.imagePrompts : [];
     const shown = own?.[i]?.images?.length === prompts.length ? own[i].images : null;
     prompts.forEach((p, k) => {
       const id = `${i}-m${k}`;
-      const pc = credits[`scene-${id}`];
+      const pc = credits[`scene-${at}-m${k}`];
       if (p && typeof p === "object" && p.image && pc?.url && exists(p.image)) {
         // Montaj karesi kısa görünür: tek kare (klibin durağan karesi) yeter.
-        items.push({ id, scene: i, kind: "archive", provider: pc.provider, risk: riskOf(pc.provider), url: pc.url, page: pc.sayfa || null, file: p.image, video: null, times: null, say, ident: `a|${pc.url}|${p.video ? `${p.videoStart || 0}` : ""}` });
+        items.push({ id, scene: i, kind: "archive", provider: pc.provider, risk: riskOf(pc.provider), url: pc.url, page: pc.sayfa || null, file: p.image, video: null, times: null, say, ident: `a|${pc.url}|${p.video ? `${p.videoStart || 0}` : ""}`, fixId: `${at}-m${k}` });
       } else if (shown && !(p && typeof p === "object" && p.image) && isAiFile(shown[k]) && exists(shown[k])) {
-        items.push({ id, scene: i, kind: "ai", provider: "ai", risk: 0, url: null, file: shown[k], video: null, times: null, say, prompt: typeof p === "string" ? p : p?.prompt, ident: `i|${path.basename(shown[k])}` });
+        items.push({ id, scene: i, kind: "ai", provider: "ai", risk: 0, url: null, file: shown[k], video: null, times: null, say, prompt: typeof p === "string" ? p : p?.prompt, ident: `i|${path.basename(shown[k])}`, fixId: `${at}-m${k}` });
       }
     });
   });
@@ -266,6 +297,9 @@ const ERA_SCHEMA = {
 
 const KAYNAK_TR = (x) => (x.kind === "ai" ? "AI görseli" : `${STOCK_PROVIDERS.has(x.provider) ? "stok" : "arşiv"} ${x.video ? "klibi" : "fotoğrafı"} · ${x.provider}`);
 
+/** Yıl yazmayan sonrası satırı: sahnenin anı dönemden sonradır, o anın görüntüsü dönem dışı değildir. */
+export const AFTERMATH_LINE = `Anlatım yıl yazmasa da dönemden SONRASINI anlatıyorsa ("onarılıp hizmete döndü", "son uçuşu", "emekliye ayrıldı", "yıllar sonra", "bugün müzede") o sahnede aynı şeyin sonraki yıllardaki hâli (sonraki boya, sonraki araçlar) doğrudur: işaretleme.`;
+
 export function eraPrompt({ title, era, year, lines, mixed = false }) {
   return [
     `Bir YouTube belgeselinin görsellerini render'dan ÖNCE dönem doğruluğu için denetliyorsun${title ? ` ("${title}")` : ""}.`,
@@ -286,6 +320,9 @@ export function eraPrompt({ title, era, year, lines, mixed = false }) {
     ``,
     `SERBEST (işaretleme): doğa, gökyüzü, deniz, buz, yağmur, ateş, uzay ve gezegen görüntüleri; el/kâğıt/mum/saat yakın çekimleri; eski taş binalar; ${year < SANAYI_ONCESI_SINIRI ? "tablolar, gravürler, minyatürler, mozaikler ve müze eserleri (bu hikâyede FOTOĞRAF dönem fotoğrafı değildir);" : "siyah-beyaz ya da sepya dönem fotoğrafları;"} tablolar, gravürler; dönem kostümlü canlandırmalar; renkli olması TEK BAŞINA sorun değildir. Görüntüdeki şeyin modern olduğundan emin değilsen İŞARETLEME.`,
     `Anlatım açıkça bugünü ya da dönemden sonraki bir yılı anlatıyorsa (ör. "bugün", "1985'te enkaz bulundu", "2023") o sahnedeki modern görüntü doğrudur: işaretleme.`,
+    // Gimli Glider (28 Ekim 2026): "C-GAUN was repaired and returned to service" ve "riding the same jet into retirement" satırlarındaki
+    // 1998 Miami ve 2008 Mojave fotoğrafları "1983'ten sonraki boya" diye reddedildi; satırlar yıl yazmıyordu ama sonrasını anlatıyordu.
+    AFTERMATH_LINE,
     `confidence: high = modern şey açıkça görünüyor; medium = büyük olasılıkla modern ama tam seçilemiyor. Sorunsuz kareleri listeleme. Hiç sorun yoksa boş liste döndür.`,
     ``,
     `KARELER:`,
@@ -327,6 +364,7 @@ export function confirmPrompt({ era, year, lines }) {
     `Bir tarih belgeselinin görselleri ilk taramada (küçük karelerde) dönem dışı şüphesiyle işaretlendi. Şimdi her birini BÜYÜK boyutta görüyorsun. HİKÂYENİN DÖNEMİ: ${era} (ana yıl ${year}).`,
     `Her görsel için karar ver: modern=true YALNIZCA karede o dönemden SONRA var olan ve gözle AÇIKÇA seçilen insan yapımı bir şey varsa (bugünün taşıtı, elektronik/ekran, modern kıyafet ya da saç, marka/logo, cam gökdelen, bugünün parlak ürün fotoğrafı, dönemden sonra yapılmış bilinen yapı/heykel).`,
     `Bulanık ya da belirsiz bir şekli modern saymak YANLIŞTIR: daktilo, telgraf, eski telefon, gaz lambası, ahşap masa, sandalye sırtı, pencere gibi dönem nesneleri sık karıştırılır. ${year < SANAYI_ONCESI_SINIRI ? "Tablo, gravür, mozaik ve doğa görüntüleri modern değildir." : "Siyah-beyaz dönem fotoğrafı, tablo, gravür ve doğa görüntüleri modern değildir."} Anlatım açıkça bugünü anlatıyorsa modern=false.`,
+    AFTERMATH_LINE,
     ...sanayiOncesiSatirlari(year),
     `Her görsel için bir kayıt döndür.`,
     ``,
@@ -369,10 +407,12 @@ const tokensOf = (u) => ({ input: Number(u?.inputTokens) || 0, output: Number(u?
  * @param dir       iş klasörü (karar önbelleği ve düzeltme dosyası burada)
  * @param publicDir motorun public klasörü (görsel/klip dosyaları)
  * @param propsFile motorun son senaryosu (AI görsellerinin dosyaları); varsayılan <workDir>/<id>.props.json
- * @param keyScript arşiv önbellek anahtarlarının türetildiği senaryo (docu.js: yönetmenden geçmiş senaryo)
+ * @param keyScript arşiv önbellek anahtarlarının türetildiği senaryo (docu.js: yönetmenden geçmiş senaryo); künyeler
+ *                  (scene-N) ve düzeltme kayıtları onun sırasıyla — motorun senaryosundaki ses klipleri araya girer
+ *                  (directedOrder); klibin işareti yalnızca adresini reddeder (yönetmenin sahnesine dokunulmaz)
  * @param apply     false: yalnızca işaretle (ret listesi/önbellek silme/AI dosyası silme yok)
  * @param debugDir  verilirse kontak sayfaları ve kareler oraya kopyalanır (inceleme için)
- * @returns {{flagged:[{scene, id, label, kind, provider, reason, url, file, confidence}], doubts, audited, cached, calls, skipped, applied, era, summary}}
+ * @returns {{flagged:[{scene, id, fixId, label, kind, provider, reason, url, file, confidence}], doubts, audited, cached, calls, skipped, applied, era, summary}}
  */
 export async function auditEra({ script, credits = {}, dir, settings = {}, usage, logFn = () => {}, llm = callVisionJSON, ffmpeg, publicDir, propsFile, keyScript, docKey = null, apply = true, debugDir = null, isCancelled = () => false, model, maxTiles = MAX_TILES, lowRisk = true } = {}) {
   const ff = ffmpeg || settings.ffmpegPath || "ffmpeg";
@@ -384,7 +424,7 @@ export async function auditEra({ script, credits = {}, dir, settings = {}, usage
   const empty = (skipped, extra = {}) => ({ flagged: [], doubts: [], audited: 0, cached: 0, calls: 0, skipped, applied: null, era, summary: "", ...extra });
   if (!year || year >= ERA_AUDIT_BEFORE) return empty("era");
   const pf = propsFile || (publicDir && script.id != null ? path.join(path.dirname(publicDir), `${script.id}.props.json`) : null);
-  const all = eraItems(script, credits, { publicDir, propsFile: pf });
+  const all = eraItems(script, credits, { publicDir, propsFile: pf, keyScript });
   if (!all.length) return empty("nothing");
 
   const cacheFile = dir ? path.join(dir, CACHE_FILE) : null;
@@ -522,7 +562,7 @@ export async function auditEra({ script, credits = {}, dir, settings = {}, usage
   const doubts = [];
   for (const x of all) {
     const v = verdicts.get(x);
-    if (v?.v === "flag") flagged.push({ scene: x.scene, id: x.id, label: x.label, kind: x.kind, provider: x.provider, reason: v.what, url: x.url, page: x.page || null, file: x.file, video: x.video, confidence: v.conf || "high" });
+    if (v?.v === "flag") flagged.push({ scene: x.scene, id: x.id, fixId: x.fixId, label: x.label, kind: x.kind, provider: x.provider, reason: v.what, url: x.url, page: x.page || null, file: x.file, video: x.video, confidence: v.conf || "high" });
     else if (v?.doubt) doubts.push({ scene: x.scene, id: x.id, label: x.label, kind: x.kind, provider: x.provider, reason: v.doubt, url: x.url, file: x.file });
   }
   const applied = apply && dir && flagged.length ? applyEraFlags({ dir, flagged, keyScript: keyScript || script, publicDir, era, docKey, logFn }) : null;
@@ -560,10 +600,12 @@ export function eraRejectionCount(e) {
   return Math.ceil(((e?.rejected || []).filter(Boolean).length) / 2);
 }
 const zorlaAi = (e) => !!e && (e.toAi === true || eraRejectionCount(e) >= ERA_AI_AFTER);
+/** Yönetmenin senaryosunda sahnesi olan kayıt (sahne indeksi ya da "i-mk"); "klip-…" araya giren ses klibinin adres kaydı. */
+const sahneKaydi = (k) => /^\d+(?:-m\d+)?$/.test(String(k));
 /** Arşiv adımının hiç aramayacağı sahne/kareler (sahne indeksi ya da "i-mk"): aynı dönem için. */
 export function eraAiOnly(fixes, era) {
   if (!fixes || (era && fixes.era && fixes.era !== era)) return [];
-  return Object.entries(fixes.scenes || {}).filter(([, e]) => zorlaAi(e)).map(([k]) => (/^\d+$/.test(k) ? +k : k));
+  return Object.entries(fixes.scenes || {}).filter(([k, e]) => sahneKaydi(k) && zorlaAi(e)).map(([k]) => (/^\d+$/.test(k) ? +k : k));
 }
 
 export function eraRejectedUrls(fixes, era) {
@@ -574,6 +616,8 @@ export function eraRejectedUrls(fixes, era) {
 /**
  * İşaretli görselleri düzeltmeye sokar: arşiv/stok → ret listesi + arşiv kaydı silinir;
  * AI → dosya silinir + aiFix notu (bir kez). Yerinde değil: dosyalara yazar.
+ * Kayıt anahtarı `fixId` (eraItems: yönetmenin sırası), yoksa `id`. Araya giren ses klibi ("klip-…"): yalnızca adresi
+ * reddedilir (kaynak video adımı onu bir daha koymaz, eraRejectedUrls) — arşiv kaydı silinmez, AI'a düşen sahne olmaz.
  * @returns {{invalidated, rejected, aiRegen, aiRepeat, ids}}
  */
 export function applyEraFlags({ dir, flagged, keyScript, publicDir, era, docKey = null, logFn = () => {} }) {
@@ -587,7 +631,10 @@ export function applyEraFlags({ dir, flagged, keyScript, publicDir, era, docKey 
   const ids = [];
   let rejected = 0, aiRegen = 0, aiRepeat = 0;
   const toAiIds = [];
-  for (const f of flagged) {
+  for (const f0 of flagged) {
+    const f = { ...f0, id: f0.fixId ?? f0.id };
+    const klip = !sahneKaydi(f.id);
+    if (klip && f.kind !== "archive") continue;
     if (f.kind === "archive" && f.url) {
       const e = (fixes.scenes[f.id] ||= { rejected: [] });
       const n0 = eraRejectionCount(e);
@@ -596,7 +643,9 @@ export function applyEraFlags({ dir, flagged, keyScript, publicDir, era, docKey 
       if (f.page && !e.rejected.includes(f.page)) e.rejected.push(f.page);
       e.what = f.reason;
       e.n = n0 + 1;
+      // Klibin anahtarı da döner: docu.js yalnızca ids doluysa yeniden hazırlar (klip bu render'dan düşer).
       ids.push(f.id);
+      if (klip) { logFn(`Sahne ${f.label || labelOf(f0.id)}: ses klibi dönem dışı — adresi reddedildi, bir daha konmayacak`); continue; }
       // Aynı sahne İKİNCİ kez dönem dışı: stok/arşiv o sahne için dönem görüntüsü vermiyor
       // (1929: "banket salonu", "bozuk paralar", "kasa" her turda yeni bir modern stok karesi
       // getirdi). Bir daha aranmaz; dönemine sadık notla AI görseli üretilir.
@@ -620,8 +669,10 @@ export function applyEraFlags({ dir, flagged, keyScript, publicDir, era, docKey 
   fixes.at = new Date().toISOString();
   fixes.rounds = (fixes.rounds || 0) + 1;
   writeJson(file, fixes);
-  const invalidated = ids.length ? invalidateArchivePicks(dir, keyScript, ids) : 0;
-  if (ids.length) logFn(`Dönem denetimi: ${ids.length} arşiv/stok seçimi reddedildi (${invalidated} önbellek kaydı silindi) — güncel kurallarla yeniden seçilecek`);
+  // Ses klibinin yönetmenin senaryosunda arşiv seçimi yok: silinecek kayıt da, yeniden aranacak sahne de yok.
+  const picks = ids.filter(sahneKaydi);
+  const invalidated = picks.length ? invalidateArchivePicks(dir, keyScript, picks) : 0;
+  if (picks.length) logFn(`Dönem denetimi: ${picks.length} arşiv/stok seçimi reddedildi (${invalidated} önbellek kaydı silindi) — güncel kurallarla yeniden seçilecek`);
   if (aiRegen) logFn(`Dönem denetimi: ${aiRegen} AI görseli silindi — "dönemine sadık" notuyla bir kez yeniden üretilecek`);
   return { invalidated, rejected, aiRegen, aiRepeat, ids, toAi: toAiIds };
 }

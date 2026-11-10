@@ -13,7 +13,7 @@ export function setProductionPreference(form,field,value) {
   form[field] = value;
   return true;
 }
-const PRODUCTION_FIELDS = ['docuSource','docuGenre','mediaKind','visualStyle','mediaMode','collageMode','aiButce','aiClips','aiFill','aiSupport','aiSupportBudgetUsd','costBudgetUsd','transitions','ratio','yaziModu','gorselDenetim','useWebSearch','editIntensity','soundDesign','sfxVolume','subtitleMode'];
+const PRODUCTION_FIELDS = ['docuSource','docuGenre','docuMapMode','mediaKind','visualStyle','mediaMode','collageMode','aiButce','aiClips','aiFill','aiSupport','aiSupportBudgetUsd','costBudgetUsd','transitions','ratio','yaziModu','gorselDenetim','useWebSearch','editIntensity','soundDesign','sfxVolume','subtitleMode'];
 export function restoreProductionForm(form,job={}) {
   for (const field of PRODUCTION_FIELDS) if (job[field] !== undefined) form[field] = job[field];
   // "✨ Otomatik" stil iş kaydında alan olarak yok; formda önceki elle seçim kalmasın.

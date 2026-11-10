@@ -10,7 +10,7 @@ import { ROOT, HOME, DATA_DIR, PREVIEW_DIR, readJson, writeJson } from "./src/ut
 import { getSettings, saveSettings, publicSettings, THEMES, TONES, DURATIONS, VOICES, VISUAL_STYLES, audioLibraryInfo, audioLibraryDir } from "./src/config.js";
 import { RATIOS } from "./src/pipeline/canvas.js";
 import { sseHandler } from "./src/bus.js";
-import { loadAllJobs, getJob, publicJob, deleteJob, jobDir } from "./src/store.js";
+import { loadAllJobs, getJob, publicJob, deleteJob, jobDir, updateJob } from "./src/store.js";
 import { newJobFromRequest, enqueue, continueAfterPicks, approveCost, cancelJob, awaitJobStopped, killAll, queueSnapshot, sweepStaleJobs, sweepIntermediate } from "./src/pipeline/index.js";
 import { previewVoice } from "./src/pipeline/voice.js";
 import { docuEngineDir, docuMusicSource } from "./src/pipeline/docu.js";
@@ -189,12 +189,35 @@ app.post("/api/jobs/:id/shorts", async (req, res) => {
     const { makeDocuShort } = await import("./src/pipeline/docu-shorts.js");
     const settings = getSettings();
     const ffmpeg = settings.ffmpegPath || "ffmpeg";
-    const m = await makeDocuShort({ jobDir: jobDir(job.id), settings, ffmpeg, title: job.meta?.title || job.topic });
+    // 1.16.16 "yalnızca açılışı değiştir": aynı hikâye ve vuruşlar, yeni ilk 3 saniye (Studio'da kaydırıp geçen oranı kötüyse).
+    const reopen = typeof req.body?.reopen === "string" ? req.body.reopen.slice(0, 40) : undefined;
+    const m = await makeDocuShort({ jobDir: jobDir(job.id), settings, ffmpeg, title: job.meta?.title || job.topic, ...(reopen ? { reopen } : {}) });
     res.json({ ok: true, short: { ...m, name: path.basename(m.file), file: undefined, source: undefined } });
   } catch (e) {
     res.status(500).json({ error: String(e?.message || e).slice(0, 300) });
   } finally {
     shortsBusy.delete(job.id);
+  }
+});
+// KAPAKLARI YENİLE (1.16.16) — kapak-kutusu/ içine ChatGPT'de üretilen sahneler (01.png, 02.png) konunca YouTube
+// paketi (başlıklar + 3 kapak) bu sahnelerle yeniden kurulur (src/pipeline/thumb-scenes.js).
+const packageBusy = new Set();
+app.post("/api/jobs/:id/package", async (req, res) => {
+  const job = getJob(req.params.id);
+  if (!job) return res.status(404).json({ error: "İş bulunamadı." });
+  if (job.mediaKind !== "docu" || job.status !== "done") return res.status(409).json({ error: "Kapaklar yalnızca tamamlanmış belgeseller için yenilenir." });
+  if (packageBusy.has(job.id)) return res.status(409).json({ error: "Bu videonun kapakları zaten yenileniyor." });
+  packageBusy.add(job.id);
+  try {
+    const { runDocuPackage } = await import("./src/pipeline/docu-package.js");
+    const settings = getSettings();
+    const pkg = await runDocuPackage({ jobDir: jobDir(job.id), job, settings, ffmpeg: settings.ffmpegPath || "ffmpeg", force: true });
+    updateJob(job.id, { outputs: { ...(job.outputs || {}), thumbs: pkg.outputs.thumbs, thumbLabels: pkg.outputs.thumbLabels, thumbnail: "thumbnail.jpg" } });
+    res.json({ ok: true, thumbs: pkg.outputs.thumbs, recommended: pkg.recommended, cost: pkg.cost });
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message || e).slice(0, 300) });
+  } finally {
+    packageBusy.delete(job.id);
   }
 });
 app.get("/api/jobs/:id/short/:name", (req, res) => {
@@ -225,19 +248,24 @@ app.get("/api/trends", async (req, res) => {
 app.post("/api/trends/evaluate", async (req, res) => {
   const geos = (Array.isArray(req.body?.geos) ? req.body.geos : ["US", "GB"]).filter((g) => /^[A-Z]{2}$/.test(g)).slice(0, 3);
   try {
-    const { fetchTrending, fetchHeadlines, evaluateTrending, compareInterest, DEFAULT_BENCHMARK } = await import("./src/pipeline/trend-radar.js");
+    const { fetchTrending, fetchHeadlines, evaluateTrending, compareInterest, rankByGate, DEFAULT_BENCHMARK } = await import("./src/pipeline/trend-radar.js");
     const all = (await Promise.all(geos.map((geo) => fetchTrending({ geo }).catch(() => [])))).flat();
     const headlines = (await Promise.all(geos.slice(0, 2).map((geo) => fetchHeadlines({ geo }).catch(() => [])))).flat();
-    const picks = await evaluateTrending({ items: all, headlines, settings: getSettings(), usage: { input: 0, output: 0 } });
-    // Bigness on one scale: the top picks against the benchmark, in the channel's main market.
-    const cmp = await compareInterest(picks.slice(0, 4).map((p) => p.searchTerm), { geo: geos[0] || "US" });
+    // The news gate (trend-radar.js newsGate) first, so Google's 4 measurements go to stories that pass.
+    const picks = rankByGate(await evaluateTrending({ items: all, headlines, settings: getSettings(), usage: { input: 0, output: 0 } }));
+    // Bigness on one scale: the top picks against the benchmark, in the channel's main market — on YouTube
+    // search first (27 Oct 2026: Ebola rose on Google but was flat on YouTube; France riots topped both), web if refused.
+    const terms = picks.slice(0, 4).map((p) => p.searchTerm);
+    let measuredOn = "youtube";
+    let cmp = await compareInterest(terms, { geo: geos[0] || "US", property: "youtube" });
+    if (!cmp) { measuredOn = "web"; cmp = await compareInterest(terms, { geo: geos[0] || "US" }); }
     for (const p of picks) {
       const c = cmp?.find((x) => x.term === p.searchTerm);
-      if (c) Object.assign(p, { interest: c.peak, interestLast: c.last, vsBenchmark: c.vsBenchmark, rising: c.rising });
+      if (c) Object.assign(p, { interest: c.peak, interestLast: c.last, vsBenchmark: c.vsBenchmark, rising: c.rising, measuredOn });
     }
-    // Measured bigness first: the stories that rival the benchmark lead the list.
-    picks.sort((x, y) => (y.vsBenchmark ?? -1) - (x.vsBenchmark ?? -1));
-    res.json({ benchmark: { ...DEFAULT_BENCHMARK, peak: cmp?.[0]?.peak ?? null }, picks });
+    // Again with the measurements: fading interest fails the gate, measured bigness adds to the score.
+    rankByGate(picks);
+    res.json({ benchmark: { ...DEFAULT_BENCHMARK, peak: cmp?.[0]?.peak ?? null, measuredOn: cmp ? measuredOn : null }, picks });
   } catch (e) {
     res.status(500).json({ error: String(e?.message || e).slice(0, 300) });
   }
@@ -553,10 +581,16 @@ app.get("/api/eleven-voices", async (req, res) => {
       blocked,
       // Only voices verified for Eleven v4, plus Brian (user, Oct 2026: "sadece v4'ten kur, bir tek Brian
       // bırakabilirsin — v4 daha iyisi varken neden kötüsünü kullanalım"). Their preview is their v4 sample.
+      // The account's OWN voices (Voice Design / clones) carry no v4 verification but read on v4 (tested 16 Oct
+      // 2026): they are kept, first, with the channel they belong to — a channel's own voice, used by nobody else.
       voices: usable.map((v) => {
         const v4 = v4Verified(v);
-        return { id: v.voice_id, name: v.name, category: v.category, labels: v.labels || {}, v4: !!v4, preview: v4?.preview_url || v.preview_url || "" };
-      }).filter((v) => v.v4 || v.id === BRIAN).sort((a, b) => Number(b.v4) - Number(a.v4)),
+        const own = OWN_VOICE.has(v.category);
+        return {
+          id: v.voice_id, name: v.name, category: v.category, labels: v.labels || {}, v4: !!v4 || own, own,
+          channel: ownChannel(v, getSettings()), preview: v4?.preview_url || v.preview_url || "",
+        };
+      }).filter((v) => v.v4 || v.id === BRIAN).sort((a, b) => Number(b.own) - Number(a.own) || Number(b.v4) - Number(a.v4)),
       library,
     });
   } catch (e) {
@@ -566,6 +600,14 @@ app.get("/api/eleven-voices", async (req, res) => {
 
 /** The one v2-era voice kept beside the v4 voices (the channel's narrator so far). */
 const BRIAN = "nPczCjzI2devNBz1zQrb";
+/** Voices made in this account (Voice Design, instant/professional clones): nobody else's channel has them. */
+const OWN_VOICE = new Set(["generated", "cloned"]);
+/** The channel an own voice belongs to: its nova_channel label, else the style whose voice it is in Settings. */
+const ownChannel = (v, settings) => {
+  const kinds = ["epic", "news", "finance"];
+  if (kinds.includes(v.labels?.nova_channel)) return v.labels.nova_channel;
+  return kinds.find((k) => settings.docuStyleVoices?.[k] === v.voice_id) || null;
+};
 let narratorCache = { at: 0, list: [] };
 /** A voice's Eleven v4 verification for a language (its own v4 preview), or null. */
 const v4Verified = (v, lang) => (v.verified_languages || []).find((l) => /eleven_v4/.test(l.model_id || "") && (!lang || l.language === lang)) || null;
@@ -707,9 +749,10 @@ app.post("/api/ideas", async (req, res) => {
     });
   }
   try {
+    const growth = await import("./src/pipeline/growth-lessons.js");
     const out = await callJSON({
       system: "Sen viral YouTube içerik stratejistisin. Türkçe yanıt ver.",
-      user: `Kanal nişi/konusu: "${niche}". Bu niş için yüksek izlenme potansiyelli 8 uzun video fikri üret. Her fikir: çekici başlık, 1 cümlelik kanca (hook), uygun tema (belgesel|haber|top5|analiz|egitim|hikaye) ve süre (kisa|standart|detayli|derin|uzun).`,
+      user: [`Kanal nişi/konusu: "${niche}". Bu niş için yüksek izlenme potansiyelli 8 uzun video fikri üret: 2 SERİ şablonu × 4 bölüm. Her fikir: çekici başlık (serinin şablonunda), series (şablonun kendisi, İngilizce, örn. "Myths That Turned Out To Be True"; aynı serinin bölümlerinde birebir aynı), 1 cümlelik kanca (hook; 'neden tutar' cümlesiyle), uygun tema (belgesel|haber|top5|analiz|egitim|hikaye) ve süre (kisa|standart|detayli|derin|uzun).`, ...growth.ideaGrowthLines(), ...growth.seriesLines()].join("\n"),
       schema: {
         type: "object",
         properties: {
@@ -719,11 +762,12 @@ app.post("/api/ideas", async (req, res) => {
               type: "object",
               properties: {
                 title: { type: "string" },
+                series: { type: "string" },
                 hook: { type: "string" },
                 theme: { type: "string", enum: ["belgesel", "haber", "top5", "analiz", "egitim", "hikaye"] },
                 durationPreset: { type: "string", enum: ["kisa", "standart", "detayli", "derin", "uzun"] },
               },
-              required: ["title", "hook", "theme", "durationPreset"],
+              required: ["title", "series", "hook", "theme", "durationPreset"],
               additionalProperties: false,
             },
           },

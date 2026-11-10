@@ -9,6 +9,10 @@ import type { Grade } from '../types';
  * (feColorMatrix / feComponentTransfer, like the duotone), which Chrome folds
  * into one colour pass — no blur, no noise, nothing per-pixel-neighbourhood;
  * only 'vhs' adds a small channel offset.
+ *
+ * Since 29 Ekim 2026 (Gimli 20261028-9ff721 / Kartal Yuvası 950730: saturation 2,5-7,5) the duotone is only drawn
+ * when a scene or chapter asks for it: the fallback grade is 'color' (looks/resolve.ts sceneGrade) and a picture
+ * with no grade at all gets NO_GRADE_FILTER.
  */
 
 const T = (v: number[]) => v.map((x) => x.toFixed(3)).join(' ');
@@ -38,8 +42,10 @@ export const GradeDefs: React.FC = () => (
         <feFuncB type="table" tableValues="0.01 0.15 0.39 0.63 0.84" />
       </feComponentTransfer>
     </filter>
+    {/* Cool is a colour BASE grade now (catalog family colour): natural saturation, only a blue cast. Gimli 20261028-9ff721 /
+        Kartal Yuvası 950730, 29 Ekim 2026: doygunluk 2,5-6 — was saturate 0.78. */}
     <filter id="nv-g-cool" colorInterpolationFilters="sRGB">
-      <feColorMatrix type="saturate" values="0.78" />
+      <feColorMatrix type="saturate" values="0.96" />
       <feColorMatrix type="matrix" values="0.88 0.02 0 0 0  0 0.97 0.05 0 0.012  0.02 0.07 1.08 0 0.04  0 0 0 1 0" />
       <feComponentTransfer>
         <feFuncR type="table" tableValues="0 0.16 0.44 0.74 0.95" />
@@ -68,9 +74,18 @@ export const GradeDefs: React.FC = () => (
   </svg>
 );
 
-/** The CSS filter that draws a picture in `grade`. */
-export function gradeFilter(grade: Grade): string {
+/**
+ * A picture with no grade at all (no look context: demos, stills, a component outside the Engine) is drawn in natural
+ * colour, never through the duotone. Gimli 20261028-9ff721 / Kartal Yuvası 950730, 29 Ekim 2026: every 'no grade'
+ * path ended in url(#duo) and the videos measured saturation 2,5-7,5.
+ */
+export const NO_GRADE_FILTER = 'contrast(1.06) saturate(1.05)';
+
+/** The CSS filter that draws a picture in `grade` (undefined = no grade: natural colour). */
+export function gradeFilter(grade: Grade | undefined): string {
   switch (grade) {
+    case undefined:
+      return NO_GRADE_FILTER;
     case 'duotone':
       return 'url(#duo)';
     case 'color':
@@ -81,7 +96,7 @@ export function gradeFilter(grade: Grade): string {
 }
 
 /** A picture's filter with the duotone swapped for the scene's grade (anything else in it — blur, brightness — stays). */
-export function applyGrade(filter: string | undefined, grade: Grade): string | undefined {
+export function applyGrade(filter: string | undefined, grade: Grade | undefined): string | undefined {
   if (!filter || grade === 'duotone' || !filter.includes('url(#duo)')) return filter;
   return filter.replace('url(#duo)', gradeFilter(grade));
 }

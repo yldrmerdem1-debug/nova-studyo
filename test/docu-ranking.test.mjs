@@ -18,7 +18,12 @@ test('ranking plan: intro + N items from N to 1, number one the longest, words a
   assert.ok(Math.abs(p.chapterWords.reduce((a, b) => a + b, 0) - p.words) <= 11, 'nothing lost to rounding');
   const plain = S.docuPlan({ durationPreset: 'detayli', language: 'en' });
   assert.equal(plain.ranking, undefined);
-  assert.ok(plain.chapterWords.every((w) => w === plain.wordsPerChapter), 'a documentary keeps equal chapters');
+  // 22 Ekim 2026 açılış bütçesi (openingBudget): soğuk açılış ~55 sn; geri kalan bölümler eşit (yuvarlama ±1), toplam aynı.
+  const [opening, ...rest] = plain.chapterWords;
+  assert.equal(opening, S.OPENING_WORDS, 'the opening chapter gets the ~55 s budget');
+  assert.ok(opening < plain.wordsPerChapter, 'the opening is shorter than an even share');
+  assert.ok(Math.max(...rest) - Math.min(...rest) <= 1, `a documentary keeps the other chapters equal: ${rest.join(', ')}`);
+  assert.ok(Math.abs(plain.chapterWords.reduce((a, b) => a + b, 0) - plain.words) <= plain.chapters, 'nothing lost to the move');
 });
 
 test('ranking bible: ranks forced to intro 0 then N..1; rules promise number one without revealing it', async () => {

@@ -23,7 +23,8 @@ export interface LookCtx {
   eraStart?: number;
 }
 
-export const DEFAULT_LOOK: LookCtx = { grade: 'duotone', textStyle: 'box', surface: 'dark', index: 0 };
+// Varsayılan renk: Gimli 9ff721 / Kartal Yuvası 950730 (29 Ekim 2026) — bakılmayan yerde bile siyah-beyaz değil.
+export const DEFAULT_LOOK: LookCtx = { grade: 'color', textStyle: 'box', surface: 'dark', index: 0 };
 
 export const LookContext = React.createContext<LookCtx>(DEFAULT_LOOK);
 

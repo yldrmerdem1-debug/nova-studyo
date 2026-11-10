@@ -81,6 +81,12 @@ for (const f of dosyalar) {
       if (ad) s.add(ad);
     }
   for (const m of kaynak[f].matchAll(VARSAYILAN)) s.add(m[1]);
+  // Dinamik import da içeri almadır: `const { fillInboxFromCommons } = await import("./inbox-commons.js");`
+  for (const m of kaynak[f].matchAll(/(?:const|let)\s*\{([^}]*)\}\s*=\s*await\s+import\(/g))
+    for (const p of m[1].split(",")) {
+      const ad = p.trim().split(/\s*:\s*/).pop().trim();
+      if (ad) s.add(ad);
+    }
   iceriAlinan[f] = s;
 }
 

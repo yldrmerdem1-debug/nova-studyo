@@ -39,17 +39,18 @@ test('1453 teaser captions follow readable phrases and never mix adjacent senten
 test('caption repair preserves Claude styles and the intentional hook, slam, figure and end animations', () => {
   const ass = S.buildTeaserAss(constantinopleOptions);
   // The default look is the channel's punch (Impact, the yellow printed boxes): docu-shorts-looks.js styles.
-  assert.deepEqual(ass.split('\n').filter(l => l.startsWith('Style:')).map(l => l.split(',')[0]), ['Style: Cap', 'Style: Hook', 'Style: Slam', 'Style: Open', 'Style: Fig', 'Style: End']);
+  assert.deepEqual(ass.split('\n').filter(l => l.startsWith('Style:')).map(l => l.split(',')[0]), ['Style: Cap', 'Style: Hook', 'Style: Slam', 'Style: Open', 'Style: Fig', 'Style: End', 'Style: Like']);
   assert.ok(ass.includes('Style: Slam,Impact,150,&H00111111,&H00111111,&H0000D4FF'), 'punch slam: yellow printed box');
   const events = ass.split('\n').filter(l => l.startsWith('Dialogue:') && l.split(',')[3] !== 'Cap');
   assert.deepEqual(events, [
     'Dialogue: 3,0:00:00.20,0:00:00.96,Slam,,0,0,0,,{\\fscx150\\fscy150\\t(0,90,\\fscx100\\fscy100)\\fad(0,80)}CHAIN',
     'Dialogue: 3,0:00:01.81,0:00:02.62,Slam,,0,0,0,,{\\fscx150\\fscy150\\t(0,90,\\fscx100\\fscy100)\\fad(0,80)}CANNON',
     'Dialogue: 3,0:00:04.01,0:00:04.92,Slam,,0,0,0,,{\\fscx150\\fscy150\\t(0,90,\\fscx100\\fscy100)\\fad(0,80)}TWENTY-ONE',
-    'Dialogue: 1,0:00:04.92,0:00:08.42,Hook,,0,0,0,,{\\fscx125\\fscy125\\t(0,160,\\fscx100\\fscy100)\\fad(0,250)}SHIPS THAT CROSSED A HILL',
-    'Dialogue: 3,0:00:14.93,0:00:16.73,Fig,,0,0,0,,{\\an5\\pos(540,1230)\\fscx160\\fscy160\\t(0,110,\\fscx100\\fscy100)\\fad(0,150)}4,773',
-    'Dialogue: 3,0:00:21.98,0:00:23.78,Fig,,0,0,0,,{\\an5\\pos(540,1230)\\fscx160\\fscy160\\t(0,110,\\fscx100\\fscy100)\\fad(0,150)}60 OXEN',
-    'Dialogue: 2,0:00:54.35,0:00:56.65,End,,0,0,0,,{\\fscx125\\fscy125\\t(0,160,\\fscx100\\fscy100)}FULL DOCUMENTARY ON THE CHANNEL',
+    'Dialogue: 1,0:00:04.92,0:00:08.42,Hook,,0,0,0,,{\\fad(160,250)}SHIPS THAT CROSSED A HILL',
+    'Dialogue: 3,0:00:14.93,0:00:16.73,Fig,,0,0,0,,{\\q2\\an5\\pos(540,1230)\\fscx160\\fscy160\\t(0,110,\\fscx100\\fscy100)\\fad(0,150)}4,773',
+    'Dialogue: 3,0:00:21.98,0:00:23.78,Fig,,0,0,0,,{\\q2\\an5\\pos(540,1230)\\fscx160\\fscy160\\t(0,110,\\fscx100\\fscy100)\\fad(0,150)}60 OXEN',
+    'Dialogue: 2,0:00:54.35,0:00:56.65,End,,0,0,0,,{\\q2\\fscx125\\fscy125\\t(0,160,\\fscx100\\fscy100)}FULL DOCUMENTARY\\NON THE CHANNEL',
+    'Dialogue: 2,0:00:54.75,0:00:56.65,Like,,0,0,0,,{\\fscx55\\fscy55\\t(0,140,\\fscx112\\fscy112)\\t(140,260,\\fscx100\\fscy100)}LIKE  •  SUBSCRIBE',
   ]);
 });
 
@@ -118,7 +119,7 @@ test('teaser: beats map to word times, each beat shows its own moment, the last 
   assert.match(ass, /,Hook,,.*THE DAY IT VANISHED/);
   assert.match(ass, /,Cap,,.*IN \{\\c&H0000D4FF&\}ONE\{\\c&H00FFFFFF&\} DAY/, 'spoken numbers are highlighted');
   for (const [w, prev, key] of [['fourteen', 'x', true], ['billion', 'x', true], ['$205', 'x', true], ['Fisher', 'x', true], ['Then', 'fell.', false], ['the', 'x', false]]) assert.equal(S.isKeyWord(w, prev), key, w);
-  assert.match(ass, /,End,,.*FULL DOCUMENTARY ON THE CHANNEL/);
+  assert.match(ass, /,End,,.*FULL DOCUMENTARY\\NON THE CHANNEL/);
 });
 
 test('teaser pacing: a sentence keeps its picture, stays inside its scene, slows a short scene, cuts to "more" only past that', () => {
@@ -267,7 +268,11 @@ test('picture Short planner (1929 Short): no present-day pictures in a period st
   assert.equal(fisher.asset.id, 'p5', '"new" for a real person becomes their archive portrait');
   assert.equal(babson2.asset, undefined, 'a portrait is used at most twice');
   assert.ok(!/Whitney/.test(whitney.newPrompt) && /anonymous/.test(whitney.newPrompt), 'no likeness of a real person');
-  assert.match(S.newPictureStyle(1929), /black-and-white/);
+  // 29 Ekim 2026 (Gimli 20261028-9ff721 / Kartal Yuvası 950730, doygunluk 2,5-6): siyah-beyaz yalnızca Short'un gerçek
+  // arşivi siyah-beyazsa (archiveIsMono), yıl aralığına göre değil; yoksa dönemin doğal renkli fotoğrafı.
+  assert.match(S.newPictureStyle(1929, "", { mono: true }), /black-and-white/);
+  assert.match(S.newPictureStyle(1929), /natural colour photograph/);
+  assert.doesNotMatch(S.newPictureStyle(1929), /black-and-white/);
   assert.equal(S.newPictureStyle(2015), '');
 });
 
@@ -311,4 +316,12 @@ test('Shorts punch-in: a long still is cut in two, the second closer on its subj
   assert.ok(c2.h < c1.h * 0.85 && c2.h >= P.ZOOM_MIN_H, 'closer but still sharp');
   assert.deepEqual(out.slice(2).map((g) => g.abs), ['b.jpg', 'c.mp4', 'd.jpg']);
   assert.equal(P.punchInSegments(out).length, 5, 'never punched twice');
+});
+
+test('teaser end card: a LIKE • SUBSCRIBE plate pops a beat after the card, only when the card shows', async () => {
+  const S = await import('../src/pipeline/docu-shorts.js');
+  const ass = S.buildTeaserAss({ words: [], voiceEnd: 40, total: 43.5 });
+  assert.match(ass, /Style: Like,/);
+  assert.match(ass, /Dialogue: 2,0:00:40\.70,0:00:43\.50,Like,.*LIKE {2}• {2}SUBSCRIBE/);
+  assert.doesNotMatch(S.buildTeaserAss({ words: [], voiceEnd: 40, total: 43.5, endCard: '' }), /,Like,/, 'no end card, no plate');
 });

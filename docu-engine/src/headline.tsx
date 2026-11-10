@@ -54,10 +54,25 @@ export interface NewsStyle {
   desk: string;
   soviet: boolean;
   blur: number;
+  /** A present-day outlet (CBC, Al Jazeera, a 2026 date): clean sans page, no 'PRICE ONE CENT', body text blurred. */
+  modern: boolean;
+  bodyBlur: number;
 }
 
-export function newsStyle(g: Genre, lang: Lang, paper: string): NewsStyle {
+// Fransa videosu (21 Ekim 2026, izleyici notu): CBC News ve Al Jazeera manşetleri 19. yüzyıl Gotik başlığı, 'PRICE ONE
+// CENT' ve okunan anlamsız sütun yazılarıyla ('IT EXSERBER PREALRAL') çıktı. 1990 sonrası tarih ya da bilinen bir
+// dijital yayın: modern sayfa.
+const DIGITAL = /\b(cbc|bbc|cnn|al jazeera|aljazeera|reuters|bloomberg|associated press|ap news|politico|axios|fox news|nbc|cbs|abc news|france 24|euronews|deutsche welle|dw news|sky news|npr|the guardian|washington post|new york times|wall street journal|financial times|le monde|der spiegel)\b/i;
+export function isModernPaper(paper: string, date = ''): boolean {
+  const y = Number((String(date).match(/\b(1[5-9]\d\d|20\d\d)\b/) || [])[1]);
+  return Number.isFinite(y) && y > 0 ? y >= 1990 : DIGITAL.test(paper);
+}
+
+export function newsStyle(g: Genre, lang: Lang, paper: string, date = ''): NewsStyle {
   const soviet = lang === 'ru';
+  if (!soviet && isModernPaper(paper, date)) {
+    return { tone: '#f4f3ef', age: 0.08, ink: '#16181c', mastFont: 'inter', mastColor: '#111318', hedFont: 'inter', hedTrackEm: -0.01, hedCap: [200, 160, 126], desk: g.bg, soviet: false, blur: 0.15, modern: true, bodyBlur: 2.6 };
+  }
   const ascii = /^[\x20-\x7E]*$/.test(paper);
   const tones: Record<string, [string, number]> = {
     documentary: ['#e6d8b7', 0.8],
@@ -83,6 +98,8 @@ export function newsStyle(g: Genre, lang: Lang, paper: string): NewsStyle {
     desk: g.bg,
     soviet,
     blur: soviet || g.id === 'horror' ? 0.55 : 0.3,
+    modern: false,
+    bodyBlur: 0,
   };
 }
 
@@ -191,7 +208,7 @@ export interface HeadlineLayout {
 
 export function headlineLayout(scene: HeadlineScene, genre: Genre): HeadlineLayout {
   const lang = paperLang(scene);
-  const style = newsStyle(genre, lang, scene.paper ?? '');
+  const style = newsStyle(genre, lang, scene.paper ?? '', scene.date ?? '');
   const hed = up(String(scene.headline ?? '').trim() || '—', lang);
   const words = hed.split(/\s+/).filter(Boolean);
   const size = (ls: string[]) =>
@@ -359,6 +376,7 @@ export const Headline: React.FC<{ scene: HeadlineScene; genre: Genre; durFrames:
     const ink = S.ink;
     const folio = (() => {
       const n = 1000 + Math.floor(r() * 28000);
+      if (S.modern) return { l: '', r: '' };
       if (lang === 'ru') return { l: `№ ${1 + Math.floor(r() * 300)} (${n})`, r: `Цена ${[10, 15, 20][Math.floor(r() * 3)]} коп.` };
       if (lang === 'tr') return { l: `SAYI: ${n.toLocaleString('tr-TR')}`, r: `FİYATI ${[5, 10, 25][Math.floor(r() * 3)]} KURUŞ` };
       const vol = ['LX', 'LXI', 'LXXVIII', 'XCIV', 'CXX'][Math.floor(r() * 5)];
@@ -423,12 +441,13 @@ export const Headline: React.FC<{ scene: HeadlineScene; genre: Genre; durFrames:
             width: COLW,
             height: PH - M - top,
             overflow: 'hidden',
-            fontFamily: FONT.oldstandard,
+            fontFamily: S.modern ? FONT.inter : FONT.oldstandard,
             fontSize: 16.5,
             lineHeight: 1.28,
             color: ink,
             textAlign: 'justify',
             hyphens: 'auto',
+            ...(S.bodyBlur ? { filter: `blur(${S.bodyBlur}px)`, opacity: 0.75 } : {}),
           }}
         >
           {paras}
@@ -462,8 +481,8 @@ export const Headline: React.FC<{ scene: HeadlineScene; genre: Genre; durFrames:
             ПРОЛЕТАРИИ ВСЕХ СТРАН, СОЕДИНЯЙТЕСЬ!
           </div>
         ) : null}
-        {earBox(ears[0], 'left')}
-        {earBox(ears[1], 'right')}
+        {S.modern ? null : earBox(ears[0], 'left')}
+        {S.modern ? null : earBox(ears[1], 'right')}
         <div
           style={{
             position: 'absolute',

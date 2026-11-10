@@ -1,11 +1,12 @@
 import React from 'react';
 import { AbsoluteFill, Easing, interpolate, useCurrentFrame, useVideoConfig } from 'remotion';
 import { FONT, fitFont } from '../fonts';
-import { SoftPlate } from '../fx';
 import type { Genre, UiCardScene } from '../types';
+import { useLook } from '../looks/context';
 import { cueFrames, useTopic } from './context';
 import { explainerTopic } from './explainer';
-import { MotifTexture, motifPalette } from './motifs';
+import { DevicePlate } from './cards';
+import { MotifTexture, deviceGround, devicePicture, deviceRing, isLightLook, motifPalette } from './motifs';
 
 /*
  * UI CARD — a real-world interface recreated as a clean card tilted in 3D
@@ -27,7 +28,12 @@ export const UiCardScn: React.FC<{ scene: UiCardScene; genre: Genre; durFrames: 
   const f = useCurrentFrame();
   const { fps } = useVideoConfig();
   const t = explainerTopic(useTopic(), genre);
+  // The card keeps its motif colours; a light look puts it on the motif's paper (Kartal Yuvası 950730, 29 Ekim 2026) —
+  // a light variant too, even on a dark-surfaced scene genre (motifPalette reads the look itself).
+  const light = isLightLook(genre);
+  const look = useLook();
   const P = motifPalette(t, genre);
+  const G = light ? motifPalette(t, genre, true) : P;
   const rows = (scene.rows ?? []).filter((r) => r && String(r.label ?? '').trim()).slice(0, 8);
   const n = rows.length;
   const hl = Number.isInteger(scene.highlight) && (scene.highlight as number) >= 0 && (scene.highlight as number) < n ? (scene.highlight as number) : -1;
@@ -60,7 +66,8 @@ export const UiCardScn: React.FC<{ scene: UiCardScene; genre: Genre; durFrames: 
   const rowKey = terminal ? 'plexMono' : paperish ? P.monoKey : 'inter';
   const tilt = interpolate(f, [0, durFrames], [-16, -9], clamp);
   const tiltX = interpolate(f, [0, durFrames], [7, 4], clamp);
-  const bg = terminal ? '#0b120d' : phone ? '#0f1114' : paperish ? P.paper : '#f7f7f5';
+  // Gimli 9ff721 önce/sonra, 29 Ekim 2026: no device face is near-black — the CRT and the phone are mid-dark (luma >= 45).
+  const bg = terminal ? '#25342c' : phone ? '#2c3038' : paperish ? P.paper : '#f7f7f5';
   const ink = terminal ? '#9cf2b2' : phone ? '#f2f2f2' : paperish ? P.paperInk : '#15171a';
   const font = terminal ? FONT.plexMono : paperish ? P.typed : FONT.inter;
   const hlAt = hl >= 0 ? cues[hl] : Infinity;
@@ -69,9 +76,11 @@ export const UiCardScn: React.FC<{ scene: UiCardScene; genre: Genre; durFrames: 
   const title = String(scene.title ?? '').toUpperCase();
   const tSize = title ? fitFont(title, terminal || paperish ? P.monoKey : 'inter', { maxW: cardW - 120, cap: 44, upper: true, trackEm: 0.06 }) : 0;
   return (
-    <AbsoluteFill style={{ background: `radial-gradient(ellipse at 40% 45%, ${P.ground} 0%, ${P.ground2} 120%)` }}>
-      {(scene as { image?: string }).image ? <SoftPlate src={(scene as { image?: string }).image as string} dim={0.25} blur={8} zoom={1.2} durFrames={durFrames} /> : null}
-      <MotifTexture t={t} strength={1.2} />
+    <AbsoluteFill style={{ background: deviceGround(G, '40% 45%') }}>
+      {/* The related picture soft behind the card (brightness 0.84, opacity 0.5; was 0.25 — a black field). */}
+      <DevicePlate pic={devicePicture(scene, look)} P={G} durFrames={durFrames} />
+      <MotifTexture t={t} light={light} strength={1.2} />
+      <AbsoluteFill style={{ background: deviceRing(light) }} />
       <AbsoluteFill style={{ justifyContent: 'center', alignItems: 'center', perspective: 1600 }}>
         <div
           style={{
@@ -81,7 +90,7 @@ export const UiCardScn: React.FC<{ scene: UiCardScene; genre: Genre; durFrames: 
             background: bg,
             borderRadius: phone ? 64 : terminal ? 14 : paperish ? 2 : 22,
             border: phone ? '14px solid #1d2026' : terminal ? '2px solid #1f3a28' : 'none',
-            boxShadow: `0 60px 120px rgba(0,0,0,0.7)${terminal ? ', inset 0 0 60px rgba(60,255,140,0.08)' : ''}`,
+            boxShadow: `0 60px 120px rgba(0,0,0,${light ? 0.25 : 0.42})${terminal ? ', inset 0 0 60px rgba(60,255,140,0.08)' : ''}`,
             transform: `translateX(${-120 + (1 - enter) * -200}px) rotateY(${tilt}deg) rotateX(${tiltX}deg)`,
             transformStyle: 'preserve-3d',
             opacity: enter,

@@ -138,6 +138,8 @@ function scriptEn(genre) {
     { type: 'counter', mood: 'tension', to: 200000, prefix: '$', suffix: ' in ransom', label: 'IN TWENTY-DOLLAR BILLS', dur: 4.5, chapter: 1, ...said('Two hundred thousand dollars in twenty dollar bills.') },
     { type: 'counter', mood: 'triumph', to: 1517, label: 'LIVES LOST IN THE ATLANTIC', dur: 4.5, chapter: 1, ...said('Fifteen hundred and seventeen lives were lost.') },
     { type: 'counter', mood: 'triumph', to: 1912, year: true, label: 'THE MAIDEN VOYAGE', dur: 4.5, chapter: 1, ...said('It was nineteen twelve, the maiden voyage.') },
+    // Tally (Oct 2026): several numbers in one line land one by one with their words.
+    { type: 'counter', mood: 'tension', to: 324, label: 'TARGETS', dur: 5.5, chapter: 1, ...said('By his count, 324 targets. 100 aircraft. Four Saudis. Two Bangladeshis.') },
     { type: 'chart', mood: 'dread', points: [90, 84, 70, 40, 12, 0.3], prefix: '$', title: 'Airline shares in a single year', from: 'January 2001', to: 'December 2001', dur: 5, chapter: 1, ...said('Airline shares fell to almost nothing in a single year.') },
     { type: 'photo', mood: 'calm', image: PORTRAIT, imgW: 600, imgH: 900, focus: [0.5, 0.3], name: 'Florence Schaffner', role: 'Flight Attendant · Northwest Orient Airlines', dur: 5, chapter: 1, ...said('Florence Schaffner was sitting in the jump seat.') },
     { type: 'photo', mood: 'sad', image: SMALL, imgW: 480, imgH: 360, caption: 'The last photograph of the ship, April 1912', dur: 5, chapter: 1, ...said('Only this blurry photograph survives.') },

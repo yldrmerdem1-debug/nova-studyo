@@ -13,7 +13,8 @@
 // each at its time and holds it to the next.
 //
 // Never on a person's scene (a name card or caption would sit on someone else's picture), an
-// annotated still, footage, a collage board or a line under four seconds.
+// annotated still, footage, a collage board, a held picture, a named real photo (commons) or a line
+// under four seconds; a cutaway's prompt never comes from the narration alone.
 
 const STOP = new Set(`a an the and or but nor of in on at to for from with by as is was were be been being are am it its this that these those he she his her him they them their we our you your i me my not no so then than there here what who whom whose which when where why how into onto over under after before just only even very also some any all every each more most much many still now ever never would could should can will shall may might must has have had do does did done up out down off about again like back last first later soon once yet too well almost nothing one two three four five six seven eight nine ten hundred thousand million`.split(/\s+/));
 
@@ -41,10 +42,28 @@ export function insertScore(s) {
  */
 export function insertable(s) {
   const card = s?.type === 'words' && (s.textMode === 'key' || s.textMode === 'none');
-  if ((s?.type !== 'photo' && !card) || !s.image || s.video || s.annotate || s.name || s.caption || s.images?.length) return false;
-  if (s.cast?.length || s.inserts?.length || s.layers || s.pace === 'hold' || energyOf(s) <= 1) return false;
-  return (s.voiceDur ?? 0) >= 3;
+  // s.cutaway: Nova's preview gate found this line inside a held shot (hook still past 5 s, a still past 15 s) — it
+  // is cut whatever its tempo, and its caption (a place/date line) stays true over a closer view of the same moment.
+  // France, Oct 2026: the director's 'hold' on three hook lines left 6-7 s stills the critic only saw after render.
+  // s.noInserts: Nova's preview gate found this line's cutaway wrong (another country's plate, a fake landmark): no cutaway.
+  if (s?.noInserts) return false;
+  const forced = !!s?.cutaway;
+  // A title the gate cut: the title stays, the picture under it changes (scenes.tsx PlainTitle, as on a key-word card).
+  // Eagle's Nest fire, Oct 2026: "It Burned Down in One Night" held 6.2 s in the hook through four preview rounds. Chapter
+  // and countdown cards draw no cutaways (their pictures would be paid for and never seen).
+  const titled = forced && s?.type === 'title' && !s.chapterCard && !s.rankCard;
+  if ((s?.type !== 'photo' && !card && !titled) || !s.image || s.video || s.annotate || s.name || (s.caption && !forced) || s.images?.length) return false;
+  if (s.cast?.length || s.inserts?.length || s.layers) return false;
+  // 2009 submarine collision, Oct 2026: a line held on the picture before it (bg prev/next — often one the AI cap took
+  // the picture from) got two new AI pictures back, and the real Commons photo of the Bugaled Breizh was cut with an AI
+  // "battered fishing trawler". Neither is cut unless the preview gate asks for it (s.cutaway).
+  if (!forced && (s.heldBg || s.bg === 'prev' || s.bg === 'next' || (s.commons && s.archived))) return false;
+  if (!forced && (s.pace === 'hold' || energyOf(s) <= 1)) return false;
+  return (s.voiceDur ?? 0) >= (forced ? FORCED_MIN_SEC : 3);
 }
+
+/** A forced cutaway (s.cutaway) fits a shorter line: one cut needs a word ~0.8 s in and ~0.6 s before the end. */
+export const FORCED_MIN_SEC = 2.4;
 
 /** A climax line: it speaks of action (guns, fire, a charge, a blizzard) or the director made it rapid. */
 export const climaxLine = (s) => ACTION.test(clean(s?.say)) || s?.pace === 'rapid' || energyOf(s) >= 5;
@@ -56,9 +75,10 @@ export const climaxLine = (s) => ACTION.test(clean(s?.say)) || s?.pace === 'rapi
 export function insertMoments(s, n) {
   const words = spoken(s);
   const dur = s?.voiceDur ?? 0;
+  const [from, tail] = s?.cutaway ? [0.8, 0.6] : [1.1, 1.0];
   const ok = words.filter((w) => {
     const bare = w.word.toLowerCase().replace(/[^\p{L}]/gu, '');
-    return bare.length >= 4 && !STOP.has(bare) && w.t >= 1.1 && w.t <= dur - 1.0;
+    return bare.length >= 4 && !STOP.has(bare) && w.t >= from && w.t <= dur - tail;
   });
   if (!ok.length) return [];
   const aims = n >= 2 ? [0.38, 0.72] : [0.55];
@@ -76,10 +96,18 @@ export function insertMoments(s, n) {
 /** The hook's cutaway window and how many of its lines get one. */
 export const OPENING_SEC = 45;
 export const OPENING_MAX = 3;
+/** A still line this long gets a cutaway wherever it is (the long-video critic's "long hold"). */
+export const LONG_HOLD_SEC = 8;
+export const LONG_HOLD_MAX = 6;
 
+/*
+ * NOTHING THE PICTURE DOES NOT HAVE (2009 submarine collision, Oct 2026): "faces, hands and detail" was added to an
+ * underwater silhouette with "no detail visible", "smoke and distance" to an empty Atlantic in a story without a fire.
+ * The views name only a distance and an angle; what is in them comes from the line's own picture.
+ */
 const VIEWS = [
-  'A closer view of the same moment: faces, hands and detail, a different angle',
-  'A wide view of the same moment: the scale of it, smoke and distance',
+  'A closer view of the same moment: one detail of it, a different angle',
+  'A wider view of the same moment: the place and its scale',
 ];
 
 /**
@@ -87,6 +115,66 @@ const VIEWS = [
  * one climax line per ~70 s of film (4..14), each with 1 picture (2 on a line of 6 s or more).
  */
 export function planInserts(script, { max } = {}) {
+  const out = [];
+  const scenes = script?.scenes ?? [];
+  for (const { s, i } of insertLines(script, { max })) {
+    const at = insertMoments(s, (s.voiceDur ?? 0) >= 6 ? 2 : 1);
+    if (!at.length) continue;
+    const prompts = insertPromptsFor(s, at.length, heldSource(scenes, i));
+    if (!prompts.length) continue;
+    out.push({ i, at, prompts });
+  }
+  return out;
+}
+
+/**
+ * The cutaway pictures' prompts for a line (the same text before and after the voice: the inbox key holds).
+ * What the picture shows comes from a visual description — the line's own prompt or search, else (a held line the
+ * preview gate cut) the picture it holds — never the narration alone: a line the AI cap took the prompt from asked
+ * for "While France spoke, the British boat was still in the Atlantic, damaged.. A closer view…". None: no cutaway.
+ */
+export function insertPromptsFor(s, n, held = null) {
+  const base = clean(s.imagePrompt) || clean(s.search) || clean(held?.imagePrompt) || clean(held?.search);
+  if (!base) return [];
+  return Array.from({ length: n }, (_, k) => `${base}. ${VIEWS[k % VIEWS.length]}. The moment: "${clean(s.say)}"`);
+}
+
+/** The scene whose picture a held line (bg prev/next) shows: the nearest one with that picture of its own. */
+function heldSource(scenes, i) {
+  const s = scenes[i];
+  if (!s?.image || !(s.heldBg || s.bg === 'prev' || s.bg === 'next')) return null;
+  for (let d = 1; d < scenes.length; d++) {
+    for (const j of s.bg === 'next' ? [i + d, i - d] : [i - d, i + d]) {
+      const p = scenes[j];
+      // A borrowed picture is another line's (its own prompt went to the AI cap): never the source.
+      if (p && p !== s && p.image === s.image && !p.heldBg && !p.bg && !p.borrowed) return p;
+    }
+  }
+  return null;
+}
+
+/** An estimated line this long gets both cutaway pictures ahead (the real 2-cutaway threshold is 6 s). */
+export const AHEAD_TWO_SEC = 4.5;
+
+/** Spoken seconds of a line before it is voiced (~2.6 words a second, the narration's pace). */
+export const estimateVoiceDur = (s) => +(String(s?.say ?? '').replace(/\[[^\]]*\]/g, ' ').split(/\s+/).filter(Boolean).length / 2.6).toFixed(2);
+
+/**
+ * CUTAWAYS BEFORE THE VOICE (Hastings, Oct 2026): with ChatGPT stills (manual inbox) the cutaways were planned
+ * after the voice, their pictures went to the inbox and the render went on without them — the hook kept three
+ * 5-7 s holds the plan had already cut. The same lines are planned on estimated voice lengths, so their prompts
+ * join the first inbox list; after the voice the real plan finds them there.
+ */
+export function insertPicturesAhead(script, { max } = {}) {
+  const scenes = (script?.scenes ?? []).map((s) => (s.voiceDur != null ? s : { ...s, voiceDur: estimateVoiceDur(s) }));
+  // The estimate runs short of the real read (a 5.4 s guess was read in 6.3 s): from AHEAD_TWO_SEC the second
+  // cutaway is asked for too — an unused ChatGPT still costs nothing, a missing one stops the render.
+  return insertLines({ ...script, scenes }, { max })
+    .map(({ s, i }) => ({ i, prompts: insertPromptsFor(s, s.voiceDur >= AHEAD_TWO_SEC ? 2 : 1, heldSource(scenes, i)) }))
+    .filter((p) => p.prompts.length);
+}
+
+function insertLines(script, { max } = {}) {
   const scenes = script?.scenes ?? [];
   const total = scenes.reduce((a, s) => a + Math.max(Number(s.dur) || 0, (s.voiceDur ?? 0) + 0.4), 0);
   const cap = max ?? Math.max(4, Math.min(14, Math.round(total / 70)));
@@ -108,12 +196,23 @@ export function planInserts(script, { max } = {}) {
     .filter(({ s, i }) => !taken.has(i) && starts[i] < OPENING_SEC && insertable(s) && (s.voiceDur ?? 0) >= 3.5)
     .slice(0, OPENING_MAX);
   picked.push(...opening);
-  const out = [];
-  for (const { s, i } of picked.sort((a, b) => a.i - b.i)) {
-    const at = insertMoments(s, (s.voiceDur ?? 0) >= 6 ? 2 : 1);
-    if (!at.length) continue;
-    const base = clean(s.imagePrompt) || clean(s.say);
-    out.push({ i, at, prompts: at.map((_, k) => `${base}. ${VIEWS[k % VIEWS.length]}. The moment: "${clean(s.say)}"`) });
-  }
-  return out;
+  /*
+   * NO STILL HELD PAST LONG_HOLD_SEC (Oct 2026, long-video critic: "Nova benden iyi çıkarmalı"): a calm picture line of
+   * 8 s or more gets a cutaway too, wherever it sits — single stills held 10-18 s were left alone because only climax
+   * lines and the hook were cut. Longest lines first, at most LONG_HOLD_MAX.
+   */
+  /*
+   * FORCED CUTS (s.cutaway, Nova's preview gate): every marked line, beyond the caps — the gate only marks lines
+   * inside a held shot, so there are few, and a hook still past 5 s is exactly what this module exists to cut.
+   */
+  const marked = new Set(picked.map((p) => p.i));
+  picked.push(...scenes.map((s, i) => ({ s, i, score: insertScore(s) })).filter(({ s, i }) => s.cutaway && !marked.has(i) && insertable(s)));
+  const held = new Set(picked.map((p) => p.i));
+  const holds = scenes
+    .map((s, i) => ({ s, i, score: insertScore(s) }))
+    .filter(({ s, i }) => !held.has(i) && insertable(s) && (s.voiceDur ?? 0) >= LONG_HOLD_SEC)
+    .sort((a, b) => (b.s.voiceDur ?? 0) - (a.s.voiceDur ?? 0) || a.i - b.i)
+    .slice(0, LONG_HOLD_MAX);
+  picked.push(...holds);
+  return picked.sort((a, b) => a.i - b.i);
 }

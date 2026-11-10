@@ -89,10 +89,10 @@ test('qaVideo: free ffmpeg checks + dHash repeat + one batched vision call (mock
   const logs = [];
   const vision = async (o) => {
     calls.push(o);
-    assert.equal(o.model, 'claude-sonnet-5-5');
+    assert.equal(o.model, 'claude-opus-5-5', 'the long-video critic looks with Opus 5.5');
     assert.equal(o.images.length, 1, 'six frames fit one 4x3 contact sheet');
-    assert.match(o.user, /#4 0:23 sahne 4 · fotoğraf\/görüntü \[arşiv fotoğrafı\] — "Pilot William Rataczak\."/);
-    assert.match(o.user, /#5 0:29 sahne - · BÖLÜM KARTI/);
+    assert.match(o.user, /#4 0:23 \[KANCA\] sahne 4 · fotoğraf\/görüntü \[arşiv fotoğrafı\] — "Pilot William Rataczak\."/);
+    assert.match(o.user, /#5 0:29 \[KANCA\] sahne - · BÖLÜM KARTI/);
     assert.match(o.user, /dönemi: 1971/);
     return { issues: [
       { frame: 4, kind: 'mismatch', severity: 'high', detail: 'Karede pilot değil bir kadın var' },
@@ -101,7 +101,7 @@ test('qaVideo: free ffmpeg checks + dHash repeat + one batched vision call (mock
       { frame: 99, kind: 'broken', severity: 'high', detail: 'olmayan kare' },
     ] };
   };
-  const qa = await Q.qaVideo({ video: VID, script: SCRIPT, placed: PLACED, settings: { ffmpegPath: FFMPEG }, ffmpeg: FFMPEG, llm: vision, outFile: out, logFn: (m) => logs.push(m), durationSec: 38 });
+  const qa = await Q.qaVideo({ video: VID, script: SCRIPT, placed: PLACED, settings: { ffmpegPath: FFMPEG }, ffmpeg: FFMPEG, llm: vision, outFile: out, logFn: (m) => logs.push(m), durationSec: 38, sample: Q.sampleTimes });
   assert.equal(calls.length, 1);
   const kinds = (k) => qa.issues.filter((x) => x.kind === k);
   assert.equal(kinds('black')[0]?.scene, 1, JSON.stringify(qa.issues));

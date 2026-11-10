@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { RankBadges } from './ranking/RankBadge';
+import { ChannelBug } from './ChannelBug';
 import { AbsoluteFill, Audio, Freeze, Sequence, interpolate, random, staticFile, useCurrentFrame, useVideoConfig } from 'remotion';
 import {
   ChromaticDefs,
@@ -8,9 +9,11 @@ import {
   Flicker,
   Grain,
   Letterbox,
+  PictureMoodContext,
   TransitionOverlay,
   Vignette,
   entranceStyle,
+  steadyFootage,
 } from './fx';
 import { setTextLocale } from './fonts';
 import { GENRES } from './genres';
@@ -23,9 +26,10 @@ import { FxStack, PairTransition, isPairKind, pairFrames, styledScenes, transiti
 import { LookContext, type LookCtx } from './looks/context';
 import { GradeDefs } from './looks/grades';
 import { GroundFill } from './looks/backdrops';
-import { sceneLooks, type SceneLook } from './looks/resolve';
+import { chapterSignature, globalVignette, moodFilter, sceneLooks, wantsLetterbox, type SceneLook } from './looks/resolve';
 import { applyVariant, variantFor } from './looks/variants';
 import { SelectiveDefs, TopicContext, TopicSceneLayer, TopicWipe, topicGenre, topicOf, wipeFlags, type TopicCtx } from './topic';
+import { CtaOverlay } from './cta';
 import './looks/fonts';
 import {
   OpeningContext,
@@ -35,6 +39,7 @@ import {
   openingDelayed,
   spokenDelayed,
   openingFilter,
+  withOpeningPictureFilter,
   openingHits,
   openingImpacts,
   openingFoley,
@@ -51,6 +56,9 @@ import {
 // @ts-ignore -- plain ESM shared with Node (lib/produce.mjs, tests); typed by the facade below.
 import * as timelineJs from './timeline.js';
 import type { FoleyHint, FoleyKind, Genre, GenreId, Mood, Scene, Script, SfxKind, TransitionKind } from './types';
+
+/** How hard impacts shake, punch and split the lens (1 = the old pounding; Oct 2026: halved). */
+export const IMPACT_SCALE = 0.5;
 
 export const FPS = 30;
 
@@ -80,7 +88,7 @@ const TL = timelineJs as unknown as {
   voiceRanges(placed: Slot[], scenes: Scene[], fps: number): Range[];
   mergeRanges(ranges: Range[], gap: number): Range[];
   duckCurve(ranges: Range[], total: number, o: { depth: number; attack: number; release: number }): Float32Array;
-  musicEnvelope(o: { placed: Slot[]; scenes: Scene[]; fps: number; base?: number; hits?: { scene: number; f: number }[]; logo?: boolean }): Float32Array;
+  musicEnvelope(o: { placed: Slot[]; scenes: Scene[]; fps: number; base?: number; hits?: { scene: number; f: number }[]; sfx?: { kind: string; at: number }[]; logo?: boolean; endFade?: boolean }): Float32Array;
   planSfx(o: { placed: (Slot & { transition: TransitionKind })[]; scenes: Scene[]; fps: number; genre: GenreId; marks: Mark[]; events?: number[]; seed?: string }): SfxCue[];
   planFoley(o: { placed: Slot[]; scenes: Scene[]; fps: number; wants: FoleyWant[]; hits?: { scene: number; f: number }[]; sfx?: SfxCue[] }): FoleyCue[];
   ambienceEnvelope(o: { placed: Slot[]; scenes: Scene[]; fps: number; hits?: { scene: number; f: number }[] }): Float32Array;
@@ -124,7 +132,13 @@ export function resolveGenre(script: Script): Genre {
   // The video's look variant (src/looks/variants.ts) re-dresses the genre; `palette` still wins over single colours.
   const base = GENRES[script.genre] ?? GENRES.documentary;
   // The topic identity (src/topic) sets its own faces on top.
-  return topicGenre({ ...applyVariant(base, variantFor(base.id, script.look?.variant)), ...(script.palette ?? {}) }, script);
+  const g = topicGenre({ ...applyVariant(base, variantFor(base.id, script.look?.variant)), ...(script.palette ?? {}) }, script);
+  /*
+   * Bars only when the script asks (script.letterbox === true; a cold open draws its own). Gimli 20261028-9ff721 /
+   * Kartal Yuvası 950730, 29 Ekim 2026: crime/epic/horror variants kept 22% of every frame black. Layouts read
+   * genre.letterbox, so they stop reserving room for bars that are no longer drawn.
+   */
+  return { ...g, letterbox: wantsLetterbox(script as { letterbox?: unknown }) };
 }
 
 export interface Placed {
@@ -160,7 +174,13 @@ export function place(script: Script, fps = FPS): Placed[] {
    * signature and pacing; each scene's camera, fit and effects. Seeded, so
    * the same script is the same edit and two scripts never cut alike.
    */
-  const tr = transitionStyle(script, { genre: genre.id, legacyPool: TRANSITION_SET[genre.id] ?? TRANSITION_SET.documentary, signature: genre.transition });
+  /*
+   * The chapter cards cross on the video's OWN palette signature (looks/resolve.ts chapterSignature), not one fixed
+   * genre kind: Kartal Yuvası 950730, 29 Ekim 2026 — every crime/horror chapter opened on a blackout.
+   */
+  const ownPalette = (script as { transitionPalette?: string[] }).transitionPalette;
+  const signature = (ownPalette?.length ? chapterSignature(ownPalette, genre.transition) : genre.transition) as TransitionKind;
+  const tr = transitionStyle(script, { genre: genre.id, legacyPool: TRANSITION_SET[genre.id] ?? TRANSITION_SET.documentary, signature });
   const picked = TL.pickTransitions(script.scenes, {
     pool: tr.pool,
     signature: tr.signature,
@@ -241,6 +261,8 @@ const SceneFrameBody: React.FC<{ p: Placed; genre: Genre; locale: string; off: S
    */
   const s = useMemo(() => (p.scene.video && p.scene.layers ? ({ ...p.scene, layers: undefined } as Scene) : p.scene), [p.scene]);
   const mood = moodOf(s);
+  // Real footage plays as filmed (fx.tsx steadyFootage): no impact shake/punch/lens split and no unease sway on it.
+  const steadyShot = steadyFootage(s);
   const common = { genre, durFrames: p.frames, locale, speed: mood.push, index: p.index };
 
   /*
@@ -255,12 +277,14 @@ const SceneFrameBody: React.FC<{ p: Placed; genre: Genre; locale: string; off: S
   // The opening treatment moves a waiting counter's punch onto its spoken number and adds the hook's (src/opening).
   for (const imp of openingImpacts(opening, p.index, sceneImpacts(s, p.frames, fps, genre))) {
     const d = f - imp.f;
-    if (d < 0 || d > 10) continue;
-    punch += interpolate(d, [0, 2, 10], [0, 0.05, 0], { extrapolateRight: 'clamp' }) * imp.strength;
+    if (steadyShot || d < 0 || d > 10) continue;
+    // IMPACT_SCALE halves every punch, shake and lens split (user, Oct 2026: less pounding, edits that flow with the voice).
+    const s = imp.strength * IMPACT_SCALE;
+    punch += interpolate(d, [0, 2, 10], [0, 0.05, 0], { extrapolateRight: 'clamp' }) * s;
     const decay = Math.max(0, 1 - d / 7);
-    shakeX += (random(`sx${p.index}${f}`) - 0.5) * 26 * decay * imp.strength;
-    shakeY += (random(`sy${p.index}${f}`) - 0.5) * 18 * decay * imp.strength;
-    ca = Math.max(ca, 14 * decay * imp.strength);
+    shakeX += (random(`sx${p.index}${f}`) - 0.5) * 26 * decay * s;
+    shakeY += (random(`sy${p.index}${f}`) - 0.5) * 18 * decay * s;
+    ca = Math.max(ca, 14 * decay * s);
   }
   // Transitions split the lens too, briefly.
   // (A pair transition carries its own motion: no lens flinch on its frozen first frame.)
@@ -269,12 +293,17 @@ const SceneFrameBody: React.FC<{ p: Placed; genre: Genre; locale: string; off: S
    * Unease: a slow, low-frequency handheld sway on tense and dreadful scenes.
    * Not a shake — the viewer should feel it before they notice it.
    */
-  if (mood.unease > 0) {
+  if (mood.unease > 0 && !steadyShot) {
     shakeX += Math.sin(f / 11 + p.index) * 7 * mood.unease + Math.sin(f / 4.3) * 1.5 * mood.unease;
     shakeY += Math.cos(f / 13 + p.index) * 5 * mood.unease;
   }
-  const g = mood.grade;
-  const grade = `saturate(${g.saturate}) brightness(${g.brightness})${g.hue ? ` hue-rotate(${g.hue}deg)` : ''}`;
+  /*
+   * The mood's colour shift (moods.json) goes to the PICTURES only (fx.tsx PictureMoodContext -> Media): type, cards
+   * and devices keep their colours. Gimli 20261028-9ff721 / Kartal Yuvası 950730, 29 Ekim 2026: the filter wrapped the
+   * whole scene, so every dread/sad line went grey and dim, text included.
+   */
+  // The cold open's grade joins the PICTURE mood (opening/index.tsx openingPictureFilter), never the wrapper: Gimli 9ff721 önce/sonra, 29 Ekim 2026.
+  const pictureMood = withOpeningPictureFilter(off.has('grade') ? '' : moodFilter(mood.grade), opening, p.index);
 
   const opCtx = useMemo(() => sceneCtx(opening, p.index, s, p.frames, genre, locale, fps), [opening, p.index, s, p.frames, genre, locale, fps]);
   const opBody = useMemo(() => openingBody(opening, p.index, s, p.frames, genre, locale), [opening, p.index, s, p.frames, genre, locale]);
@@ -284,7 +313,7 @@ const SceneFrameBody: React.FC<{ p: Placed; genre: Genre; locale: string; off: S
   if (opBody) body = opBody;
   else if (s.type === 'title') body = <Title {...common} scene={s} />;
   else if (s.type === 'slam') body = <Slam {...common} scene={s} />;
-  else if (s.type === 'counter') body = openingDelayed(opening, p.index, p.frames, (d) => <Counter {...common} durFrames={d} scene={s} />) ?? spokenDelayed(scenes, p.index, p.frames, fps, (d) => <Counter {...common} durFrames={d} scene={s} />) ?? <Counter {...common} scene={s} />;
+  else if (s.type === 'counter') body = openingDelayed(opening, p.index, p.frames, (d, w) => <Counter {...common} durFrames={d} scene={s} offset={w} />) ?? spokenDelayed(scenes, p.index, p.frames, fps, (d, w) => <Counter {...common} durFrames={d} scene={s} offset={w} />) ?? <Counter {...common} scene={s} />;
   else if (s.type === 'photo') body = <PhotoScn {...common} scene={s} />;
   else if (s.type === 'words') body = <Words {...common} scene={s} />;
   else if (s.type === 'chart') body = <Chart {...common} scene={s} />;
@@ -303,10 +332,12 @@ const SceneFrameBody: React.FC<{ p: Placed; genre: Genre; locale: string; off: S
           filter: [entranceStyle(p.transition, f).filter, ca > 0.3 && !off.has('ca') ? `url(#${caId})` : ''].filter(Boolean).join(' ') || undefined,
         }}
       >
-        <AbsoluteFill style={{ transform: `translate(${shakeX}px, ${shakeY}px) scale(${punch})`, filter: [off.has('grade') ? '' : grade, opFilter ?? ''].filter(Boolean).join(' ') || undefined }}>
-          <FxStack scene={s} durFrames={p.frames} index={p.index} genre={genre}>
-            {opCtx ? <OpeningContext.Provider value={opCtx}>{body}</OpeningContext.Provider> : body}
-          </FxStack>
+        <AbsoluteFill style={{ transform: `translate(${shakeX}px, ${shakeY}px) scale(${punch})`, filter: opFilter || undefined }}>
+          <PictureMoodContext.Provider value={pictureMood}>
+            <FxStack scene={s} durFrames={p.frames} index={p.index} genre={genre}>
+              {opCtx ? <OpeningContext.Provider value={opCtx}>{body}</OpeningContext.Provider> : body}
+            </FxStack>
+          </PictureMoodContext.Provider>
           {/* The topic's metaphor icons (src/topic): part of the picture, so inside the camera shake. */}
           <TopicSceneLayer scene={s} genre={genre} durFrames={p.frames} />
         </AbsoluteFill>
@@ -314,6 +345,8 @@ const SceneFrameBody: React.FC<{ p: Placed; genre: Genre; locale: string; off: S
       </AbsoluteFill>
       <TransitionOverlay kind={p.transition} genre={genre} f={f} />
       <TopicWipe index={p.index} durFrames={p.frames} genre={genre} />
+      {/* The one viewer call, shown on its spoken word (src/cta.tsx); outside the camera shake. */}
+      {s.cta ? <CtaOverlay scene={s} genre={genre} durFrames={p.frames} locale={locale} /> : null}
       {/* Silent inside a pair-transition window: the voice plays from the scene's own sequence. */}
       {!React.useContext(SilentScene) && s.voice ? <Audio src={staticFile(s.voice)} /> : null}
       {/*
@@ -689,7 +722,8 @@ export function buildPlan(script: Script, fps: number = FPS) {
   const cues = [...TL.planSfx({ placed, scenes, fps, genre: genre.id, marks, events, seed: script.seedKey ?? script.id }), ...openingSfx(opening, scenes, placed, fps)].sort(
     (a, b) => a.at - b.at || a.key.localeCompare(b.key),
   );
-  const music = TL.musicEnvelope({ placed, scenes: openingMusicScenes(op, scenes), fps, base: script.musicVolume ?? 0.55, hits, logo: !!script.logo?.file });
+  // sfx: chapter-card and blackout hits hold the music out too; endFade: a composed score has no fade of its own.
+  const music = TL.musicEnvelope({ placed, scenes: openingMusicScenes(op, scenes), fps, base: script.musicVolume ?? 0.55, hits, sfx: cues, logo: !!script.logo?.file, endFade: !script.musicCues?.length });
   const foley = script.foleyFiles
     ? TL.planFoley({ placed, scenes, fps, wants: [...foleyWants(placed, genre, fps, script.locale ?? 'tr-TR', script.topic?.motif), ...openingFoley(opening, scenes, placed, fps)], hits, sfx: cues })
     : [];
@@ -776,10 +810,11 @@ export const Engine: React.FC<{ script: Script }> = ({ script }) => {
   const off = new Set(script.perfOff ?? []);
 
   /*
-   * Music bed (timeline.js musicEnvelope): ducks ~11 dB under narration and
-   * stays down through continuous speech, stops down before a slam word and
-   * swells back on the hit, breathes on chapter cards and silences, and fades
-   * out over the last 2.5 s.
+   * Music bed (timeline.js musicEnvelope): ducks by the scene's mood (~16-21 dB
+   * under the voice) and stays down through continuous speech, comes down further
+   * under quotes and death lines, stops down before a slam word and stays out
+   * while the hit rings, breathes on chapter cards, silences and music windows.
+   * The library score's own 3.5 s fade ends it (renderScore).
    */
   const musicVolume = (f: number) => music[Math.min(Math.max(0, f), music.length - 1)] ?? 0;
 
@@ -817,11 +852,14 @@ export const Engine: React.FC<{ script: Script }> = ({ script }) => {
       {/* Flicker only where the mood is uneasy, and never on a punch frame. */}
       {genre.flicker && !off.has('flicker') ? <Flicker strength={(f: number) => flicker[f] ?? 0} /> : null}
       {genre.dust && !off.has('dust') ? <Dust /> : null}
-      {off.has('vignette') ? null : <Vignette strength={genre.vignette} />}
-      {/* One constant pair of bars for the whole film; per-scene bars pumped in and out on every cut. */}
+      {/* One soft vignette, never above VIGNETTE_MAX (looks/resolve.ts). */}
+      {off.has('vignette') ? null : <Vignette strength={globalVignette(genre.vignette)} />}
+      {/* One constant pair of bars for the whole film, and only when the script asks for them (resolveGenre). */}
       {genre.letterbox && !off.has('letterbox') ? <Letterbox animate={false} /> : null}
       {/* A countdown's corner label: which item is running (src/ranking/RankBadge.tsx). */}
       {script.format === 'ranking' ? <RankBadges placed={placed} ranking={script.ranking} genre={genre} /> : null}
+      {/* The channel's corner name over picture scenes (Settings → channel names). */}
+      {script.channel ? <ChannelBug name={script.channel} placed={placed} genre={genre} /> : null}
       {off.has('grain') ? null : <Grain strength={genre.grain} />}
 
       {script.music ? <Audio src={staticFile(script.music)} volume={musicVolume} /> : null}

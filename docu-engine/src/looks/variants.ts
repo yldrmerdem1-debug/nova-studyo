@@ -14,6 +14,11 @@ import type { Backdrop, FontKey, Genre, GenreId, Grade, TextStyle } from '../typ
  *
  * Chosen per video with script.look = { variant: '<id>' }. Unknown or absent
  * = the genre's original look, so old scripts render exactly as before.
+ *
+ * Gimli 20261028-9ff721 / Kartal Yuvası 950730, 29 Ekim 2026: the dark variants' 0.6-0.9 vignettes are 0.3-0.4
+ * now (the engine caps the global one at 0.35), their letterbox is opt-in (script.letterbox), and a variant's
+ * desaturating grade (mono, duotone, bleach, cyanotype; sepia after 1940) is no longer the base of every photo —
+ * looks/resolve.ts sceneGrade keeps colour unless a chapter or scene chose the accent.
  * Pure data: no React, no fonts (scripts/dump-looks.mjs bundles it).
  */
 
@@ -90,7 +95,7 @@ export const VARIANTS: LookVariant[] = [
     set: {
       look: 'label', bg: '#0b1b4d', ink: '#f2f5ff', accent: '#ff5a36', accent2: '#8fd3ff', titleInk: '#f2f5ff',
       duoShadow: '#07123a', duoHighlight: '#dfeaff', headline: 'spacegrotesk', body: 'inter',
-      grain: 0.12, vignette: 0.45, dust: false, leak: 0.06, pattern: 'grid', collage: true, paper: '#f2f5ff',
+      grain: 0.12, vignette: 0.3, dust: false, leak: 0.06, pattern: 'grid', collage: true, paper: '#f2f5ff',
       labelBg: '#ff5a36', labelInk: '#ffffff',
     },
     grade: 'duotone', backdrop: { kind: 'gradient', color: '#1d3a8f', color2: '#08133a' }, textStyles: ['marker', 'outline', 'lower-third'],
@@ -126,7 +131,7 @@ export const VARIANTS: LookVariant[] = [
     set: {
       look: 'glow', bg: '#0c1416', ink: '#f4f1ea', accent: '#ff9b42', accent2: '#2ec4b6', titleInk: '#f4f1ea',
       duoShadow: '#061012', duoHighlight: '#ffe2c4', headline: 'bebas', body: 'inter',
-      grain: 0.14, vignette: 0.6, dust: false, leak: 0.1, pattern: 'none', collage: false, letterbox: true,
+      grain: 0.14, vignette: 0.35, dust: false, leak: 0.1, pattern: 'none', collage: false, letterbox: true,
       labelBg: '#ff9b42', labelInk: '#0c1416',
     },
     grade: 'teal-orange', backdrop: { kind: 'blur' }, textStyles: ['lower-third', 'underline', 'outline'],
@@ -146,7 +151,7 @@ export const VARIANTS: LookVariant[] = [
     set: {
       look: 'label', bg: '#0d0b08', ink: '#f4ecd8', accent: '#d4af37', accent2: '#b22222', titleInk: '#e9cf7a',
       duoShadow: '#0d0904', duoHighlight: '#f1dfae', headline: 'dmserif', body: 'inter',
-      grain: 0.12, vignette: 0.6, leak: 0.12, pattern: 'none', collage: true, paper: '#f6efdc',
+      grain: 0.12, vignette: 0.35, leak: 0.12, pattern: 'none', collage: true, paper: '#f6efdc',
       labelBg: '#d4af37', labelInk: '#0d0b08',
     },
     grade: 'warm', backdrop: { kind: 'gradient', color: '#2a2110', color2: '#050403' }, textStyles: ['serif', 'underline', 'lower-third'],
@@ -182,7 +187,7 @@ export const VARIANTS: LookVariant[] = [
     set: {
       look: 'label', bg: '#1a0306', ink: '#fff1f0', accent: '#ff2a3d', accent2: '#ffd166', titleInk: '#fff1f0',
       duoShadow: '#14000a', duoHighlight: '#ffc2c7', headline: 'anton', body: 'inter',
-      grain: 0.14, vignette: 0.6, leak: 0.06, pattern: 'dots', collage: true, paper: '#fff1f0',
+      grain: 0.14, vignette: 0.35, leak: 0.06, pattern: 'dots', collage: true, paper: '#fff1f0',
       labelBg: '#ff2a3d', labelInk: '#ffffff',
     },
     grade: 'duotone', backdrop: { kind: 'halftone', color: '#2a0508', color2: '#ff2a3d' }, textStyles: ['stamp', 'glitch', 'outline'],
@@ -214,7 +219,7 @@ export const VARIANTS: LookVariant[] = [
     set: {
       look: 'terminal', bg: '#050807', ink: '#e8ffe8', accent: '#ff2e2e', accent2: '#9dff9d', titleInk: '#e8ffe8',
       duoShadow: '#020403', duoHighlight: '#cfe8cf', headline: 'jetbrains', body: 'jetbrains',
-      grain: 0.34, vignette: 0.7, flicker: true, dust: false, letterbox: false, leak: 0, pattern: 'scan', collage: false,
+      grain: 0.34, vignette: 0.38, flicker: true, dust: false, letterbox: false, leak: 0, pattern: 'scan', collage: false,
       labelBg: '#ff2e2e', labelInk: '#050807',
     },
     grade: 'vhs', backdrop: { kind: 'blur' }, textStyles: ['glitch', 'typewriter', 'lower-third'],
@@ -238,7 +243,7 @@ export const VARIANTS: LookVariant[] = [
     set: {
       look: 'glow', bg: '#031018', ink: '#d8f1ff', accent: '#7fe0ff', accent2: '#ff3b3b', titleInk: '#d8f1ff',
       duoShadow: '#021019', duoHighlight: '#bfe9ff', headline: 'bebas', body: 'crimson',
-      grain: 0.3, vignette: 0.85, flicker: true, dust: true, letterbox: true, leak: 0, pattern: 'scan', collage: false,
+      grain: 0.3, vignette: 0.4, flicker: true, dust: true, letterbox: true, leak: 0, pattern: 'scan', collage: false,
       labelBg: '#7fe0ff', labelInk: '#031018',
     },
     grade: 'cyanotype', backdrop: { kind: 'gradient', color: '#0a2a3d', color2: '#01070b' }, textStyles: ['outline', 'neon', 'serif'],
@@ -250,7 +255,7 @@ export const VARIANTS: LookVariant[] = [
     set: {
       look: 'glow', bg: '#0a0412', ink: '#f4e9ff', accent: '#ff2fd0', accent2: '#3cf0ff', titleInk: '#f4e9ff',
       duoShadow: '#07010d', duoHighlight: '#f0b8ff', headline: 'exo', body: 'inter',
-      grain: 0.26, vignette: 0.8, flicker: true, dust: false, letterbox: true, leak: 0.05, pattern: 'scan', collage: false,
+      grain: 0.26, vignette: 0.4, flicker: true, dust: false, letterbox: true, leak: 0.05, pattern: 'scan', collage: false,
       labelBg: '#ff2fd0', labelInk: '#0a0412',
     },
     grade: 'duotone', backdrop: { kind: 'gradient', color: '#2a0838', color2: '#05020a' }, textStyles: ['neon', 'glitch', 'outline'],
@@ -262,7 +267,7 @@ export const VARIANTS: LookVariant[] = [
     set: {
       look: 'glow', bg: '#140d07', ink: '#efe0c4', accent: '#c9a15a', accent2: '#7a1c12', titleInk: '#e8c98c',
       duoShadow: '#0f0904', duoHighlight: '#e9d6ad', headline: 'playfair', body: 'lora',
-      grain: 0.34, vignette: 0.85, flicker: true, dust: true, letterbox: true, leak: 0.04, pattern: 'none', collage: false,
+      grain: 0.34, vignette: 0.4, flicker: true, dust: true, letterbox: true, leak: 0.04, pattern: 'none', collage: false,
       labelBg: '#c9a15a', labelInk: '#140d07',
     },
     grade: 'sepia', backdrop: { kind: 'texture', color: '#2a1b0e' }, textStyles: ['serif', 'typewriter', 'cutout'],
@@ -282,7 +287,7 @@ export const VARIANTS: LookVariant[] = [
     set: {
       look: 'label', bg: '#07111c', ink: '#e6f0f7', accent: '#4fc3f7', accent2: '#ff4d4d', titleInk: '#e6f0f7',
       duoShadow: '#03080f', duoHighlight: '#9fd3f5', headline: 'oswald', body: 'spacegrotesk',
-      grain: 0.2, vignette: 0.7, letterbox: true, leak: 0, pattern: 'grid', collage: true, paper: '#e8eef2',
+      grain: 0.2, vignette: 0.38, letterbox: true, leak: 0, pattern: 'grid', collage: true, paper: '#e8eef2',
       labelBg: '#4fc3f7', labelInk: '#031018',
     },
     grade: 'cool', backdrop: { kind: 'gradient', color: '#0f2a44', color2: '#040a12' }, textStyles: ['lower-third', 'underline', 'glitch'],
@@ -294,7 +299,7 @@ export const VARIANTS: LookVariant[] = [
     set: {
       look: 'label', bg: '#120606', ink: '#f5e9e4', accent: '#e0201b', accent2: '#f5e9e4', titleInk: '#f5e9e4',
       duoShadow: '#0b0303', duoHighlight: '#e8c9bd', headline: 'bebas', body: 'courier',
-      grain: 0.28, vignette: 0.75, letterbox: true, leak: 0, pattern: 'none', collage: true, paper: '#efe4da',
+      grain: 0.28, vignette: 0.38, letterbox: true, leak: 0, pattern: 'none', collage: true, paper: '#efe4da',
       labelBg: '#e0201b', labelInk: '#ffffff',
     },
     grade: 'duotone', backdrop: { kind: 'texture', color: '#2a0c0a' }, textStyles: ['marker', 'cutout', 'stamp'],
@@ -318,7 +323,7 @@ export const VARIANTS: LookVariant[] = [
     set: {
       look: 'glow', bg: '#0b1012', ink: '#f3efe6', accent: '#ffb000', accent2: '#d7263d', titleInk: '#f3efe6',
       duoShadow: '#06090b', duoHighlight: '#f5deb8', headline: 'bebas', body: 'inter',
-      grain: 0.2, vignette: 0.7, letterbox: true, leak: 0.04, pattern: 'none', collage: false,
+      grain: 0.2, vignette: 0.38, letterbox: true, leak: 0.04, pattern: 'none', collage: false,
       labelBg: '#ffb000', labelInk: '#0b1012',
     },
     grade: 'teal-orange', backdrop: { kind: 'blur' }, textStyles: ['lower-third', 'outline', 'underline'],
@@ -330,7 +335,7 @@ export const VARIANTS: LookVariant[] = [
     set: {
       look: 'terminal', bg: '#0a0a0f', ink: '#ffffff', accent: '#00e5ff', accent2: '#ff2bd6', titleInk: '#ffffff',
       duoShadow: '#050508', duoHighlight: '#d8f7ff', headline: 'jetbrains', body: 'jetbrains',
-      grain: 0.3, vignette: 0.6, letterbox: false, leak: 0, pattern: 'scan', collage: false,
+      grain: 0.3, vignette: 0.35, letterbox: false, leak: 0, pattern: 'scan', collage: false,
       labelBg: '#00e5ff', labelInk: '#0a0a0f',
     },
     grade: 'vhs', backdrop: { kind: 'solid', color: '#0b0b12' }, textStyles: ['glitch', 'typewriter', 'lower-third'],
@@ -362,7 +367,7 @@ export const VARIANTS: LookVariant[] = [
     set: {
       look: 'label', bg: '#0e0c0b', ink: '#f0e6dc', accent: '#c1121f', accent2: '#d9a441', titleInk: '#f0e6dc',
       duoShadow: '#0a0808', duoHighlight: '#e4d9cc', headline: 'oswald', body: 'inter',
-      grain: 0.3, vignette: 0.75, dust: true, letterbox: true, leak: 0.04, pattern: 'none', collage: false,
+      grain: 0.3, vignette: 0.38, dust: true, letterbox: true, leak: 0.04, pattern: 'none', collage: false,
       labelBg: '#c1121f', labelInk: '#ffffff',
     },
     grade: 'bleach', backdrop: { kind: 'texture', color: '#1c1917' }, textStyles: ['stamp', 'outline', 'stack'],
@@ -374,7 +379,7 @@ export const VARIANTS: LookVariant[] = [
     set: {
       look: 'glow', bg: '#140b20', ink: '#f3ecff', accent: '#e3b341', accent2: '#b07cff', titleInk: '#f1d58a',
       duoShadow: '#0c0514', duoHighlight: '#e6d3ff', headline: 'dmserif', body: 'lora',
-      grain: 0.18, vignette: 0.7, dust: true, letterbox: true, leak: 0.14, pattern: 'none', collage: false,
+      grain: 0.18, vignette: 0.38, dust: true, letterbox: true, leak: 0.14, pattern: 'none', collage: false,
       labelBg: '#e3b341', labelInk: '#140b20',
     },
     grade: 'duotone', backdrop: { kind: 'gradient', color: '#3a1c5c', color2: '#0b0512' }, textStyles: ['serif', 'lower-third', 'underline'],
@@ -386,7 +391,7 @@ export const VARIANTS: LookVariant[] = [
     set: {
       look: 'label', bg: '#10141a', ink: '#fff8ec', accent: '#ff7a1a', accent2: '#1f6feb', titleInk: '#fff8ec',
       duoShadow: '#0a0d12', duoHighlight: '#ffe7c7', headline: 'anton', body: 'inter',
-      grain: 0.16, vignette: 0.55, dust: false, letterbox: true, leak: 0.1, pattern: 'none', collage: false,
+      grain: 0.16, vignette: 0.32, dust: false, letterbox: true, leak: 0.1, pattern: 'none', collage: false,
       labelBg: '#ff7a1a', labelInk: '#10141a',
     },
     grade: 'kodachrome', backdrop: { kind: 'blur' }, textStyles: ['stack', 'outline', 'lower-third'],
@@ -398,7 +403,7 @@ export const VARIANTS: LookVariant[] = [
     set: {
       look: 'label', bg: '#1c140c', ink: '#f2e3c6', accent: '#e2b05c', accent2: '#8b2f1c', titleInk: '#f2e3c6',
       duoShadow: '#140d06', duoHighlight: '#efdcb4', headline: 'playfair', body: 'courier',
-      grain: 0.28, vignette: 0.7, dust: true, letterbox: true, leak: 0.08, pattern: 'none', collage: true, paper: '#efe2c6',
+      grain: 0.28, vignette: 0.38, dust: true, letterbox: true, leak: 0.08, pattern: 'none', collage: true, paper: '#efe2c6',
       labelBg: '#e2b05c', labelInk: '#1c140c',
     },
     grade: 'sepia', backdrop: { kind: 'texture', color: '#2c1f12' }, textStyles: ['typewriter', 'stamp', 'serif'],
@@ -442,7 +447,7 @@ export const VARIANTS: LookVariant[] = [
     set: {
       look: 'glow', bg: '#0a0620', ink: '#f5f3ff', accent: '#7cffcb', accent2: '#ff6ad5', titleInk: '#f5f3ff',
       duoShadow: '#07041a', duoHighlight: '#d8fff0', headline: 'exo', body: 'inter',
-      grain: 0.1, vignette: 0.55, leak: 0.1, pattern: 'none', collage: false,
+      grain: 0.1, vignette: 0.32, leak: 0.1, pattern: 'none', collage: false,
       labelBg: '#7cffcb', labelInk: '#0a0620',
     },
     grade: 'color', backdrop: { kind: 'gradient', color: '#2a1070', color2: '#053b4a' }, textStyles: ['neon', 'stack', 'outline'],
@@ -454,7 +459,7 @@ export const VARIANTS: LookVariant[] = [
     set: {
       look: 'label', bg: '#1a0a05', ink: '#fff0e6', accent: '#ff6b2c', accent2: '#3ad0ff', titleInk: '#fff0e6',
       duoShadow: '#120502', duoHighlight: '#ffc7a3', headline: 'archivo', body: 'spacegrotesk',
-      grain: 0.16, vignette: 0.6, leak: 0.08, pattern: 'dots', collage: false,
+      grain: 0.16, vignette: 0.35, leak: 0.08, pattern: 'dots', collage: false,
       labelBg: '#ff6b2c', labelInk: '#1a0a05',
     },
     grade: 'duotone', backdrop: { kind: 'split-color', color: '#ff6b2c', color2: '#1a0a05' }, textStyles: ['stack', 'lower-third', 'underline'],
@@ -466,7 +471,7 @@ export const VARIANTS: LookVariant[] = [
     set: {
       look: 'label', bg: '#111418', ink: '#f1efe6', accent: '#fc3d21', accent2: '#5b8def', titleInk: '#f1efe6',
       duoShadow: '#0a0c10', duoHighlight: '#efe6d2', headline: 'oswald', body: 'courier',
-      grain: 0.2, vignette: 0.5, dust: true, leak: 0.06, pattern: 'none', collage: true, paper: '#f1ece0',
+      grain: 0.2, vignette: 0.32, dust: true, leak: 0.06, pattern: 'none', collage: true, paper: '#f1ece0',
       labelBg: '#fc3d21', labelInk: '#ffffff',
     },
     grade: 'kodachrome', backdrop: { kind: 'halftone', color: '#0b3d91', color2: '#5b8def' }, textStyles: ['typewriter', 'stamp', 'lower-third'],
@@ -510,7 +515,7 @@ export const VARIANTS: LookVariant[] = [
     set: {
       look: 'glow', bg: '#0b1424', ink: '#eef4ff', accent: '#ffb86b', accent2: '#9ec5ff', titleInk: '#eef4ff',
       duoShadow: '#070d18', duoHighlight: '#dbe8ff', headline: 'playfair', body: 'inter',
-      grain: 0.12, vignette: 0.55, leak: 0.12, pattern: 'none', collage: false,
+      grain: 0.12, vignette: 0.32, leak: 0.12, pattern: 'none', collage: false,
       labelBg: '#ffb86b', labelInk: '#0b1424',
     },
     grade: 'cool', backdrop: { kind: 'gradient', color: '#1b3358', color2: '#060b14' }, textStyles: ['serif', 'lower-third', 'outline'],
@@ -522,7 +527,7 @@ export const VARIANTS: LookVariant[] = [
     set: {
       look: 'label', bg: '#0e0e0e', ink: '#f5f5f5', accent: '#ffffff', accent2: '#e63946', titleInk: '#f5f5f5',
       duoShadow: '#0a0a0a', duoHighlight: '#f0f0f0', headline: 'dmserif', body: 'inter',
-      grain: 0.16, vignette: 0.55, leak: 0, pattern: 'none', collage: false,
+      grain: 0.16, vignette: 0.32, leak: 0, pattern: 'none', collage: false,
       labelBg: '#f5f5f5', labelInk: '#0e0e0e',
     },
     grade: 'mono', backdrop: { kind: 'solid', color: '#101010' }, textStyles: ['serif', 'underline', 'stack'],
@@ -549,6 +554,15 @@ export function variantFor(genre: GenreId | string | undefined, id: string | und
   if (!id) return undefined;
   const v = BY_ID.get(String(id));
   return v && v.genre === genre ? v : undefined;
+}
+
+/**
+ * Is the VIDEO's look light (dark ink on paper)? A scene's resolved genre says only what its own ground is (a
+ * chapter card over its next shot resolves dark); chapter cards and the motif furniture ask the variant itself.
+ * Kartal Yuvası 950730, 29 Ekim 2026: chapter cards were always near-black, even in a paper look.
+ */
+export function isLightVariant(id: string | undefined): boolean {
+  return !!(id && BY_ID.get(String(id))?.light);
 }
 
 /** A genre re-dressed by its variant (the variant's defaults ride along on the Genre). */

@@ -10,6 +10,14 @@
 //   compareInterest(terms)    Google Trends interest over 90 days, the benchmark included (unofficial
 //                             endpoints, best effort: null when Google refuses)
 //   evaluateTrending(...)     Claude: fit for the channels, confusion, bigness, title, angle, safety line
+//   newsGate(pick)            the go/no-go every news pick must pass before a video is made (below)
+//
+// The channel's own numbers (Behind the Headline, 27 Oct 2026, long videos): France curfew 3,527
+// impressions / 607 views, Panama 7.7 quake 1,839 / 4.9% CTR / 7:11 avg — an ESCALATING or unfolding
+// story, huge for the English-speaking world, with one open why/how question. Lula's fourth term: 92
+// impressions on day one — a ONE-OFF result; "lula wins fourth term" on YouTube was CNN, Bloomberg x3,
+// ABC, France 24 and AFP within 11-23 h. El Niño and the Red Sea cables (abstract, 1.2% CTR) stopped at
+// 342 impressions. YouTube tests a new video on a few hundred people and stops when nobody clicks.
 import { callJSON } from "../llm.js";
 
 const UA = { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36" };
@@ -74,12 +82,13 @@ const unwrap = (t) => JSON.parse(t.slice(t.indexOf("{")));
  * peak and its latest day, and its peak relative to the benchmark's peak (1 = as big as the benchmark).
  * Unofficial endpoints: null when Google refuses (rate limit) — the radar then works without it.
  */
-export async function compareInterest(terms, { geo = "US", benchmark = DEFAULT_BENCHMARK.term, fetchFn = (...a) => fetch(...a) } = {}) {
+export async function compareInterest(terms, { geo = "US", benchmark = DEFAULT_BENCHMARK.term, property = "", time = "today 3-m", fetchFn = (...a) => fetch(...a) } = {}) {
   const list = [benchmark, ...terms.filter((t) => t && t !== benchmark)].slice(0, 5);
   try {
     const home = await fetchFn(`https://trends.google.com/trends/?geo=${geo}`, { headers: UA });
     const cookie = (home.headers.getSetCookie?.() || []).map((c) => c.split(";")[0]).join("; ");
-    const req = { comparisonItem: list.map((keyword) => ({ keyword, geo, time: "today 3-m" })), category: 0, property: "" };
+    // property "youtube" = YouTube search (Trends' gprop): what a YouTube channel is actually found by.
+    const req = { comparisonItem: list.map((keyword) => ({ keyword, geo, time })), category: 0, property };
     const ex = await fetchFn(`https://trends.google.com/trends/api/explore?hl=en-US&tz=0&req=${encodeURIComponent(JSON.stringify(req))}`, { headers: { ...UA, cookie } });
     if (!ex.ok) return null;
     const w = unwrap(await ex.text()).widgets.find((x) => x.id === "TIMESERIES");
@@ -114,14 +123,17 @@ const VERDICT = {
           confusion: { type: "integer", description: "0-5: how confused / misinformed people are (competing versions, rumours, fear, unanswered question)" },
           bigness: { type: "integer", description: "0-5: how big it is for an English-speaking audience" },
           freshness: { type: "string", description: "how recent, e.g. 'today', '2 days'" },
+          ageHours: { type: "integer", description: "hours since the story broke (from the headline dates)" },
+          arc: { type: "string", enum: ["escalating", "unfolding", "one-off"], description: "escalating = still growing day by day (riots spreading, a war widening, curfews added); unfolding = one event whose aftermath is still being reported (a quake's damage and rescue); one-off = complete the moment it is reported (an election result, a verdict, a score, a launch, an earnings number)" },
+          explainerGap: { type: "integer", description: "0-5: how much the broadcasters' news clips (CNN, BBC, Bloomberg, AFP…) leave the main why/how question unanswered; 0 = their clips already answer it, 5 = everyone reports it and nobody explains it" },
           question: { type: "string", description: "the one question millions are asking" },
-          title: { type: "string", description: "a curiosity-gap YouTube title, honest, max 65 characters" },
+          title: { type: "string", description: "max 65 characters: <the place or event by its searchable name> (+ a concrete number): Why/How/What …? — e.g. \"Panama's 7.7 Earthquake: Why Wasn't It Worse?\", \"France Under Curfew: What Really Set Off the Riots?\". Never a recap of the result (\"Lula Wins Fourth Term…\")" },
           thumbnail: { type: "string", description: "2-4 word thumbnail line" },
           angle: { type: "string", description: "the explainer's angle in 2-3 sentences: what it will make clear that the headlines don't" },
           neverSay: { type: "string", description: "the one claim the video must NOT make (unconfirmed, panic, defamation)" },
           searchTerm: { type: "string", description: "a 1-3 word English Google search term for this story, to compare its interest" },
         },
-        required: ["trend", "story", "channel", "confusion", "bigness", "freshness", "question", "title", "thumbnail", "angle", "neverSay", "searchTerm"],
+        required: ["trend", "story", "channel", "confusion", "bigness", "freshness", "ageHours", "arc", "explainerGap", "question", "title", "thumbnail", "angle", "neverSay", "searchTerm"],
         additionalProperties: false,
       },
     },
@@ -139,6 +151,7 @@ export async function evaluateTrending({ items, headlines = [], channels = "hist
     user: [
       `The channels: ${channels}. English, global audience, cinematic documentary explainers and Shorts.`,
       `What works (measured): a small channel's "Nepal Floods 2026 Explained" took 4M views because everyone was talking about it and nobody knew what had happened. Timing and confusion beat polish. News clips from broadcasters are not competition; a clear explainer is.`,
+      `Our own channel (11 subscribers): France's riots and curfews (escalating, huge in the English-speaking world, "what really set them off?") and Panama's 7.7 quake (unfolding, "why wasn't it worse?") were pushed by YouTube; Lula's election win (a one-off result CNN, Bloomberg and AFP covered within hours) and abstract stories (El Niño's numbers, Red Sea cables) were not. Prefer escalating or unfolding stories with an open why/how question the broadcasters' clips do not answer.`,
       "",
       "Trending searches now:",
       list,
@@ -152,4 +165,40 @@ export async function evaluateTrending({ items, headlines = [], channels = "hist
     logFn,
   });
   return res?.picks || [];
+}
+
+/** The go/no-go thresholds (Behind the Headline's numbers, header). */
+export const NEWS_GATE = { minBigness: 4, minGap: 3, maxAgeHours: 48, fadeRatio: 0.4 };
+
+/**
+ * A news title must ask the question the video answers; a recap of the result is the broadcasters'
+ * search ("Lula Wins Fourth Term: From 2.3M Behind to 4.4M Ahead", 2.2% CTR, 92 impressions).
+ */
+export function newsTitleErrors(title) {
+  const t = String(title || "").trim();
+  if (!t) return ["başlık yok"];
+  if (/\?|\b(why|how|what)\b/i.test(t)) return [];
+  return [`"${t}" sonucun özeti: o aramayı büyük haber kanalları saatler içinde alıyor (Lula, %2,2 tıklama). Yer/olay adı + "Why/How/What …?" sorusu olsun ("Panama's 7.7 Earthquake: Why Wasn't It Worse?", %4,9)`];
+}
+
+/**
+ * Should the channel make this story now? Every failed rule is a reason in Turkish; the score orders
+ * the stories that pass (bigness counts double: it is what YouTube's first test audience reacts to).
+ */
+export function newsGate(p, g = NEWS_GATE) {
+  const big = Number(p?.bigness) || 0, conf = Number(p?.confusion) || 0, gap = Number(p?.explainerGap) || 0;
+  const fails = [];
+  if (big < g.minBigness) fails.push(`İngilizce konuşan dünya için yeterince büyük değil (büyüklük ${big}/5, en az ${g.minBigness})`);
+  if (p?.arc === "one-off" && !(gap >= 4 && conf >= 4)) fails.push("tek seferlik sonuç (seçim, karar, skor, duyuru): haberini büyük kanallar saatler içinde verdi, arama onların");
+  if (gap < g.minGap) fails.push(`büyük kanalların klipleri soruyu zaten cevaplıyor (açıklama boşluğu ${gap}/5, en az ${g.minGap})`);
+  if (Number.isFinite(p?.ageHours) && p.ageHours > g.maxAgeHours) fails.push(`${p.ageHours} saat önce çıktı: video ilk 24 saatte yayında olamaz, ilgi geçmiş olur`);
+  if (Number(p?.interest) > 0 && Number.isFinite(p?.interestLast) && p.interestLast < g.fadeRatio * p.interest && !p.rising) fails.push(`ilgi sönüyor (Google'da son gün ${p.interestLast}, tepe ${p.interest})`);
+  const score = big * 2 + conf + gap + ({ escalating: 2, unfolding: 1 }[p?.arc] || 0) + Math.min(3, (Number(p?.vsBenchmark) || 0) * 3);
+  return { pass: !fails.length, score: +score.toFixed(2), fails, titleErrors: newsTitleErrors(p?.title) };
+}
+
+/** Passing stories first, then by score. */
+export function rankByGate(picks) {
+  for (const p of picks) p.gate = newsGate(p);
+  return picks.sort((x, y) => Number(y.gate.pass) - Number(x.gate.pass) || y.gate.score - x.gate.score);
 }

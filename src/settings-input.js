@@ -2,7 +2,7 @@ const TEXT = new Set(['anthropicKey','model','pexelsKey','pixabayKey','unsplashK
 const VOICE_MODELS=['eleven_v4','eleven_v4_turbo'];
 const KLING_MODELS=['kling-3.0','kling-2.5-turbo'];
 const BOOL = new Set(['useWebSearch','demoMode','cinemaGrade','keepIntermediate','dryRun','soundDesign','elevenSpeakerBoost','trimSilence','shortsMotion','docuOpeningMotion','docuDepthLayers']);
-const NUMBERS = {fps:[24,60,true],crf:[14,30,true],concurrency:[1,12,true],musicVolume:[0,0.5],sfxVolume:[0,0.5],elevenStability:[0,1],elevenSimilarity:[0,1],elevenStyle:[0,1],elevenSpeed:[0.7,1.2],docuMaxClaudeUsd:[0,1000],shortsMotionMax:[0,20,true]};
+const NUMBERS = {fps:[24,60,true],crf:[14,30,true],concurrency:[1,12,true],musicVolume:[0,0.5],sfxVolume:[0,0.5],elevenStability:[0,1],elevenSimilarity:[0,1],elevenStyle:[0,1],elevenSpeed:[0.7,1.2],docuMaxClaudeUsd:[0,1000],shortsMotionMax:[0,20,true],docuAutoShorts:[0,3,true],docuVoiceSpeed:[0.9,1.2]};
 const ENUMS = {docuVoiceModel:VOICE_MODELS,docuShortsVoiceModel:VOICE_MODELS,ttsProvider:['edge','eleven'],imageProvider:['kie','fal','higgs','openai'],videoProvider:['kie','fal','higgs'],renderQuality:['hizli','dengeli','kalite','custom'],editIntensity:['restrained','balanced','dynamic'],preset:['ultrafast','superfast','veryfast','faster','fast','medium','slow','slower','veryslow'],elevenNormalize:['on','off','auto'],docuMusicSource:['library','eleven'],klingOpeningModel:KLING_MODELS,klingModel:KLING_MODELS,klingOpeningResolution:['720p','1080p'],klingResolution:['720p','1080p'],openaiVisionDetail:['low','auto','high'],docuWriterModel:['claude-opus-5-5','gpt-6.1-sol'],docuImageProvider:['openai','replicate','manual']};
 function invalid(key) { throw new Error(`Geçersiz ayar: ${key}`); }
 export function settingsPatch(body) {
@@ -17,6 +17,26 @@ export function settingsPatch(body) {
       if (String(value).trim() === '' || !Number.isFinite(n)) invalid(key);
       patch[key] = Math.max(min,Math.min(max,integer ? Math.round(n) : n));
     } else if (ENUMS[key]) { if (!ENUMS[key].includes(value)) invalid(key); patch[key] = value; }
+    else if (key === 'docuChannelNames') {
+      // 1.16.16 köşe damgası: yalnızca üç kanal, her biri kısa düz metin.
+      if (!value || typeof value !== 'object' || Array.isArray(value)) invalid(key);
+      patch.docuChannelNames = {};
+      for (const k of ['epic','news','finance']) {
+        const v = value[k] ?? '';
+        if (typeof v !== 'string' || v.length > 64) invalid(key);
+        patch.docuChannelNames[k] = v.replace(/[\u0000-\u001f<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 32);
+      }
+    }
+    else if (key === 'docuStyleVoices') {
+      // 1.16.16 kanal sesleri: üç kanal, her biri bir ElevenLabs ses kimliği ya da boş.
+      if (!value || typeof value !== 'object' || Array.isArray(value)) invalid(key);
+      patch.docuStyleVoices = {};
+      for (const k of ['epic','news','finance']) {
+        const v = value[k] ?? '';
+        if (typeof v !== 'string' || (v !== '' && !/^[A-Za-z0-9]{10,40}$/.test(v))) invalid(key);
+        patch.docuStyleVoices[k] = v;
+      }
+    }
     else if (key === 'modelRates') {
       if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length > 50) invalid(key);
       patch.modelRates = {};

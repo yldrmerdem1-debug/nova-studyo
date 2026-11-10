@@ -16,7 +16,7 @@ export declare function stemMatch(a: string, b: string): boolean;
 export declare function contentWords(text: string): string[];
 export declare function labelIndex(label: string, sp: Spoken[], from?: number): number;
 export declare function digitValues(raw: string): number[];
-export declare function spokenNumbers(sp: Spoken[]): { i: number; t: number; tEnd: number; values: number[] }[];
+export declare function spokenNumbers(sp: Spoken[]): { i: number; e: number; t: number; tEnd: number; values: number[] }[];
 export declare function sameNumber(v: number, values: number[]): boolean;
 export declare function valueIndex(v: number, sp: Spoken[], nums?: { i: number; t: number; values: number[] }[]): number;
 
@@ -89,3 +89,7 @@ export declare function infoSfx(
   durFrames: number,
   fps: number,
 ): { f: number; kind: 'ticks' | 'snap' | 'whoosh'; gain: number; align?: 'onset' | 'peak' }[];
+export declare const TALLY_MAX: number;
+export declare function tallyText(n: { i: number; e: number; values: number[] }, sp: Spoken[]): string;
+export declare function tallyItems(wordTimes: { word: string; t: number }[] | undefined, o?: { to?: number | null }): { t: number; text: string; label: string }[];
+export declare function cueIndexFrom(sp: Spoken[], nums: { i: number; values: number[] }[], o?: { label?: string; value?: number }, from?: number): number;

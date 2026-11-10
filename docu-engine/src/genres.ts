@@ -18,6 +18,11 @@ import type { Genre, GenreId } from './types';
  * finance video and a horror video should not share an impact sound.
  * `stinger` is the dread shock layered on dread slams (horror/crime only);
  * `thud` is the quiet body under an ordinary blackout — neither is a story hit.
+ *
+ * Gimli 20261028-9ff721 / Kartal Yuvası 950730, 29 Ekim 2026 (luma 52-75, 21-39% of frames under luma 40):
+ * `vignette` is at most ~0.4 here and the engine caps it at 0.35 (looks/resolve.ts VIGNETTE_MAX); `letterbox`
+ * is only the genre's taste — the bars are drawn when the script asks (script.letterbox === true, Engine.tsx
+ * resolveGenre), and photos fall back to colour, not the duotone (looks/resolve.ts sceneGrade).
  */
 export const GENRES: Record<GenreId, Genre> = {
   documentary: {
@@ -32,7 +37,7 @@ export const GENRES: Record<GenreId, Genre> = {
     headline: 'anton',
     body: 'inter',
     grain: 0.24,
-    vignette: 0.6,
+    vignette: 0.35,
     flicker: false,
     dust: true,
     letterbox: false,
@@ -71,7 +76,7 @@ export const GENRES: Record<GenreId, Genre> = {
     headline: 'oswald',
     body: 'plexMono',
     grain: 0.1,
-    vignette: 0.5,
+    vignette: 0.32,
     flicker: false,
     dust: false,
     letterbox: false,
@@ -109,7 +114,7 @@ export const GENRES: Record<GenreId, Genre> = {
     headline: 'cinzel',
     body: 'crimson',
     grain: 0.4,
-    vignette: 0.9,
+    vignette: 0.4,
     flicker: true,
     dust: true,
     letterbox: true,
@@ -152,7 +157,7 @@ export const GENRES: Record<GenreId, Genre> = {
     headline: 'bebas',
     body: 'courier',
     grain: 0.3,
-    vignette: 0.75,
+    vignette: 0.38,
     flicker: false,
     dust: false,
     letterbox: true,
@@ -196,7 +201,7 @@ export const GENRES: Record<GenreId, Genre> = {
     headline: 'cinzel',
     body: 'lora',
     grain: 0.26,
-    vignette: 0.72,
+    vignette: 0.38,
     flicker: false,
     dust: true,
     letterbox: true,
@@ -238,7 +243,7 @@ export const GENRES: Record<GenreId, Genre> = {
     headline: 'exo',
     body: 'inter',
     grain: 0.12,
-    vignette: 0.6,
+    vignette: 0.35,
     flicker: false,
     dust: false,
     letterbox: false,
@@ -281,7 +286,7 @@ export const GENRES: Record<GenreId, Genre> = {
     headline: 'playfair',
     body: 'lora',
     grain: 0.16,
-    vignette: 0.45,
+    vignette: 0.3,
     flicker: false,
     dust: false,
     letterbox: false,

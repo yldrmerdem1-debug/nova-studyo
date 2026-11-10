@@ -61,11 +61,28 @@ export function updateJob(id, patch) {
     writeJson(jobFile(id), j);
   } catch (e) {
     if (e.code === "ENOENT") { cache.delete(id); deleted.add(id); return null; } // klasör yok olmuş
-    throw e;
+    // Diske yazılamadı ama iş sürüyor: durum bellekte doğru, bir an sonra yeniden yazılır. Fırlatmak işi çağıranın
+    // (motorun stdout dinleyicisi) içinde patlatıp ana süreci durdurmuştu (20261024-373aaf, 25 Ekim 2026).
+    console.warn(`job.json yazılamadı (${id}): ${e.code || e.message} — yeniden denenecek`);
+    retryWrite(id);
   }
   cache.set(id, j);
   emit("job", { job: publicJob(j) });
   return j;
+}
+
+const pendingWrites = new Map();
+/** Yazılamayan iş durumunu bir kez, ~2 sn sonra en son haliyle yeniden yazar (arada gelen yazımlar birleşir). */
+function retryWrite(id) {
+  if (pendingWrites.has(id)) return;
+  const t = setTimeout(() => {
+    pendingWrites.delete(id);
+    const j = cache.get(id);
+    if (!j || deleted.has(id)) return;
+    try { writeJson(jobFile(id), j); } catch (e) { console.warn(`job.json yine yazılamadı (${id}): ${e.code || e.message}`); }
+  }, 2000);
+  t.unref?.();
+  pendingWrites.set(id, t);
 }
 
 export function log(id, line) {

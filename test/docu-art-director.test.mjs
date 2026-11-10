@@ -569,9 +569,17 @@ function assertPunch(res, label) {
     assert.ok(A.IMPACT_TEXT.includes(x.textStyle) && !SLAM_BANNED.includes(x.textStyle), `${label} #${i}: slam stili ${x.textStyle}`);
     if (k) assert.notEqual(x.textStyle, slams[k - 1].x.textStyle, `${label} #${i}: ardışık slam aynı stil`);
     assert.equal(x.energy, 5, `${label} #${i}: slam enerjisi`);
-    assert.ok((x.fx || []).some((f) => A.HIT_FX.includes(f)), `${label} #${i}: vuruş efekti yok`);
+    // 29 Ekim 2026 (Gimli 20261028-9ff721 / Kartal Yuvası 950730, "anlık efektler doğal değil"): slam vuruş efekti zorunlu
+    // değil — vuruş efekti, kamera vuruşu (push-in) ya da hiç efekt; başka efekt ve vignette-pulse yok.
+    assert.ok(!(x.fx || []).length || (x.fx || []).some((f) => A.HIT_FX.includes(f) || f === A.SLAM_PUNCH_FX), `${label} #${i}: slam efekti ${x.fx}`);
+    assert.ok(!(x.fx || []).includes('vignette-pulse'), `${label} #${i}: slam'de vignette-pulse`);
     if (i) assert.ok(A.SHARP_TRANSITIONS.has(x.transition), `${label} #${i}: slam geçişi ${x.transition}`);
   });
+  assert.ok(slams.some(({ x }) => (x.fx || []).some((f) => A.HIT_FX.includes(f))), `${label}: hiçbir slam vuruş efekti almadı`);
+  // vuruşlar seyrek: ifşa/kanca dışında iki slam vuruşu arasında en az SLAM_HIT_GAP_SEC
+  const { starts } = sceneTimes(res.script);
+  const hits = slams.filter(({ x }) => (x.fx || []).some((f) => A.HIT_FX.includes(f)));
+  hits.forEach(({ x, i }, k) => { if (k && x.mood !== 'reveal' && slams[0].i !== i) assert.ok(starts[i] - starts[hits[k - 1].i] >= A.SLAM_HIT_GAP_SEC, `${label} #${i}: slam vuruşu öncekinden ${Math.round(starts[i] - starts[hits[k - 1].i])} sn sonra`); });
   for (const x of S) if (x.type === 'montage' && x.text) assert.ok(A.IMPACT_TEXT.includes(x.textStyle), `${label}: montaj stili ${x.textStyle}`);
 }
 
@@ -613,7 +621,8 @@ test('regresyon: Opus boş geçiş/efekt ve yalnızca sakin stiller döndürürs
   const elig = S.map((x, i) => i).filter((i) => i > 0 && (S[i].type === 'slam' || (S[i].energy >= 3 && S[i].chapter === S[i - 1].chapter)));
   assert.ok(elig.filter((i) => S[i].transition !== 'cut').length / elig.length >= 0.25, 'süslü geçiş >= %25');
   const pics = S.filter(A.isGradeScene);
-  assert.ok(pics.filter((x) => x.fx?.length).length / pics.length >= 0.22, 'resimli sahnelerde efekt >= %22');
+  // Taban %22 → %12 (29 Ekim 2026: efekt anlatım vuruşuna bağlı, sakin bilgi çekimi temiz kalır).
+  assert.ok(pics.filter((x) => x.fx?.length).length / pics.length >= A.RULES.minPictureFxShare, `resimli sahnelerde efekt >= %${A.RULES.minPictureFxShare * 100}`);
   const still = pics.filter((x) => ['static', 'drift'].includes(x.camera)).length / pics.length;
   assert.ok(still >= 0.25 && still <= 0.33, `durağan %${Math.round(still * 100)}`);
   assert.ok(S.some((x) => A.isTextScene(x) && A.IMPACT_TEXT.includes(x.textStyle)), 'vurucu stil var');
@@ -626,7 +635,8 @@ test('checkPlan alt sınırları ve slam kurallarını yakalar', async () => {
     const y = { ...x, transition: 'cut' };
     delete y.fx;
     if (A.isGradeScene(x)) y.camera = x.energy >= 4 ? 'push-in' : 'static';
-    if (x.type === 'slam') y.textStyle = 'serif';
+    // slam'in efektsiz olması artık serbest; vuruş olmayan bir efekt (dust) yakalanır
+    if (x.type === 'slam') { y.textStyle = 'serif'; y.fx = ['dust']; }
     return y;
   });
   const v = A.checkPlan({ ...res.script, scenes: S }).join('\n');
@@ -763,10 +773,12 @@ test('ekran yazısı sınıflandırıcısı: sayı/tarih/saat/ad/alıntı bilgi;
   // karar
   const d = (s, o) => A.captionDecision(s, o).mode;
   assert.equal(d(W('The last radio signal cut out at 2:17', 'signal')), 'full');
-  assert.equal(d(W('lowered half empty', 'empty')), 'full', 'kısa güçlü satır tam');
-  assert.equal(d(W('But the real damage was below the waterline', 'waterline')), 'key', 'uzun yankı satırı anahtar kelimeye iner');
-  assert.equal(d(W('But the real damage was below the waterline', 'waterline'), { energy: 5 }), 'full', 'bilinçli zirve tam');
-  assert.equal(d(W('lowered half empty', 'empty'), { gapSec: 2 }), 'key', 'art arda yazı kartı');
+  // 1.16.16: bilgisiz yankı yalnızca zirvede (enerji >= 4) ve seyrek (>= 30 sn); kalanı temiz görüntü
+  assert.equal(d(W('lowered half empty', 'empty')), 'none', 'zirve değil: yankı yazısı yok');
+  assert.equal(d(W('lowered half empty', 'empty'), { energy: 4 }), 'full', 'zirvede kısa güçlü satır tam');
+  assert.equal(d(W('But the real damage was below the waterline', 'waterline')), 'none', 'uzun yankı satırı yazısız');
+  assert.equal(d(W('But the real damage was below the waterline', 'waterline'), { energy: 5 }), 'key', 'zirvede uzun satır anahtar kelimeye iner');
+  assert.equal(d(W('lowered half empty', 'empty'), { energy: 5, gapSec: 12 }), 'none', 'yankılar arası 30 sn');
   assert.equal(d(W('something no one expected')), 'none', 'anahtarsız dolgu yazısız');
   assert.equal(d(W('something no one expected'), { pictured: false }), 'full', 'resimsiz sahne yazısız kalmaz');
   assert.equal(d(W('nowhere left to go'), { hook: true }), 'full');
@@ -796,14 +808,14 @@ test('yedek plan: her words sahnesine ekran yazısı kararı; bilgi satırı asl
   for (const x of words) {
     const f = A.captionFacts(x);
     if (f.info || f.quote) assert.equal(x.textMode, 'full', `bilgi satırı tam: ${x.text}`);
-    if (x.textMode === 'none') assert.ok(!f.keyStrong && (x.image || x.imagePrompt || x.search || x.bg === 'prev'), x.text);
+    if (x.textMode === 'none') assert.ok(!f.info && !f.quote && (x.image || x.imagePrompt || x.search || x.bg === 'prev'), x.text);
+    if (x.textMode !== 'none' && !f.info && !f.quote) assert.ok(x.energy >= 4 || !(x.image || x.imagePrompt || x.search || x.bg === 'prev'), `yankı yazısı yalnızca zirvede: ${x.text}`);
     if (x.textMode === 'key') assert.ok(f.keyword, x.text);
     if (x.textStyle === 'lower-third') assert.ok(f.info && x.textMode === 'full', `lower-third bilgi satırında: ${x.text}`);
   }
-  // yoğunluk: yazılar büyük ölçüde korunur (Cooper ritmi) — yalnızca dolgu yazısız
-  const shown = words.filter((x) => x.textMode !== 'none').length;
-  assert.ok(shown / words.length >= 0.6, `${shown}/${words.length}`);
-  assert.ok(words.some((x) => x.textMode === 'key'), 'uzun yankı satırı anahtar kelimeye iner');
+  // 1.16.16: bilgi satırları hep yazılı; yankılar seyrek (tutmuş kanallarda ekran yazısı bilgidir)
+  const echoes = words.filter((x) => x.textMode !== 'none' && !A.captionFacts(x).info && !A.captionFacts(x).quote);
+  assert.ok(echoes.length <= Math.ceil(words.length * 0.25), `${echoes.length}/${words.length} yankı`);
   assert.ok(words.some((x) => x.textMode === 'none' && x.text === 'something no one expected'));
   // checkPlan: bilgi satırını yazısız bırakmak ve bilgisiz satıra lower-third yakalanır
   const S = res.script.scenes.map((x) => ({ ...x }));
@@ -900,7 +912,12 @@ test('konu kimliği: sanat yönetmeni ona uyar — yazı ailesi, bağlayıcı re
     assert.deepEqual(res.violations, [], `${g}: kurallar yine sağlanır`);
     const fam = s.topic.textStyles;
     assert.ok(res.plan.palette.textStyles.filter((x) => fam.includes(x)).length >= 3, `${g}: yazı stillerinin en az üçü konu ailesinden`);
-    if (s.topic.grade === 'selective') assert.ok(res.plan.chapterLooks.every((c) => c.grade === 'selective'), `${g}: bağlayıcı seçici renk her bölümün tabanı`);
+    // 29 Ekim 2026 (Gimli 20261028-9ff721 / Kartal Yuvası 950730: luma 52-56, doygunluk 2,5-6): konunun tabanı RENKLİ,
+    // seçici renk yalnızca vurgu (accentGrade) — eskiden 'selective' her bölümün bağlayıcı tabanıydı.
+    assert.ok(A.COLOUR_GRADES.includes(s.topic.grade), `${g}: konu tabanı renkli (${s.topic.grade})`);
+    assert.ok(res.plan.chapterLooks.every((c) => A.baseGradeOk(c.grade, A.eraRange(s.era)?.start)), `${g}: bölüm tabanları renkli`);
+    const accCh = new Set(res.script.scenes.filter((x) => x.grade && A.accentGradeOf(x.grade, A.eraRange(s.era)?.start)).map((x) => x.chapter));
+    assert.ok(accCh.size <= 1 && !accCh.has(0), `${g}: soldurucu vurgu en çok bir bölümde, kancada değil`);
     assert.equal(res.plan.chapterLooks[0].accent, s.topic.accent, `${g}: ilk bölüm konunun vurgusunda`);
     for (const x of res.plan.scenes) assert.notEqual(x.textStyle, 'motif', 'motif yazısını yalnızca konu kimliği koyar');
     for (const x of plain.plan.scenes) assert.notEqual(x.grade, 'selective', 'kimliksiz videoda seçici renk yok');

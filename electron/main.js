@@ -59,9 +59,20 @@ let PORT = PORT_RANGE[0];
 let attachedToExisting = false;
 
 // Ana süreçte yakalanmayan hata = sessiz ölüm. Kullanıcı en azından sebebi görsün.
+// AMA ANA SÜRECİ ASLA KİLİTLEME (25 Ekim 2026, iş 20261024-373aaf): job.json'ın yeniden adlandırılması dışarıdan
+// açık tutulan dosya yüzünden düştü, hata buraya geldi ve showErrorBox (eşzamanlı, kipli) arkada kalan bir pencerede
+// 48 dk bekledi — sunucu cevapsız, iş donuk, CPU sıfır. Artık hata dosyaya yazılıyor ve kullanıcıya en çok bir kez,
+// beklemeyen bir pencereyle gösteriliyor; iş akmaya devam ediyor (test/ana-surec-kilitlenmez).
+let crashShown = false;
 process.on("uncaughtException", (e) => {
+  const text = String(e?.stack || e).slice(0, 2000);
+  console.error("Yakalanmayan hata:", text);
+  try { fs.appendFileSync(path.join(HOME, "data", "ana-surec-hatalari.log"), `${new Date().toISOString()}  ${text}\n\n`, "utf8"); } catch {}
+  if (crashShown) return;
+  crashShown = true;
   try {
-    dialog.showErrorBox("Nova Stüdyo — beklenmeyen hata", String(e?.stack || e).slice(0, 2000));
+    dialog.showMessageBox({ type: "error", title: "Nova Stüdyo — beklenmeyen hata", message: "Beklenmeyen bir hata oldu; ayrıntı data\\ana-surec-hatalari.log dosyasında.", detail: text })
+      .then(() => { crashShown = false; }, () => { crashShown = false; });
   } catch {}
 });
 process.on("unhandledRejection", (e) => {

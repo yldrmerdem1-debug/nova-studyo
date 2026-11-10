@@ -35,11 +35,32 @@ export function emphasisFrame(wordTimes: WordTime[] | undefined, durFrames: numb
   return long && long.n >= 6 ? long.f : best?.f ?? null;
 }
 
-/** The scene's main hit: its strongest impact (keyword, slam, hook, counter land), else the stressed word. */
-export function mainHit(impacts: { f: number; strength: number }[], wordTimes: WordTime[] | undefined, durFrames: number, fps: number): number | null {
-  const strong = impacts.filter((i) => i.strength >= 0.3 && i.f >= 0 && i.f < durFrames).sort((a, b) => b.strength - a.strength || a.f - b.f);
-  if (strong.length) return strong[0].f;
-  return emphasisFrame(wordTimes, durFrames, fps);
+/** An impact strong enough for a hit-timed effect to land on (the seeded 0.2 "keep it alive" push is not one). */
+export const REAL_IMPACT = 0.3;
+
+/** The scene's strongest real impact (keyword, slam, hook, counter land), or null when the line has none. */
+export function impactHit(impacts: { f: number; strength: number }[], durFrames: number): number | null {
+  const strong = impacts.filter((i) => i.strength >= REAL_IMPACT && i.f >= 0 && i.f < durFrames).sort((a, b) => b.strength - a.strength || a.f - b.f);
+  return strong.length ? strong[0].f : null;
+}
+
+/*
+ * The scene's main hit for EFFECTS: its strongest real impact, and nothing when there is none. It used to fall back to
+ * the stressed word of any line (emphasisFrame), so a flash, a flare bloom or a vignette tightening fired on quiet
+ * informative shots with no beat at all — "anlık efektler doğal değil" (kanal sahibi, Gimli 20261028-9ff721 / Kartal
+ * Yuvası 950730, 29 Ekim 2026). A hit-timed effect without a real impact now skips. Camera moves (detail-punch) may
+ * still land on the stressed word: `wordFallback: true`.
+ */
+export function mainHit(
+  impacts: { f: number; strength: number }[],
+  wordTimes: WordTime[] | undefined,
+  durFrames: number,
+  fps: number,
+  o: { wordFallback?: boolean } = {},
+): number | null {
+  const hit = impactHit(impacts, durFrames);
+  if (hit !== null) return hit;
+  return o.wordFallback ? emphasisFrame(wordTimes, durFrames, fps) : null;
 }
 
 /**
@@ -53,7 +74,7 @@ export function punchPlan(
   const { durFrames, fps } = o;
   const tight = Math.min(o.cap, 1.2 + o.seed * 0.16);
   if (tight < 1.08 || durFrames < 2.4 * fps) return { frames: [], tight: 1, aims: [] };
-  let at = mainHit(o.impacts, o.wordTimes, durFrames, fps) ?? Math.round(durFrames * 0.42);
+  let at = mainHit(o.impacts, o.wordTimes, durFrames, fps, { wordFallback: true }) ?? Math.round(durFrames * 0.42);
   at = Math.max(Math.round(0.7 * fps), Math.min(at, durFrames - Math.round(1.2 * fps)));
   const frames = [at];
   const back = at + Math.round((1.4 + o.seed * 0.6) * fps);

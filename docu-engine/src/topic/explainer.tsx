@@ -3,8 +3,11 @@ import { AbsoluteFill, Easing, interpolate, useCurrentFrame, useVideoConfig } fr
 import { fitFont } from '../fonts';
 import type { ExplainerScene, ExplainerStep, Genre, GenreId, MotifId } from '../types';
 import { cueFrames, h01, spokenCues, morse, roman, useTopic, type TopicCtx } from './context';
-import { MorseRow, MotifTexture, contour, morseWidth, motifPalette, type MotifPalette } from './motifs';
+import { MorseRow, MotifTexture, contour, deviceGround, devicePicture, deviceRing, isLightLook, morseWidth, motifPalette, typeScrim, type MotifPalette } from './motifs';
 import { Diagram } from './diagram';
+import { DevicePlate } from './cards';
+import { useLook } from '../looks/context';
+import { alpha as tint } from '../looks/color';
 
 /*
  * EXPLAINER — the signature device: the mechanism the narrator describes,
@@ -144,7 +147,7 @@ const StepNode: React.FC<{ t: TopicCtx; P: MotifPalette; step: ExplainerStep; i:
       const locked = Math.floor(p * label.length * 1.15);
       const shown = ghost ? label.replace(/[^\s]/g, '·') : [...label].map((c, k) => (k < locked || c === ' ' ? c : alpha[Math.floor(h01(`${i}${k}${Math.floor(f / 2)}`) * 26)])).join('');
       return (
-        <div style={{ ...base, display: 'flex', flexDirection: horizontal ? 'column' : 'row', alignItems: horizontal ? 'flex-start' : 'center', gap: horizontal ? 12 : 26, padding: horizontal ? '26px 24px' : '0 24px', border: `1px solid ${active ? P.accent : `${P.ink}33`}`, background: active ? `${P.accent}14` : 'rgba(0,0,0,0.25)' }}>
+        <div style={{ ...base, display: 'flex', flexDirection: horizontal ? 'column' : 'row', alignItems: horizontal ? 'flex-start' : 'center', gap: horizontal ? 12 : 26, padding: horizontal ? '26px 24px' : '0 24px', border: `1px solid ${active ? P.accent : `${P.ink}33`}`, background: active ? `${P.accent}14` : tint(P.ground2, 0.6) }}>
           <div style={{ fontFamily: P.mono, fontSize: 26, color: active ? '#111' : P.accent2, background: active ? P.accent : 'transparent', padding: '2px 10px', border: `1px solid ${P.accent2}` }}>{num}</div>
           <div>
             <div style={{ fontFamily: P.mono, fontWeight: 700, fontSize: Math.min(lab, 50), letterSpacing: '0.12em', color: ghost ? P.dim : ink, whiteSpace: 'nowrap' }}>{shown}</div>
@@ -232,7 +235,7 @@ const StepNode: React.FC<{ t: TopicCtx; P: MotifPalette; step: ExplainerStep; i:
       return (
         <div style={{ ...base, display: 'flex', alignItems: 'center', flexDirection: horizontal ? 'column' : 'row', gap: horizontal ? 14 : 26, padding: horizontal ? 12 : '0 18px' }}>
           <svg width={70} height={70} style={{ flex: 'none' }}>
-            <path d="M 35 6 L 62 58 L 8 58 Z" fill={ghost ? 'none' : active ? P.accent : 'rgba(0,0,0,0.3)'} stroke={active ? P.accent : P.ink} strokeWidth={2.4} />
+            <path d="M 35 6 L 62 58 L 8 58 Z" fill={ghost ? 'none' : active ? P.accent : tint(P.ground2, 0.6)} stroke={active ? P.accent : P.ink} strokeWidth={2.4} />
             <text x={35} y={50} textAnchor="middle" fill={active ? '#111' : P.ink} fontFamily={P.mono} fontSize={18}>{i + 1}</text>
           </svg>
           <div style={{ textAlign: horizontal ? 'center' : 'left' }}>
@@ -261,7 +264,11 @@ export const ExplainerScn: React.FC<{ scene: ExplainerScene; genre: Genre; durFr
   const f = useCurrentFrame();
   const { fps } = useVideoConfig();
   const t = explainerTopic(useTopic(), genre);
-  const P = motifPalette(t, genre);
+  const look = useLook();
+  // A light look draws the motif's paper version (Kartal Yuvası 950730, 29 Ekim 2026: explainers were night grounds in every look);
+  // a light VARIANT counts too, even when this scene's genre was resolved dark-surfaced.
+  const light = isLightLook(genre);
+  const P = motifPalette(t, genre, light);
   const steps = (scene.steps ?? []).filter((s) => s && String(s.label ?? '').trim()).slice(0, 8);
   const n = steps.length;
   const kind = scene.kind === 'cycle' && n < 3 ? 'sequence' : scene.kind ?? 'sequence';
@@ -285,18 +292,20 @@ export const ExplainerScn: React.FC<{ scene: ExplainerScene; genre: Genre; durFr
   const titleSize = title ? fitFont(title, P.displayKey, { maxW: 1500, cap: 64, trackEm: 0.12, upper: true }) : 0;
   const enter = interpolate(f, [0, 10], [0, 1], { ...clamp, easing: ease });
   const push = interpolate(f, [0, durFrames], [1, 1.035], clamp);
-  const lightGround = t.motif === 'siege' || t.motif === 'expedition';
-  const ground =
-    t.motif === 'siege'
-      ? `radial-gradient(ellipse at 50% 40%, #2a1d10 0%, ${P.ground2} 110%)`
-      : t.motif === 'expedition'
-        ? `radial-gradient(ellipse at 50% 30%, #12202c 0%, ${P.ground2} 110%)`
-        : `radial-gradient(ellipse at 50% 45%, ${P.ground} 0%, ${P.ground2} 120%)`;
-  // Telemetry and electric: a pulse rides each connector into the newly lit step.
-  const linkColor = t.motif === 'siege' ? P.accent : t.motif === 'ticker' ? P.paper : t.motif === 'case-file' ? P.accent2 : t.motif === 'telegraph' ? P.paper : P.accent2;
+  /*
+   * Gimli 9ff721 önce/sonra, 29 Ekim 2026: şema ve bölüm kartı zemini neredeyse siyah — 'THE 1.77 FUEL SUM' was drawn on
+   * #05070d. The ground is the motif's MID-DARK tone (luma >= 45; siege umber, expedition slate — no hand-set
+   * near-blacks), the scene's related picture lies soft behind the drawing (DevicePlate), and the type keeps its
+   * contrast from LOCAL scrims (kicker band, the drawing's own area) instead of a dark frame.
+   */
+  const ground = deviceGround(P, t.motif === 'siege' ? '50% 40%' : t.motif === 'expedition' ? '50% 30%' : '50% 45%');
+  const pic = devicePicture(scene, look);
   return (
     <AbsoluteFill style={{ background: ground }}>
-      <MotifTexture t={t} strength={0.6} />
+      <DevicePlate pic={pic} P={P} durFrames={durFrames} />
+      {pic ? <AbsoluteFill style={{ background: typeScrim(P, light ? 0.5 : 0.45, 'ellipse 72% 58% at 50% 56%') }} /> : null}
+      <MotifTexture t={t} light={light} strength={0.6} />
+      <AbsoluteFill style={{ background: deviceRing(light) }} />
       {t.motif === 'expedition' ? (
         <svg width={1920} height={1080} style={{ position: 'absolute', inset: 0, opacity: 0.22 }}>
           {Array.from({ length: 10 }, (_, i) => (
@@ -307,9 +316,13 @@ export const ExplainerScn: React.FC<{ scene: ExplainerScene; genre: Genre; durFr
       <AbsoluteFill style={{ transform: `scale(${push})`, opacity: enter }}>
         {/* A small kicker, not a slide title: the drawing carries the explanation. */}
         {title ? (
-          <div style={{ position: 'absolute', left: 0, right: 0, top: 170, textAlign: 'center', fontFamily: P.display, fontWeight: 700, fontSize: Math.min(44, titleSize), letterSpacing: '0.24em', color: P.ink, opacity: 0.85, textShadow: '0 4px 20px rgba(0,0,0,0.6)' }}>
-            {title}
-          </div>
+          <>
+            {/* The kicker's own scrim: a soft band of the ground's colour behind the words only. */}
+            <div style={{ position: 'absolute', left: 260, right: 260, top: 120, height: 150, background: typeScrim(P, light ? 0.6 : 0.6, 'ellipse 50% 50% at 50% 50%') }} />
+            <div style={{ position: 'absolute', left: 0, right: 0, top: 170, textAlign: 'center', fontFamily: P.display, fontWeight: 700, fontSize: Math.min(44, titleSize), letterSpacing: '0.24em', color: P.ink, opacity: 0.9, textShadow: light ? 'none' : '0 3px 14px rgba(0,0,0,0.3)' }}>
+              {title}
+            </div>
+          </>
         ) : null}
         <Diagram t={t} P={P} steps={steps} kind={kind} starts={steps.map((_, i) => startOf(i))} durFrames={durFrames} />
         {t.motif === 'ticker' ? <TickerTape P={P} tokens={t.topic.tokens ?? []} active={activeI >= 0 ? String(steps[activeI].label) : ''} /> : null}
@@ -325,7 +338,7 @@ const TransmitTape: React.FC<{ P: MotifPalette; label: string; since: number }> 
   const w = morseWidth(code, unit);
   const reveal = interpolate(since, [0, Math.max(12, code.length * 1.2)], [0, 1], clamp);
   return (
-    <div style={{ position: 'absolute', left: -20, right: -20, bottom: 150, height: 64, background: `linear-gradient(180deg, ${P.paper}, #d8cdb1)`, boxShadow: '0 10px 30px rgba(0,0,0,0.55)', transform: 'rotate(-1deg)' }}>
+    <div style={{ position: 'absolute', left: -20, right: -20, bottom: 150, height: 64, background: `linear-gradient(180deg, ${P.paper}, #d8cdb1)`, boxShadow: '0 10px 30px rgba(0,0,0,0.35)', transform: 'rotate(-1deg)' }}>
       <svg width={1960} height={64} style={{ position: 'absolute', inset: 0 }}>
         <MorseRow code={code} x={(1960 - w) / 2} y={32} unit={unit} color={P.accent2} reveal={reveal} />
       </svg>
@@ -339,7 +352,7 @@ const TickerTape: React.FC<{ P: MotifPalette; tokens: string[]; active: string }
   const f = useCurrentFrame();
   const text = [...(active ? [`▼ ${active}`] : []), ...tokens].map((x) => x.toUpperCase()).join('    ·    ');
   return (
-    <div style={{ position: 'absolute', left: -20, right: -20, bottom: 140, height: 60, background: P.paper, boxShadow: '0 10px 30px rgba(0,0,0,0.55)', overflow: 'hidden', transform: 'rotate(-1.2deg)' }}>
+    <div style={{ position: 'absolute', left: -20, right: -20, bottom: 140, height: 60, background: P.paper, boxShadow: '0 10px 30px rgba(0,0,0,0.35)', overflow: 'hidden', transform: 'rotate(-1.2deg)' }}>
       <div style={{ position: 'absolute', top: 10, left: 1960 - ((f * 7) % 4000), whiteSpace: 'nowrap', fontFamily: P.mono, fontSize: 34, letterSpacing: '0.1em', color: P.paperInk }}>{`${text}    ·    ${text}`}</div>
     </div>
   );

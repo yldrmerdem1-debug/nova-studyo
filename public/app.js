@@ -3,6 +3,35 @@ import {productionMode, isGenerated, isDocu, aiAllowance, selectProductionMode, 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+/** A channel's own voice in the narrator list (server: /api/eleven-voices `channel`). */
+const CHANNEL_VOICE_TR = { epic: "🏛 Tarih", news: "📰 Gündem", finance: "💹 Finans" };
+/** A library narrator cloned this often is on many other channels (podcast, Oct 2026: "Brian 40.000 kanalda"). */
+const COMMON_VOICE_USES = 20000;
+/** Options for a channel's voice in Settings: the account's own voices (★) first, then the rest. */
+// Kanalın seçili sesi stil düğmesinin yanında görünür (kanal sahibi, 29 Ekim 2026: "her kanalın sesini yanında göster,
+// seçtiğimiz unutmayalım"). Ses ayarlardaki docuStyleVoices'tan; adı ElevenLabs listesinden (yüklenmediyse kısaltılmış kimlik).
+// Kanal seslerinin kökeni (24 Ekim 2026'da yeni ElevenLabs hesabına klonlandı): adın yanında hangi sesin klonu olduğu.
+const KANAL_SES_KOKENI = { s7KFkBv0nrs6EIRE1GDy: "Quentin klonu", u9E4FBbWILPZakBNST5d: "Daniel klonu", QCi5Cmzx0lbdL1Z3VhF3: "Michael C. Vincent klonu" };
+function kanalSesEtiketi(k) {
+  const id = state.settings?.docuStyleVoices?.[k];
+  if (!CHANNEL_VOICE_TR[k]) return "";
+  if (!id) return `<span class="voice-tag" style="display:block;font-size:11px;opacity:.75;margin-top:2px">🎙 ses seçilmedi</span>`;
+  const v = (state.elevenVoices || []).find((x) => x.id === id);
+  const ad = (v ? v.name.split(" - ")[0] : null) ? `${v.name.split(" - ")[0]}${KANAL_SES_KOKENI[id] ? ` (${KANAL_SES_KOKENI[id]})` : ""}` : (state.elevenVoices?.length ? `hesapta yok (${id.slice(0, 6)})` : id.slice(0, 6) + "…");
+  return `<span class="voice-tag" style="display:block;font-size:11px;opacity:.85;margin-top:2px" title="Kanal sesi: ${esc(id)} — Ayarlar'dan değiştirilir">🎙 ${esc(ad)}</span>`;
+}
+
+function channelVoiceOptions(cur = "") {
+  const list = state.elevenVoices || [];
+  const opt = (v) => `<option value="${esc(v.id)}" ${v.id === cur ? "selected" : ""}>${v.own ? "★ " : ""}${esc(v.name.split(" - ")[0])}${v.own ? " · sana özel" : ""}</option>`;
+  const known = list.some((v) => v.id === cur);
+  return [
+    `<option value="" ${cur ? "" : "selected"}>— seçilmedi —</option>`,
+    cur && !known ? `<option value="${esc(cur)}" selected>${list.length ? "hesapta bulunamadı" : "yükleniyor…"} (${esc(cur.slice(0, 6))})</option>` : "",
+    ...list.filter((v) => v.own).map(opt),
+    ...list.filter((v) => !v.own).map(opt),
+  ].join("");
+}
 
 const state = {
   settings: null,
@@ -508,11 +537,15 @@ function renderForm(main) {
       const lang = f.language === "en" ? "en" : "tr";
       // v4-verified voices first — the account's, then the library's — and the v2-era premades last
       // (they read on v4 but were never tuned for it).
+      // The channel's own voice (Voice Design / clone) leads, named by its channel: "🏛 Tarih kanalının sesi".
       const mine = (v) => ({
         deger: "el:" + v.id,
         secili: f.elevenVoiceId === v.id,
-        ad: v.name.split(" - ")[0],
-        alt: [v.v4 ? "v4 sesi" : "Brian · kanalın anlatıcısı", v.labels?.accent, v.labels?.description].filter(Boolean).join(" · "),
+        ad: v.channel ? `${CHANNEL_VOICE_TR[v.channel]} kanalının sesi — ${v.name.split(" · ").pop()}` : v.name.split(" - ")[0],
+        alt: [
+          v.own ? "sana özel ses · başka hiçbir kanalda yok" : v.v4 ? "v4 sesi" : "Brian · kanalın anlatıcısı",
+          v.own ? "v4" : v.labels?.accent, v.own ? "" : v.labels?.description,
+        ].filter(Boolean).join(" · "),
         onizleme: v.preview || "",
         v4: `/api/eleven-sample/${v.id}?model=eleven_v4&lang=${lang}`,
       });
@@ -520,7 +553,8 @@ function renderForm(main) {
         deger: "lib:" + v.id,
         secili: false,
         ad: v.name.split(" - ")[0],
-        alt: ["v4 sesi · kütüphane (seçince hesaba eklenir)", v.labels?.accent, v.labels?.description, v.uses ? `${Math.round(v.uses / 1000)}B kullanım` : ""].filter(Boolean).join(" · "),
+        alt: ["v4 sesi · kütüphane (seçince hesaba eklenir)", v.labels?.accent, v.labels?.description, v.uses ? `${Math.round(v.uses / 1000)}B kullanım` : "",
+          v.uses >= COMMON_VOICE_USES ? "⚠ çok yaygın: birçok kanal bu sesi kullanıyor" : ""].filter(Boolean).join(" · "),
         onizleme: v.preview || "",
       }));
       satirlar = [...list.filter((v) => v.v4).map(mine), ...lib, ...list.filter((v) => !v.v4).map(mine)];
@@ -892,7 +926,11 @@ function renderForm(main) {
       ${seg("Görseller", `
         <button type="button" class="seg-btn ${(f.docuSource || "archive") === "archive" ? "sel" : ""}" data-kaynak="archive"><b>Arşiv ağırlıklı</b><small>gerçek fotoğraf, eksikler AI</small></button>
         <button type="button" class="seg-btn ${f.docuSource === "ai" ? "sel" : ""}" data-kaynak="ai"><b>Sadece AI</b><small>efsane, fotoğraf öncesi dönem</small></button>`)}
-      <div class="opt-row"><span class="opt-label">Stil</span><div class="style-grid">${DOCU_STILLER.map(([k, ad, alt]) => `<button type="button" class="style-chip ${stilSecili(k) ? "sel" : ""}" data-stil="${k}" title="${esc(alt)}"><span class="sw sw-${k || "auto"}"></span>${ad.replace(/^✨ /, "")}</button>`).join("")}</div></div>
+      <div class="opt-row"><span class="opt-label">Stil</span><div class="style-grid">${DOCU_STILLER.map(([k, ad, alt]) => `<button type="button" class="style-chip ${stilSecili(k) ? "sel" : ""}" data-stil="${k}" title="${esc(alt)}"><span class="sw sw-${k || "auto"}"></span>${ad.replace(/^✨ /, "")}${kanalSesEtiketi(k)}</button>`).join("")}</div></div>
+      ${stilSecili("epic") ? seg("Tarih sekmesi", `
+        <button type="button" class="seg-btn ${f.docuMapMode === "haritali" ? "" : "sel"}" data-harita="klasik"><b>Klasik</b><small>harita yalnızca yer hikâyenin parçasıysa</small></button>
+        <button type="button" class="seg-btn ${f.docuMapMode === "haritali" ? "sel" : ""}" data-harita="haritali"><b>🗺 Haritalı anlatım <span class="new-badge">SON GÜNCELLEME</span></b><small>her yer dünya haritasında: ülke boyanır, rota çizilir; videoda 3-5 harita</small></button>`) : ""}
+      <div class="opt-row"><span class="opt-label">Seri</span><div class="seg"><input type="text" id="fDocuSeries" maxlength="90" placeholder="isteğe bağlı · örn. Myths That Turned Out To Be True" value="${esc(f.docuSeries || "")}" style="flex:1;min-width:0" /><small class="muted" style="align-self:center">tek başlık şablonu, her videoda yeni bölüm <span class="new-badge">SON GÜNCELLEME</span></small></div></div>
       <p class="docu-foot">Görseller önce arşivden, eksikler GPT Image ile · anlatım ElevenLabs v3 · ${(state.settings.docuMusicSource || "library") === "eleven" ? "müzik ElevenLabs bestesi" : "müzik ve efektler lisanslı ses kütüphanesinden"}${state.settings.audioLibrary && !state.settings.audioLibrary.ready ? ' <b style="color:var(--warn)">(kütüphane bulunamadı — ElevenLabs\'e düşer)</b>' : ""} · 16:9 video + .srt altyazı</p>
     </div>`;
     kutu.innerHTML = `
@@ -902,6 +940,15 @@ function renderForm(main) {
       <div class="modes-grid">${kartlar}</div>
       ${modAciklama}${altSatir}${isDocu(f) ? docuNote : isGenerated(f) ? generatedNote : (productionMode(f)==='director' ? directorNote : '')+onaySatir}`;
 
+    kutu.querySelector("#fDocuSeries")?.addEventListener("input", (e) => {
+      const v = e.target.value.trim();
+      if (v) state.form.docuSeries = v; else delete state.form.docuSeries;
+    });
+    kutu.querySelectorAll("[data-harita]").forEach((b) => b.addEventListener("click", () => {
+      if (b.dataset.harita === "haritali") state.form.docuMapMode = "haritali";
+      else delete state.form.docuMapMode;
+      refresh();
+    }));
     kutu.querySelectorAll("[data-kaynak]").forEach((b) => b.addEventListener("click", () => {
       state.form.docuSource = b.dataset.kaynak;
       refresh();
@@ -912,6 +959,8 @@ function renderForm(main) {
         delete state.form.docuFormat;
         if (b.dataset.stil) state.form.docuGenre = b.dataset.stil; else delete state.form.docuGenre;
       }
+      // Haritalı anlatım Epik Tarih'in sekmesi: başka stile geçince kapanır.
+      if (b.dataset.stil !== "epic") delete state.form.docuMapMode;
       // Kanalın sesi: stil seçilince ayarlardaki sesi (tarih Brian, gündem David, finans Michael) — hesapta varsa.
       const kanalSesi = state.settings?.docuStyleVoices?.[b.dataset.stil];
       if (kanalSesi && (state.elevenVoices || []).some((v) => v.id === kanalSesi)) state.form.elevenVoiceId = kanalSesi;
@@ -1181,6 +1230,8 @@ function renderForm(main) {
         // Kullanıcı tam o an ses listesini açtıysa select'i altından çekme
         paintRecipe(); paintNotes(); updateEstimate();
         if (state.openPanel === "voice") paintPanel();  // liste dolunca panel tazelensin
+        // Stil düğmelerindeki kanal sesi adı (kanalSesEtiketi) liste gelince adıyla yazılsın.
+        if (typeof paintModes === "function") { try { paintModes(); } catch {} }
       }
     }).catch((e) => {
       // Boş dizi "yüklendi ama boş" demek olurdu ve bir daha denenmezdi.
@@ -1684,6 +1735,8 @@ function renderQueue(main) {
 }
 
 // ---------- kütüphane ----------
+/** Shorts açılış kalıpları (1.16.16, src/pipeline/growth-lessons.js SHORT_HOOK_PATTERNS). */
+const SHORT_PATTERN_TR = { result: "sonuç başta", contradiction: "ters köşe", strange: "garip görüntü", question: "izleyicinin sorusu", compare: "karşılaştırma" };
 /** Shorts paneli: bitmiş belgeselden dikey Shorts çıkarır, öncekileri listeler (oynat, başlık/açıklama kopyala, indir). */
 async function openShorts(id) {
   const j = state.jobs.get(id);
@@ -1693,12 +1746,14 @@ async function openShorts(id) {
       <video controls preload="metadata" src="/api/jobs/${id}/short/${esc(s.name)}" style="width:100%; aspect-ratio:9/16; max-height:520px; background:#000"></video>
       <div style="padding:10px; display:grid; gap:6px; font-size:12.5px">
         ${s.hook ? `<div><b>Kanca:</b> ${esc(s.hook)}</div>` : ""}
+        ${s.pattern ? `<div><b>Açılış kalıbı:</b> ${esc(SHORT_PATTERN_TR[s.pattern] || s.pattern)}${s.screen ? ` · ekranda "${esc(s.screen)}"` : ""}${s.reopenedFrom ? ' · <span class="muted">yenilenmiş açılış</span>' : ""}</div>` : ""}
         <div><b>Başlık:</b> ${esc(s.title || title)}</div>
         ${s.description ? `<div class="muted">${esc(s.description)}</div>` : ""}
         <div class="muted">${fmtDur((s.end || 0) - (s.start || 0))} · ${s.mode === "teaser" ? "yeni teaser (uzun videoya yönlendirir)" : `uzun videonun ${fmtDur(s.start || 0)} anından kesit`}</div>
         <div class="row" style="gap:6px">
           <button class="btn" style="padding:5px 9px;font-size:11.5px" data-copyshort="${esc(s.name)}">Başlık + açıklama kopyala</button>
           <a class="btn" style="padding:5px 9px;font-size:11.5px" href="/api/jobs/${id}/short/${esc(s.name)}?dl=1">⬇ MP4</a>
+          ${s.mode === "pictures" ? `<button class="btn" style="padding:5px 9px;font-size:11.5px" data-reopen="${esc(s.name)}" title="Studio'da kaydırıp geçen oranı kötüyse: aynı hikâye, yeni ilk 3 saniye (başka kalıp)">🔁 Yalnızca açılışı değiştir</button>` : ""}
         </div>
       </div>
     </div>`;
@@ -1714,17 +1769,19 @@ async function openShorts(id) {
       navigator.clipboard.writeText(`${s.title || title}\n\n${s.description || ""}\n\n#Shorts`);
       toast("Kopyalandı");
     }));
-    $("#shortNew")?.addEventListener("click", async () => {
+    const make = async (body) => {
       draw(shorts, true);
       try {
-        await api(`/api/jobs/${id}/shorts`, { method: "POST" });
+        await api(`/api/jobs/${id}/shorts`, { method: "POST", ...(body ? { body } : {}) });
         toast("Shorts hazır ✓");
       } catch (e) {
         toast(`Shorts çıkarılamadı: ${e.message || e}`);
       }
       const r = await api(`/api/jobs/${id}/shorts`);
       draw(r.shorts || [], r.busy);
-    });
+    };
+    $("#shortNew")?.addEventListener("click", () => make());
+    $$("#modalBox [data-reopen]").forEach((x) => x.addEventListener("click", () => make({ reopen: x.dataset.reopen })));
   };
   const r = await api(`/api/jobs/${id}/shorts`);
   draw(r.shorts || [], r.busy);
@@ -1757,10 +1814,11 @@ async function renderGundem(main) {
   const drawPicks = (r) => {
     const big = (p) => (p.vsBenchmark != null ? `<b style="color:${p.vsBenchmark >= 1 ? "var(--ok, #2ecc71)" : "var(--muted)"}">Nepal'in ${p.vsBenchmark >= 1 ? `${p.vsBenchmark.toFixed(1)} katı` : `%${Math.round(p.vsBenchmark * 100)}'i`}</b>${p.rising ? " ↑" : ""}` : "");
     picksBox.innerHTML = `<div class="card" style="padding:12px; margin-bottom:12px">
-      <b>Kanallara uygun konular</b> <span class="muted" style="font-size:12px">— büyüklük ${r.benchmark?.term ? `"${esc(r.benchmark.term)}"` : "Nepal"} zirvesine göre (Google Trends, son 90 gün)</span>
+      <b>Kanallara uygun konular</b> <span class="muted" style="font-size:12px">— büyüklük ${r.benchmark?.term ? `"${esc(r.benchmark.term)}"` : "Nepal"} zirvesine göre (Google Trends, ${r.benchmark?.measuredOn === "web" ? "web araması — YouTube ölçümü alınamadı" : "YouTube araması"}, son 90 gün)</span>
       ${(r.picks || []).map((p, k) => `
         <div style="border-top:1px solid var(--border); padding:10px 0; display:grid; gap:4px">
-          <div><b>${esc(p.title)}</b> <span class="muted">· ${esc(p.channel)} · ${esc(p.freshness)} · karmaşa ${p.confusion}/5 · büyüklük ${p.bigness}/5</span> ${big(p)}</div>
+          <div><b>${esc(p.title)}</b> <span class="muted">· ${esc(p.channel)} · ${esc(p.freshness)} · karmaşa ${p.confusion}/5 · büyüklük ${p.bigness}/5 · açıklama boşluğu ${p.explainerGap ?? "?"}/5 · ${esc({ escalating: "büyüyor", unfolding: "sürüyor", "one-off": "tek seferlik" }[p.arc] || "")}</span> ${big(p)}</div>
+          ${p.gate ? `<div style="font-size:12.5px">${p.gate.pass ? `<b style="color:var(--ok, #2ecc71)">✅ Kapıdan geçti</b> <span class="muted">(puan ${p.gate.score})</span>` : `<b style="color:var(--warn)">⛔ Kapıdan geçmedi:</b> ${p.gate.fails.map(esc).join(" · ")}`}${p.gate.titleErrors?.length ? ` <span class="muted">· başlık düzelecek: soru olmalı</span>` : ""}</div>` : ""}
           <div class="muted" style="font-size:12.5px">${esc(p.story)} — <i>${esc(p.question)}</i></div>
           <div style="font-size:12.5px">${esc(p.angle)}</div>
           <div style="font-size:12px"><b>Kapak:</b> ${esc(p.thumbnail)} · <b style="color:var(--warn)">Asla söyleme:</b> ${esc(p.neverSay)}</div>
@@ -1904,6 +1962,7 @@ function renderLibrary(main) {
                 <button class="btn" data-seo="${j.id}">SEO</button>
                 ${j.outputs?.package ? `<button class="btn" data-pkg="${j.id}">YouTube paketi</button>` : ""}
                 ${j.mediaKind === "docu" && j.status === "done" ? `<button class="btn" data-shorts="${j.id}" title="Bu belgeselin en güçlü 40-58 saniyesinden dikey YouTube Shorts: kancalı başlık, büyük altyazı, kanal kartı.">📱 Shorts</button>` : ""}
+                ${j.mediaKind === "docu" && j.status === "done" ? `<button class="btn" data-repkg="${j.id}" title="Kapak sahneleri: işin kapak-kutusu klasöründeki LISTE.txt tariflerini ChatGPT'de üret, 01.png / 02.png olarak oraya koy; bu düğme kapakları ve başlıkları o sahnelerle yeniden kurar.">🖼 Kapakları yenile</button>` : ""}
                 <button class="btn" data-folder="${j.id}">📁</button>` : ""}
               ${j.mediaKind === "docu" && done && j.status === "done" ? `<button class="btn" data-docu-rerender="${j.id}" title="Motor veya ses kütüphanesi güncellendiyse ya da bazı görseller/sesler eksik kaldıysa: kayıtlı görsel, ses ve müzik yeniden ödenmez, yalnızca eksikler üretilir ve video yeniden render edilir.">↻ Yeniden render / eksikleri tamamla</button>` : ""}
               <button class="btn danger" data-del="${j.id}">Sil</button>
@@ -1957,7 +2016,22 @@ function renderLibrary(main) {
     $("#pkgCopy").addEventListener("click", () => { navigator.clipboard.writeText(text); toast("Kopyalandı"); });
   }));
   $$("[data-folder]", main).forEach((b) => b.addEventListener("click", () => api(`/api/jobs/${b.dataset.folder}/open-folder`, { method: "POST" })));
-  $$("[data-shorts]", main).forEach((b) => b.addEventListener("click", () => openShorts(b.dataset.shorts)));
+  $("[data-shorts]", main).forEach((b) => b.addEventListener("click", () => openShorts(b.dataset.shorts)));
+  $("[data-repkg]", main).forEach((b) => b.addEventListener("click", async () => {
+    b.disabled = true;
+    toast("Kapaklar yenileniyor (kapak-kutusu sahneleriyle)...");
+    try {
+      const r = await api(`/api/jobs/${b.dataset.repkg}/package`, { method: "POST" });
+      if (r?.error) throw new Error(r.error);
+      toast(`Kapaklar hazır: ${(r.thumbs || []).length} kapak`);
+      try { const j = await api(`/api/jobs/${b.dataset.repkg}`); if (j?.id) state.jobs.set(j.id, j); } catch {}
+      render();
+    } catch (e) {
+      toast(String(e?.message || e), true);
+    } finally {
+      b.disabled = false;
+    }
+  }));
   $$("[data-docu-rerender]", main).forEach((b) => b.addEventListener("click", async () => {
     if (!confirm("Video yeniden render edilsin mi?\nKayıtlı görsel, ses ve müzik yeniden ödenmez; yalnızca eksik kalanlar üretilir.")) return;
     b.disabled = true;
@@ -2082,7 +2156,25 @@ function renderSettings(main) {
             <span class="hint" style="margin:0">Belgesel</span> <select id="sDocuVoiceModel">${[["eleven_v4","Eleven v4 · ses yönetmeni"],["eleven_v4_turbo","Eleven v4 Turbo · hızlı"]].map(([v,l])=>`<option value="${v}" ${(s.docuVoiceModel||"eleven_v4")===v?"selected":""}>${l}</option>`).join("")}</select>
             <span class="hint" style="margin:0">Shorts</span> <select id="sShortsVoiceModel">${[["eleven_v4","Eleven v4 · ses yönetmeni"],["eleven_v4_turbo","Eleven v4 Turbo · hızlı"]].map(([v,l])=>`<option value="${v}" ${(s.docuShortsVoiceModel||"eleven_v4")===v?"selected":""}>${l}</option>`).join("")}</select>
           </div>
+          <div class="row" style="gap:8px; flex-wrap:wrap; margin-top:8px">
+            <span class="hint" style="margin:0">Okuma hızı <span class="new-badge">SON GÜNCELLEME</span></span> <select id="sDocuVoiceSpeed">${[[1,"1,0x · kapalı"],[1.05,"1,05x"],[1.1,"1,1x · önerilen"],[1.15,"1,15x"]].map(([v,l])=>`<option value="${v}" ${Number(s.docuVoiceSpeed ?? 1.1)===v?"selected":""}>${l}</option>`).join("")}</select>
+          </div>
+          <div class="hint">Tutmuş anlatıcılar dakikada ~157-165 kelime konuşuyor, bizimkiler ~115-125. Yeni satırlar bu hızda okunur; önceden ödenmiş sesler yeniden ödenmez. Fısıltı ve yavaş yönlendirmeli satırlar hep 1,0x.</div>
           <div class="hint">Yalnızca Eleven v4: her satır bir ses sanatçısı gibi yönetilir — açılış alçak ve sakin, vurucu cümle kararlı, soru meraklı, ifşa nefes tutarak, bölüm sonu yumuşak; duyguya göre ince kararlılık ve satırlar arası doğal geçiş. Yazarın kendi yönlendirmesi ([whispers] gibi) her zaman önce gelir.</div>
+        </div>
+        <div>
+          <label class="field-label">KANAL ADLARI (KÖŞE DAMGASI) <span class="new-badge">SON GÜNCELLEME</span></label>
+          <div class="row" style="gap:8px; flex-wrap:wrap">
+            ${[["epic","Tarih"],["news","Gündem"],["finance","Finans"]].map(([k,l])=>`<span class="hint" style="margin:0">${l}</span> <input type="text" id="sChan_${k}" maxlength="32" value="${esc(s.docuChannelNames?.[k] || "")}" placeholder="kanal adı" style="width:150px" />`).join("")}
+          </div>
+          <div class="hint">Videonun sağ üst köşesinde küçük kanal adı (tutmuş kanalların hepsinde var). Haritada, belgede ve bölüm kartında kenara çekilir. Boş bırakılan kanalda damga yok; ad yalnızca yeni işlere işlenir.</div>
+        </div>
+        <div>
+          <label class="field-label">KANAL SESLERİ <span class="new-badge">SON GÜNCELLEME</span></label>
+          <div class="row" style="gap:8px; flex-wrap:wrap">
+            ${Object.entries(CHANNEL_VOICE_TR).map(([k, l]) => `<span class="hint" style="margin:0">${l}</span> <select id="sVoice_${k}" style="width:230px">${channelVoiceOptions(s.docuStyleVoices?.[k])}</select>`).join("")}
+          </div>
+          <div class="hint">Stüdyoda stil seçilince o kanalın sesi kendiliğinden seçilir. ★ sana özel sesler bu hesapta ElevenLabs Voice Design ile üretildi, başka hiçbir kanalda yok — ElevenLabs Ses Kütüphanesi'nde paylaşma. Yalnızca yeni işler etkilenir; eski işin sesi değişmez.</div>
         </div>
         <div>
           <label class="field-label">BELGESEL MÜZİĞİ</label>
@@ -2225,6 +2317,17 @@ function renderSettings(main) {
     drySel = c.dataset.k === "1";
     $$("#sDry .chip").forEach((x) => x.classList.toggle("sel", x.dataset.k === (drySel ? "1" : "0")));
   });
+  // Kanal sesleri: liste henüz gelmediyse arka planda alınır, yalnızca açılır listeler doldurulur (yazılanlar silinmez).
+  if (!state.elevenVoices && s.hasElevenKey) {
+    api("/api/eleven-voices").then((v) => {
+      state.elevenVoices = v.voices || [];
+      state.elevenLibrary = v.library || [];
+      for (const k of Object.keys(CHANNEL_VOICE_TR)) {
+        const box = $("#sVoice_" + k);
+        if (box) box.innerHTML = channelVoiceOptions(box.value);
+      }
+    }).catch(() => {});
+  }
   let docuMusicSel = s.docuMusicSource || "library";
   $("#sDocuMusic").addEventListener("click", (e) => {
     const c = e.target.closest("[data-k]"); if (!c) return;
@@ -2262,6 +2365,9 @@ function renderSettings(main) {
       audioLibraryDir: $("#sAudioLib").value.trim(),
       shortsMotion: $("#sShortsMotion").checked,
       docuVoiceModel: $("#sDocuVoiceModel").value,
+      docuVoiceSpeed: Number($("#sDocuVoiceSpeed").value) || 1,
+      docuChannelNames: Object.fromEntries(["epic", "news", "finance"].map((k) => [k, $("#sChan_" + k).value.trim()])),
+      docuStyleVoices: Object.fromEntries(["epic", "news", "finance"].map((k) => [k, $("#sVoice_" + k)?.value ?? s.docuStyleVoices?.[k] ?? ""])),
       docuWriterModel: $("#sDocuWriter").value,
       docuImageProvider: $("#sDocuImageProvider").value,
       docuShortsVoiceModel: $("#sShortsVoiceModel").value,
@@ -2363,6 +2469,7 @@ async function generateIdeas() {
     const data = await api("/api/ideas", { method: "POST", body: { niche } });
     $("#ideasList").innerHTML = data.ideas.map((i, n) => `
       <div class="idea-card">
+        ${i.series ? `<small class="muted">Seri: ${esc(i.series)}</small>` : ""}
         <b>${esc(i.title)}</b>
         <p>${esc(i.hook)}</p>
         <button class="btn" data-n="${n}">🎬 Bunu üret</button>
@@ -2372,6 +2479,7 @@ async function generateIdeas() {
       state.form.topic = idea.title;
       state.form.theme = idea.theme || "belgesel";
       state.form.durationPreset = idea.durationPreset || "detayli";
+      if (idea.series) state.form.docuSeries = idea.series; else delete state.form.docuSeries;
       $("#ideasDrawer").hidden = true;
       location.hash = "#studio";
       state.page = "studio"; render();

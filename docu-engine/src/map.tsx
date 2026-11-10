@@ -1,12 +1,12 @@
 import React, { useMemo } from 'react';
-import { AbsoluteFill, Easing, Img, interpolate, useCurrentFrame, useVideoConfig } from 'remotion';
+import { AbsoluteFill, Easing, Img, interpolate, staticFile, useCurrentFrame, useVideoConfig } from 'remotion';
 import { FONT, caseLocale, textWidth } from './fonts';
 import { LETTERBOX } from './fx';
-import { ORBITS, REGIONS, SUN, kmPerWidth, labelText, project, regionName } from './geo';
+import { ORBITS, SUN, kmPerWidth, labelText, project, regionName, regionOf } from './geo';
 import type { Pt, RegionDef } from './geo';
 import { paperTexture, seededRng } from './paper';
 import { GENRES } from './genres';
-import { contrast, isLight, mix, readable } from './looks/color';
+import { contrast, isLight, lum, mix, readable } from './looks/color';
 import { labelIndex, spokenOf } from './infographics/timing.js';
 import type { FontKey, Genre, MapScene } from './types';
 
@@ -86,15 +86,43 @@ export function readableOn(c: string, grounds: string[], min: number): string {
   return reach ? reach.c : best;
 }
 
-/** The chart's look for a genre and its look variant, with every label and mark readable on it. */
+/** Sea against land: two tones, never one — the land reads as a mass where its coast line is faint or lost. */
+export const MAP_LAND_CONTRAST = 1.3;
+
+/*
+ * SEA AND LAND APART (submarine collision, 25 Oct 2026): the topic's 'grid' chart drew land #0c131b on sea #04070c
+ * (1.08:1; satellite 1.16, every dark chart 1.1-1.2). Brest to Faslane was one black field with a thin red coast (the
+ * chapter's accent). (The gate's "empty beige vignette, no map" was a frame-wide wash on top: its still sat on the
+ * map's last frame, at the cut, under a white-to-cream glow over sea and land alike.) Every chart keeps its sea and
+ * land MAP_LAND_CONTRAST apart: the sea gives way when half way to black or white is enough (a paper chart keeps its
+ * paper), else the land does (a dark chart keeps its sea) — its streets and blocks with it, so a street map keeps its
+ * plan.
+ */
+function landApart(T: MapTheme): MapTheme {
+  if (contrast(T.sea, T.land) >= MAP_LAND_CONTRAST) return T;
+  const up = lum(T.land) >= lum(T.sea);
+  const seaAt = (t: number) => mix(T.sea, up ? '#000000' : '#ffffff', t);
+  for (let t = 0.02; t <= 0.501; t += 0.02) if (contrast(seaAt(t), T.land) >= MAP_LAND_CONTRAST) return { ...T, sea: seaAt(t) };
+  const to = up ? '#ffffff' : '#000000';
+  // Neither alone: the sea half way, and the land from there.
+  const sea = contrast(T.sea, mix(T.land, to, 1)) >= MAP_LAND_CONTRAST ? T.sea : seaAt(0.5);
+  let k = 0;
+  while (k < 1 && contrast(sea, mix(T.land, to, k)) < MAP_LAND_CONTRAST) k = Math.min(1, k + 0.02);
+  const lift = (c: string) => mix(c, to, k);
+  return { ...T, sea, land: lift(T.land), street: lift(T.street), building: lift(T.building) };
+}
+
+/** The chart's look for a genre and its look variant, with sea and land apart and every label and mark readable on it. */
 export function mapTheme(g: Genre): MapTheme {
-  const T = baseTheme(g);
+  const T = landApart(baseTheme(g));
   // Labels sit on land, sea, streets and building blocks alike: they must read on all of them.
   const grounds = [T.land, T.sea, T.street, T.building];
   const text = (c: string) => readableOn(c, grounds, MAP_TEXT_CONTRAST);
   const mark = (c: string) => readableOn(c, [T.land, T.sea], MAP_MARK_CONTRAST);
   return {
     ...T,
+    // The coast draws the shapes: a line against both sides of it.
+    coast: mark(T.coast),
     ink: text(T.ink),
     mute: text(T.mute),
     river: mark(T.river),
@@ -117,6 +145,11 @@ function baseTheme(g: Genre): MapTheme {
  */
 function styledTheme(g: Genre): MapTheme | null {
   if (!g.mapStyle) return null;
+  /*
+   * A light look keeps its printed chart: the topic's night satellite / lit grid became a black frame in the middle
+   * of a paper video (Kartal Yuvası 950730, 29 Ekim 2026). The topic still sets the label face.
+   */
+  if (g.light && g.mapStyle !== 'paper') return { ...lookTheme(g), labelFont: 'plexMono', labelWeight: 600, titleFont: g.headline, glow: false };
   const base = lookTheme({ ...g, light: false });
   if (g.mapStyle === 'paper') {
     const v = lookTheme({ ...g, id: 'documentary', light: false, bg: GENRES.documentary.bg });
@@ -399,7 +432,7 @@ function clampCam(cx: number, cy: number, z: number) {
 
 /** `edgeY`: px hidden at the top and bottom (letterbox bars) that the final framing must keep points out of. */
 export function mapPlan(scene: MapScene, durFrames: number, fps: number, edgeY = 0): MapPlan {
-  const region = REGIONS[scene.region] ?? REGIONS['north-atlantic'];
+  const region = regionOf(scene);
   const pts: Pt[] = (scene.points ?? []).map((p) => [Math.max(0, Math.min(1, Number(p.x) || 0)) * W, Math.max(0, Math.min(1, Number(p.y) || 0)) * H]);
   const route = (scene.route ?? []).filter((i) => Number.isInteger(i) && i >= 0 && i < pts.length);
   const barrier = scene.line === 'barrier';
@@ -671,7 +704,8 @@ const BaseMap: React.FC<{ region: RegionDef; theme: MapTheme; seed: string; uid:
           <path d={landAll} fill="none" stroke={T.tint} strokeOpacity={T.vintage ? 0.3 : 0.12} strokeWidth={24 * k} strokeLinejoin="round" />
         </g>,
       );
-    } else {
+    } else if (r.id !== 'world') {
+      // A hand-drawn region with no sea is all land; an open-ocean world view stays sea.
       out.push(<rect key="land" x={-W} y={-H} width={3 * W} height={3 * H} fill={T.land} />);
     }
     for (const [k, l] of (r.lakes ?? []).entries()) {
@@ -760,6 +794,33 @@ const BaseMap: React.FC<{ region: RegionDef; theme: MapTheme; seed: string; uid:
       out.push(
         <path key={`rv${k}`} d={pathD(rv.pts.map((p) => px(r, p)), false)} fill="none" stroke={T.river} strokeWidth={(rv.w ?? 2) * 0.9} strokeLinecap="round" strokeLinejoin="round" {...NS} />,
       );
+    }
+    // Highlighted countries (world map): tinted in the focus colour under the borders and coast.
+    if (r.fills?.length) {
+      // A country drawn with its flag (modern story) is not tinted under it: the flag is the fill.
+      const ringKey = (ring: Pt[]) => `${ring.length}|${ring[0]?.[0]}|${ring[0]?.[1]}`;
+      const flagged = new Set((r.flagFills ?? []).flatMap((ff) => ff.rings.map(ringKey)));
+      const tint = r.fills.filter((ring) => !flagged.has(ringKey(ring)));
+      if (tint.length) {
+        const d = tint.map((ring) => pathD(ring.map((p) => px(r, p)), true)).join(' ');
+        out.push(<path key="fills" d={d} fill={T.focus} fillOpacity={T.vintage ? 0.38 : 0.3} stroke={T.focus} strokeOpacity={0.9} strokeWidth={2} strokeLinejoin="round" {...NS} />);
+      }
+      // FLAGS (1.16.16): the flag fills the country's shape (slice-fitted to its box), lightly shaded so labels read.
+      for (const [j, ff] of (r.flagFills ?? []).entries()) {
+        const pts = ff.rings.map((ring) => ring.map((p) => px(r, p)));
+        const xs = pts.flat().map((p) => p[0]);
+        const ys = pts.flat().map((p) => p[1]);
+        const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+        if (!(x1 > x0 && y1 > y0)) continue;
+        const d = pts.map((ring) => pathD(ring, true)).join(' ');
+        out.push(
+          <g key={`flag${j}`}>
+            <clipPath id={`flagclip${uid}-${j}`}><path d={d} /></clipPath>
+            <image href={staticFile(`flags/${ff.flag}.svg`)} x={x0} y={y0} width={x1 - x0} height={y1 - y0} preserveAspectRatio="xMidYMid slice" clipPath={`url(#flagclip${uid}-${j})`} opacity={0.92} />
+            <path d={d} fill="#000" fillOpacity={0.14} stroke="#fff" strokeOpacity={0.85} strokeWidth={2.2} strokeLinejoin="round" {...NS} />
+          </g>,
+        );
+      }
     }
     for (const [k, b] of (r.borders ?? []).entries()) {
       out.push(

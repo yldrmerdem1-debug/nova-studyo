@@ -88,8 +88,9 @@ export const FxStack: React.FC<{ scene: Scene; durFrames: number; index: number;
     let hits = impacts.filter((i) => i.strength >= 0.3).map((i) => i.f).sort((a, b) => a - b);
     if (!hits.length && hit !== null) hits = [hit];
     const seed = `${index}|${scene.type}|${(scene.say ?? '').slice(0, 40)}`;
-    // Glitch bursts: on up to three hits, else at two seeded moments.
-    const bursts = hits.length ? hits.slice(0, 3) : [0.3, 0.72].map((k) => Math.round(durFrames * (k + (random(`${seed}gb${k}`) - 0.5) * 0.1)));
+    // Glitch bursts: on up to three real hits; none without one (no seeded moments). Gimli 20261028-9ff721 / Kartal
+    // Yuvası 950730, 29 Ekim 2026: hit-timed fx fired on lines with no impact and read as random flicker.
+    const bursts = hits.slice(0, 3);
     const pic = V.isPictureScene(scene, genre.collage);
     const energy = V.energyOf(scene);
     const auto = !!(scene as { cameraAuto?: boolean }).cameraAuto;

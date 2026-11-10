@@ -377,6 +377,8 @@ interface SceneBase {
   voiceDur?: number;
   /** Start time of each spoken word, seconds from scene start. */
   wordTimes?: { word: string; t: number }[];
+  /** The video's one viewer call (src/cta.tsx): an animated like/subscribe or comment button on the spoken word. */
+  cta?: 'like' | 'comment' | 'hype';
   /**
    * Foley a scene asks for (new scene types, a pipeline pass): scene-local
    * seconds of an on-screen action. The engine plays them under its density
@@ -386,10 +388,24 @@ interface SceneBase {
   /* ---- look (src/looks): unset = the chapter's, then the variant's default ---- */
   /** How this scene's words are set (words / slam / title / montage). */
   textStyle?: TextStyle;
+  /**
+   * Where the big words of a words / slam / title scene sit over a picture that shows a face (set by the pipeline,
+   * src/pipeline/docu-archive.js faceSafeText): 'low' = the lower third, under the eyes; 'top' = the upper band (the
+   * face sits low in the frame). Unset = the style's own place — most slams and titles are centred.
+   * Lula, Oct 2026: the hook title over Lula's mouth, a giant "52" across Flávio Bolsonaro's face.
+   */
+  textAt?: 'low' | 'top';
   /** Ground under a text scene that is not over a picture. */
   backdrop?: Backdrop;
   /** Colour grade of this scene's photos and footage. */
   grade?: Grade;
+  /**
+   * A real archive photo / source clip (docu-archive.js, source-clips.js, inbox-commons.js). Such a picture never
+   * inherits a desaturating chapter/variant grade (looks/resolve.ts sceneGrade) — Kartal Yuvası 950730, 29 Ekim 2026.
+   */
+  archived?: boolean;
+  /** The archive original itself is black and white (measured or flagged): it may take a desaturating grade. */
+  monoSource?: boolean;
   /* ---- topic identity (src/topic): set by the pipeline's topic bible; absent = none ---- */
   /** Glowing line icons beside the subject, each on its spoken word (a metaphor layer on concrete lines). */
   icons?: TopicIcon[];
@@ -471,6 +487,10 @@ export interface PhotoScene extends SceneBase {
   name?: string;
   role?: string;
   caption?: string;
+  /** Real footage (src/pipeline/source-clips.js): small corner label "Video: channel · Oct 2026" — the source's own logo is never covered. */
+  sourceLabel?: string;
+  /** The person's own voice from the clip (no TTS); the engine prints the quote as a subtitle. */
+  sourceVoice?: { file: string; dur: number };
   natural?: boolean;
   /** Full-screen even in a collage genre — for shots that need the whole frame. */
   fullBleed?: boolean;
@@ -559,7 +579,21 @@ export interface HeadlineScene extends SceneBase {
 }
 
 /** The maps the engine can draw (hand-drawn in src/geo.ts, no tiles). */
-export type MapRegion = 'pacific-northwest' | 'bosphorus' | 'north-atlantic' | 'urals' | 'wall-street' | 'solar-system';
+export type MapRegion = 'pacific-northwest' | 'bosphorus' | 'north-atlantic' | 'urals' | 'wall-street' | 'solar-system' | 'world';
+
+/** A world map's geometry for its box, filled before render by lib/world-map.mjs (all [lon, lat]). */
+export interface WorldGeo {
+  land: [number, number][][];
+  borders: [number, number][][];
+  /** Highlighted countries, tinted in the focus colour. */
+  fills?: [number, number][][];
+  /** Highlighted countries with a flag (modern stories): drawn with the flag, clipped to the country. */
+  flagFills?: { flag: string; rings: [number, number][][] }[];
+  labels?: { text: string; lon: number; lat: number; size: number }[];
+  graticule?: number;
+  /** Cartouche title. */
+  name?: string;
+}
 
 export interface MapPoint {
   /** Label as shown (Turkish). */
@@ -587,6 +621,14 @@ export interface MapScene extends SceneBase {
   focus?: number;
   /** Caption in the map's cartouche under the region name ("NİSAN 1912"). */
   title?: string;
+  /** region 'world': the frame's [west, south, east, north] in degrees (16:9 true shape, lib/world-map.mjs worldBox). */
+  box?: [number, number, number, number];
+  /** region 'world': countries to tint (Natural Earth names or everyday ones: "UK", "USA"), labelled as written. */
+  countries?: string[];
+  /** region 'world': the cartouche title. */
+  mapName?: string;
+  /** region 'world': filled before render (attachWorldMaps). */
+  geo?: WorldGeo;
 }
 
 /* ================================================================ EDIT DEVICES
@@ -846,6 +888,12 @@ export interface TopicIdentity {
   accent2?: string;
   /** Hue (degrees) the 'selective' grade keeps in colour. */
   keepHue?: number;
+  /**
+   * The topic's base photo grade (always a colour grade since 29 Ekim 2026; sepia only before 1940) and its one
+   * desaturating accent (selective, mono…) for the single accent chapter (docu-topic-bible.js topicGrades).
+   */
+  grade?: Grade;
+  accentGrade?: Grade;
   /** Strength of the persistent motif texture under text scenes, 0..1 (default 1). */
   texture?: number;
 }
@@ -940,6 +988,8 @@ export interface Script {
   perfOff?: string[];
   /** ElevenLabs model; eleven_v3 unless set. */
   voiceModel?: string;
+  /** The channel's name, drawn small in the top-right corner over picture scenes (src/ChannelBug.tsx). */
+  channel?: string;
   genre: GenreId;
   /**
    * The video's visual identity within its genre: a variant id from
@@ -989,8 +1039,13 @@ export interface Script {
   transitionPalette?: TransitionKind[];
   /** The effects the engine's variety pass may draw from when no scene has `fx`. */
   fxPalette?: FxKind[];
-  /** Share of scenes (0..0.35) the variety pass gives an effect; seeded 0.22-0.32 when omitted. */
+  /** Share of scenes (0..0.35) the variety pass gives an effect; seeded 0.12-0.18 when omitted (effects/variety.js). */
   fxDensity?: number;
+  /**
+   * Constant cinema bars over the whole edit (looks/resolve.ts wantsLetterbox): only when true. Gimli 20261028-9ff721 /
+   * Kartal Yuvası 950730, 29 Ekim 2026 — crime/epic/horror kept 22% of every frame black. A cold open draws its own.
+   */
+  letterbox?: boolean;
   /** The topic's own visual identity (src/topic); absent = none. */
   topic?: TopicIdentity;
   scenes: Scene[];

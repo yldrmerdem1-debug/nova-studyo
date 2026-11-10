@@ -206,7 +206,7 @@ export function spokenNumbers(sp) {
       else if (sp[i + 1] && MULT_WORD[sp[i + 1].n]) mult = MULT_WORD[sp[i + 1].n];
       const values = new Set(base);
       if (mult > 1) for (const b of base) values.add(b * mult);
-      out.push({ i, t: tok.t, tEnd: (sp[i + 1] && mult > 1 && !MULT_SUFFIX[suf] ? sp[i + 1].t : tok.t), values: [...values] });
+      out.push({ i, e: i + (sp[i + 1] && mult > 1 && !MULT_SUFFIX[suf] ? 2 : 1), t: tok.t, tEnd: (sp[i + 1] && mult > 1 && !MULT_SUFFIX[suf] ? sp[i + 1].t : tok.t), values: [...values] });
       continue;
     }
     const w = numWord_(tok.n);
@@ -230,7 +230,7 @@ export function spokenNumbers(sp) {
     if (i > 0 && (sp[i - 1].n === 'a' || sp[i - 1].n === 'bir') && run[0] >= 100) values.add(combine([1, ...run]));
     // A digit before a multiplier word ("2.4 million") was handled above; a lone multiplier is not a value.
     if (run.length === 1 && run[0] >= 1000) continue;
-    out.push({ i, t: tok.t, tEnd: sp[j - 1].t, values: [...values] });
+    out.push({ i, e: j, t: tok.t, tEnd: sp[j - 1].t, values: [...values] });
     i = j - 1;
   }
   return out;
@@ -283,6 +283,18 @@ function window_(durFrames, fps) {
   return { lead, last, clampF: (f) => Math.max(lead, Math.min(last, Math.round(f))) };
 }
 
+/** Token index of an item's cue (its value or label) said at or after token `from`, or -1. */
+export function cueIndexFrom(sp, nums, { label, value } = {}, from = 0) {
+  let k = -1;
+  if (value != null && Number.isFinite(Number(value))) {
+    const hit = nums.find((x) => x.i >= from && sameNumber(Number(value), x.values));
+    if (hit) k = hit.i;
+  }
+  const kl = label ? labelIndex(label, sp, from) : -1;
+  if (kl >= 0 && (k < 0 || kl < k)) k = kl;
+  return k;
+}
+
 /** Frame of the first cue that is said (on the word, never before it: the narrator says it, then it shows); null if none. */
 function cueFrame(sp, nums, fps, { label, value } = {}) {
   let k = -1;
@@ -310,7 +322,15 @@ export function infoPlan(scene, durFrames, fps) {
   switch (scene?.type) {
     case 'bars': {
       const items = Array.isArray(scene.items) ? scene.items : [];
-      const hits = items.map((it) => cue({ label: it?.label, value: it?.value }));
+      // In the order said: each item's cue is searched AFTER the previous one's word, so "one … one … one" lands on
+      // each "one" in turn (not all on the first) and a later item never jumps ahead of an earlier one.
+      let from = 0;
+      const hits = items.map((it) => {
+        const k = cueIndexFrom(sp, nums, { label: it?.label, value: it?.value }, from);
+        if (k < 0) return null;
+        from = k + 1;
+        return Math.round(sp[k].t * fps);
+      });
       const found = hits.filter((x) => x != null);
       const grow = clampF(found.length ? Math.min(...found) : lead + 6);
       const growDur = room(grow, sec(1.15, fps));
@@ -483,4 +503,80 @@ export function infoSfx(scene, durFrames, fps) {
     default:
       return [];
   }
+}
+
+/*
+ * TALLY — numbers listed in one line (user, Oct 2026: "sayılar anlatılıyor, ardışık o anda ekranda adamın dediği
+ * gibi sıralanmalı, sesle uyumlu olmalı"). "324 targets. 100 aircraft." or "Four Saudis. Two Bangladeshis. One each
+ * from Jordan…" showed one number (or none): each number now lands on its own spoken word with the words after it as
+ * its label, the earlier ones staying on screen. A year is a date, not a tally item ("In 2017 … in 2018" is no list).
+ */
+export const TALLY_MAX = 6;
+const TALLY_SKIP = new Set(['of', 'the', 'a', 'an', 'and', 'in', 'per', 've', 'bir']);
+/*
+ * Ebola (Oct 2026): "Do the math with 9,144 confirmed cases and 4,410 deaths, and you get roughly forty-eight percent"
+ * printed "9,144 CONFIRMED CASES AND" and never 4,410. Two figures joined by "and" after the first one's own words are
+ * two items ("between 5 and 10" — no words in between — stays one); a label never ends on a joining word.
+ */
+const TALLY_JOIN = new Set(['and', 'or', 'versus', 'vs', 'but', 'while', 've', 'veya', 'ile']);
+const TALLY_TAIL = new Set(['and', 'or', 'but', 'with', 'to', 'of', 'in', 'on', 'at', 'for', 'from', 'by', 'the', 'a', 'an', 'than', 've', 'ile', 'veya']);
+const isYear = (n, sp) => n.values.length === 1 && Number.isInteger(n.values[0]) && n.values[0] >= 1000 && n.values[0] <= 2099 && /^\d{4}[.,;:!?…]*$/.test(String(sp[n.i]?.raw ?? ''));
+
+/** How a tally number is printed: as the narrator wrote it in digits ("$109.29", "2.4 million"), else in digits. */
+export function tallyText(n, sp) {
+  const raw = String(sp[n.i]?.raw ?? '').replace(/[,.;:!?…)"”]+$/, '');
+  if (/\d/.test(raw)) return n.e - n.i > 1 ? `${raw} ${String(sp[n.i + 1].raw).replace(/[,.;:!?…]+$/, '')}` : raw;
+  const v = Math.max(...n.values);
+  if (v >= 1e9) return `${+(v / 1e9).toFixed(1)} billion`;
+  if (v >= 1e6) return `${+(v / 1e6).toFixed(1)} million`;
+  return v.toLocaleString('en-US');
+}
+
+/**
+ * The tally of a line: [{ t, text, label }] (t = seconds into the line, on the number's first spoken word), or []
+ * when fewer than two numbers (years aside) are said. The label is what follows the number up to the next stop,
+ * at most three words: "324 targets." -> TARGETS, "one each from Jordan," -> EACH FROM JORDAN.
+ */
+const MONTH = /^(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec|ocak|subat|mart|nisan|mayis|haziran|temmuz|agustos|eylul|ekim|kasim|aralik)$/;
+/** A day of a month ("9 October", "October 9"): a date, not a tally item. */
+const isDate = (n, sp) => MONTH.test(String(sp[n.e]?.n ?? '')) || MONTH.test(String(sp[n.i - 1]?.n ?? ''));
+/** A number that is part of a name ("Niño 3.4", "COVID 19", "Boeing 737"): the word before it is a capitalised name, not a verb or article. */
+const isNamePart = (n, sp) => /^[A-ZÀ-Þ]/.test(String(sp[n.i - 1]?.raw ?? '')) && !/[.,;:!?]$/.test(String(sp[n.i - 1]?.raw ?? '')) && n.i > 0 && !/^(The|A|An|By|In|On|At|To|For|Of|And|Some|About)$/.test(String(sp[n.i - 1]?.raw ?? ''));
+
+/**
+ * `to` = the counter scene's own number: a tally is used only when that number is one of the items — otherwise the
+ * line is not a list of figures (El Niño, Oct 2026: "On 9 October … Niño 3.4 average of 29.70" became "9 OCTOBER /
+ * 3.4 AVERAGE OF 2970" while the scene's 29.7 vanished).
+ */
+export function tallyItems(wordTimes, { to = null } = {}) {
+  const sp = spokenOf(wordTimes);
+  if (!sp.length) return [];
+  // Only numbers in their own clauses: "324 targets. 100 aircraft." is a list, "two hundred thousand dollars in twenty
+  // dollar bills" is one figure with a detail — a stop (. , ; :) must come between two tally numbers.
+  const stopAt = (k) => /[.,;:!?…)"”]$/.test(String(sp[k]?.raw ?? ''));
+  const nums = [];
+  for (const n of spokenNumbers(sp).filter((x) => !isYear(x, sp) && !isDate(x, sp) && !isNamePart(x, sp))) {
+    const prev = nums[nums.length - 1];
+    if (prev) {
+      let sep = false;
+      for (let k = prev.e - 1; k < n.i; k++) if (stopAt(k)) sep = true;
+      if (!sep && n.i - prev.e >= 2 && TALLY_JOIN.has(sp[n.i - 1]?.n)) sep = true;
+      if (!sep) continue;
+    }
+    nums.push(n);
+  }
+  if (nums.length < 2) return [];
+  if (to != null && Number.isFinite(Number(to)) && !nums.some((n) => sameNumber(Number(to), n.values))) return [];
+  return nums.slice(0, TALLY_MAX).map((n) => {
+    const words = [];
+    const closed = /[.,;:!?…)"”]$/.test(String(sp[n.e - 1]?.raw ?? '')); // "$109.29." ends its sentence: no label
+    for (let k = n.e; !closed && k < sp.length && words.length < 3; k++) {
+      if (nums.some((x) => x.i === k) || /\d/.test(String(sp[k].raw))) break;
+      const w = String(sp[k].raw).replace(/[^\p{L}\p{N}'%$-]/gu, '');
+      if (w && !(words.length === 0 && TALLY_SKIP.has(sp[k].n))) words.push(w);
+      if (/[.,;:!?…)"”]$/.test(String(sp[k].raw))) break;
+    }
+    while (words.length && TALLY_TAIL.has(words[words.length - 1].toLowerCase())) words.pop();
+    return { t: n.t, text: tallyText(n, sp), label: words.join(' ') };
+  });
 }
